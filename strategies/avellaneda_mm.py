@@ -36,6 +36,8 @@ class AvellanedaStoikovMM(BaseStrategy):
         min_spread_bps: float = 5.0,
         max_spread_bps: float = 200.0,
         vol_window: int = 30,
+        toxicity_scorer=None,
+        **kwargs,
     ):
         super().__init__(strategy_id=strategy_id)
         self.gamma = gamma
@@ -45,6 +47,9 @@ class AvellanedaStoikovMM(BaseStrategy):
         self.min_spread_bps = min_spread_bps
         self.max_spread_bps = max_spread_bps
         self.vol_window = vol_window
+
+        # Optional anomaly-driven toxicity scorer (anomaly_protection.AnomalyToxicityScorer)
+        self._tox_scorer = toxicity_scorer
 
         # Rolling price history for volatility estimation
         self._prices: deque = deque(maxlen=vol_window)
@@ -121,6 +126,13 @@ class AvellanedaStoikovMM(BaseStrategy):
         sigma = self._update_vol(mid)
         r_price = self._reservation_price(mid, q, sigma)
         raw_spread = self._optimal_spread(sigma)
+
+        # Anomaly-driven spread widening (h_tox is half-spread in price units)
+        h_tox = 0.0
+        if self._tox_scorer is not None:
+            h_tox = self._tox_scorer.score(mid, snapshot.bid, snapshot.ask, snapshot.timestamp_ms)
+            raw_spread += 2 * h_tox
+
         half_spread = self._clamp_spread(raw_spread, mid) / 2.0
 
         bid = round(r_price - half_spread, 2)
@@ -164,6 +176,7 @@ class AvellanedaStoikovMM(BaseStrategy):
                 "spread": round(raw_spread, 4),
                 "sigma": round(sigma, 4),
                 "inventory": q,
+                "h_tox": round(h_tox, 6),
             },
         ))
         orders.append(StrategyDecision(
@@ -178,6 +191,7 @@ class AvellanedaStoikovMM(BaseStrategy):
                 "spread": round(raw_spread, 4),
                 "sigma": round(sigma, 4),
                 "inventory": q,
+                "h_tox": round(h_tox, 6),
             },
         ))
 

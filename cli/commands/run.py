@@ -97,6 +97,81 @@ def run_cmd(
     if model:
         params["model"] = model
 
+    # Set up anomaly protection for YEX markets
+    anomaly_thread = None
+    is_yex = cfg.instrument.startswith("yex:") or cfg.instrument.endswith("-USDYP")
+    protection_enabled = is_yex and cfg.protection.get("enabled", is_yex)
+
+    if protection_enabled:
+        try:
+            from anomaly_protection import AnomalyStateStore, AnomalyToxicityScorer, ProtectionConfig
+            from anomaly_protection.config import load_protection_config
+
+            store = AnomalyStateStore()
+
+            # Load protection config from file or use defaults
+            protection_config_path = cfg.protection.get("config_path")
+            if protection_config_path:
+                prot_config = load_protection_config(protection_config_path)
+            else:
+                # Derive pair name from instrument
+                pair = cfg.instrument
+                if pair.endswith("-USDYP"):
+                    pair = "yex:" + pair.replace("-USDYP", "")
+                prot_config = ProtectionConfig(pair=pair)
+                # Apply any inline config overrides
+                if "sensitivity_multiplier" in cfg.protection:
+                    prot_config.sensitivity_multiplier = cfg.protection["sensitivity_multiplier"]
+                if "max_total_widen_bps" in cfg.protection:
+                    prot_config.max_total_widen_bps = cfg.protection["max_total_widen_bps"]
+
+            scorer = AnomalyToxicityScorer(store, prot_config)
+            params["toxicity_scorer"] = scorer
+
+            # Start anomaly detector in background thread
+            from anomaly_protection.sink import ProtectionSink
+
+            sink = ProtectionSink(store)
+
+            def _run_anomaly_detector():
+                """Run anomaly detector in its own async event loop (background thread)."""
+                import asyncio
+                try:
+                    anomaly_root = Path.home() / "hl-anomaly-detector"
+                    if not anomaly_root.exists():
+                        logging.getLogger("protection").warning(
+                            "hl-anomaly-detector not found at %s, protection running without detector",
+                            anomaly_root,
+                        )
+                        return
+
+                    import importlib.util
+                    sys.path.insert(0, str(anomaly_root))
+                    from src.config import DetectorConfig
+                    from src.main import AnomalyDetectorApp
+
+                    det_config = DetectorConfig.from_yaml(str(anomaly_root / "config" / "default.yaml"))
+                    app = AnomalyDetectorApp(det_config)
+                    app.set_raw_event_callback(sink.emit)
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(app.run())
+                except Exception as e:
+                    logging.getLogger("protection").error("Anomaly detector error: %s", e)
+
+            import threading
+            anomaly_thread = threading.Thread(
+                target=_run_anomaly_detector,
+                name="anomaly-detector",
+                daemon=True,
+            )
+            anomaly_thread.start()
+            typer.echo(f"Protection: enabled (pair={prot_config.pair}, sensitivity={prot_config.sensitivity_multiplier}x)")
+
+        except ImportError:
+            typer.echo("Protection: anomaly_protection package not installed, skipping")
+
     strategy_instance = strategy_cls(
         strategy_id=cfg.strategy,
         **params,
