@@ -211,7 +211,26 @@ class WolfRunner:
         """Run movers scan and return signal dicts for the engine."""
         try:
             all_markets = self.hl.get_all_markets()
-            result = self.movers_guard.scan(all_markets=all_markets, asset_candles={})
+
+            # Fetch 4h candles for qualifying assets so volume surge detection works
+            asset_candles: Dict[str, Dict[str, List[Dict]]] = {}
+            if len(all_markets) >= 2:
+                universe = all_markets[0].get("universe", [])
+                ctxs = all_markets[1]
+                for i, ctx in enumerate(ctxs):
+                    if i >= len(universe):
+                        break
+                    name = universe[i].get("name", "")
+                    vol = float(ctx.get("dayNtlVlm", 0))
+                    if vol >= self.movers_guard.config.volume_min_24h and name:
+                        try:
+                            c4h = self.hl.get_candles(name, "4h", 7 * 24 * 3600 * 1000)
+                            c1h = self.hl.get_candles(name, "1h", 48 * 3600 * 1000)
+                            asset_candles[name] = {"4h": c4h, "1h": c1h}
+                        except Exception:
+                            pass
+
+            result = self.movers_guard.scan(all_markets=all_markets, asset_candles=asset_candles)
             return [
                 {
                     "asset": sig.asset,
@@ -315,8 +334,8 @@ class WolfRunner:
 
             if fill:
                 slot.status = "active"
-                slot.entry_price = fill.price
-                slot.entry_size = fill.size
+                slot.entry_price = float(fill.price)
+                slot.entry_size = float(fill.quantity)
                 slot.margin_allocated = self.config.margin_per_slot
                 slot.direction = action.direction
                 slot.entry_source = action.source
@@ -333,7 +352,7 @@ class WolfRunner:
                 self.state.total_trades += 1
                 log.info("ENTERED slot %d: %s %s @ %.4f size=%.4f (%s)",
                          slot.slot_id, action.direction, action.instrument,
-                         fill.price, fill.size, action.reason)
+                         float(fill.price), float(fill.quantity), action.reason)
             else:
                 log.warning("Entry fill failed for %s", action.instrument)
                 slot.status = "empty"

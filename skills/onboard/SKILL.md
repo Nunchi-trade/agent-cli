@@ -67,13 +67,15 @@ Create or import a Hyperliquid wallet.
     ```bash
     hl wallet import --key 0x<your_key>
     ```
-  - **NO** → Create a new one (non-interactive):
+  - **NO** → Create a new one (non-interactive, with auto-saved credentials):
     ```bash
-    hl wallet auto
+    hl wallet auto --save-env --json
     ```
-    This prints: address, password, keystore path. **Save the password.**
+    This creates the wallet, saves `HL_KEYSTORE_PASSWORD` to `~/.hl-agent/env` (auto-detected by CLI), and outputs JSON: `{"address": "...", "password": "...", "keystore": "...", "env_file": "..."}`.
 
-**After either option, set the keystore password:**
+**If you used `--save-env`**, the CLI auto-detects the password from `~/.hl-agent/env` — no manual export needed.
+
+**If you did NOT use `--save-env`**, set the keystore password manually:
 ```bash
 export HL_KEYSTORE_PASSWORD=<password>
 ```
@@ -122,6 +124,12 @@ hl setup check
 ```bash
 hl setup claim-usdyp
 ```
+
+**If you get "Wallet not eligible" error:**
+New wallets must connect to Hyperliquid testnet once before claiming.
+1. Visit https://app.hyperliquid-testnet.xyz
+2. Connect the wallet address shown by `hl wallet list`
+3. Re-run `hl setup claim-usdyp`
 
 **Verify:**
 ```bash

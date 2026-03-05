@@ -11,6 +11,7 @@ from typing import List, Optional
 
 
 KEYSTORE_DIR = Path.home() / ".hl-agent" / "keystore"
+ENV_FILE = Path.home() / ".hl-agent" / "env"
 
 
 def _ensure_dir() -> Path:
@@ -62,6 +63,17 @@ def list_keystores() -> List[dict]:
     return result
 
 
+def _load_env_password() -> str:
+    """Load HL_KEYSTORE_PASSWORD from ~/.hl-agent/env if it exists."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("HL_KEYSTORE_PASSWORD="):
+            return line.split("=", 1)[1]
+    return ""
+
+
 def get_keystore_key(address: Optional[str] = None, password: Optional[str] = None) -> Optional[str]:
     """Try to load a private key from keystore.
 
@@ -76,6 +88,9 @@ def get_keystore_key(address: Optional[str] = None, password: Optional[str] = No
         return None
 
     password = password or os.environ.get("HL_KEYSTORE_PASSWORD", "")
+    if not password:
+        # Auto-detect from ~/.hl-agent/env
+        password = _load_env_password()
     if not password:
         return None
 

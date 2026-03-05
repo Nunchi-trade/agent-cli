@@ -39,6 +39,8 @@ class MockHLProxy:
         self.placed_orders: List[Dict] = []
         self.fills: List[HLFill] = []
         self._tick = 0
+        self._oi_history: Dict[str, float] = {}  # track OI across ticks
+        self._vol_history: Dict[str, float] = {}  # track volume across ticks
 
     def get_snapshot(self, instrument: str = "ETH-PERP") -> MarketSnapshot:
         """Generate a mock market data snapshot."""
@@ -99,46 +101,116 @@ class MockHLProxy:
         return placed
 
     def get_candles(self, coin: str, interval: str, lookback_ms: int) -> List[Dict]:
-        """Generate mock candle data."""
+        """Generate mock candle data with realistic patterns.
+
+        BTC and ETH get an uptrend with volume surge in recent candles,
+        making them detectable by Scanner and Movers.
+        """
         import random
         now = int(time.time() * 1000)
         interval_ms = {"1h": 3_600_000, "4h": 14_400_000, "15m": 900_000}.get(interval, 3_600_000)
         n_candles = min(lookback_ms // interval_ms, 200)
         candles = []
-        price = self.base_price
+
+        # Signal coins get a clear uptrend + volume spike
+        is_signal_coin = coin in ("ETH", "SOL", "LINK")
+        base = {"BTC": 50000, "ETH": 2500, "SOL": 100}.get(coin, self.base_price)
+        price = base * 0.97  # start slightly below base
+
         for i in range(n_candles):
             t = now - (n_candles - i) * interval_ms
             o = price
-            h = o * (1 + random.uniform(0, 0.02))
-            l = o * (1 - random.uniform(0, 0.02))
-            c = o * (1 + random.uniform(-0.01, 0.01))
-            v = random.uniform(100, 5000)
+
+            if is_signal_coin:
+                # Steady uptrend: +0.3% per candle, accelerating in last 5
+                pct = 0.003 if i < n_candles - 5 else 0.008
+                c = o * (1 + pct + random.uniform(0, 0.002))
+                h = max(o, c) * (1 + random.uniform(0, 0.005))
+                l = min(o, c) * (1 - random.uniform(0, 0.002))
+                # dayNtlVlm=1M → avg_4h=166K. Base ~100K, spike ~1M+ → ratio ~6x+
+                v = random.uniform(80_000, 120_000) if i < n_candles - 5 else random.uniform(900_000, 1_500_000)
+            else:
+                # Other coins: normal random walk
+                c = o * (1 + random.uniform(-0.01, 0.01))
+                h = o * (1 + random.uniform(0, 0.02))
+                l = o * (1 - random.uniform(0, 0.02))
+                v = random.uniform(100_000, 500_000)
+
             candles.append({"t": t, "o": str(round(o, 2)), "h": str(round(h, 2)),
                             "l": str(round(l, 2)), "c": str(round(c, 2)), "v": str(round(v, 2))})
             price = c
         return candles
 
     def get_meta_and_asset_ctxs(self) -> Any:
-        """Generate mock meta + asset contexts."""
+        """Generate mock meta + asset contexts with persistent state.
+
+        Signal coins (ETH, SOL, LINK) get OI growth and volume spikes
+        across ticks so Movers can detect them.
+        """
         import random
+
         assets = ["BTC", "ETH", "SOL", "DOGE", "ARB", "OP", "AVAX", "MATIC",
                   "LINK", "UNI", "AAVE", "CRV", "MKR", "SNX", "COMP"]
+        base_prices = {"BTC": 50000, "ETH": 2500, "SOL": 100, "DOGE": 0.15,
+                       "ARB": 1.2, "OP": 2.5, "AVAX": 35, "MATIC": 0.8,
+                       "LINK": 15, "UNI": 7, "AAVE": 100, "CRV": 0.5,
+                       "MKR": 1500, "SNX": 3, "COMP": 50}
+        signal_coins = {"ETH", "SOL", "LINK"}
+
         universe = []
         asset_ctxs = []
-        for i, name in enumerate(assets):
+        for name in assets:
             universe.append({"name": name, "szDecimals": 3 if name == "BTC" else 1})
+
+            bp = base_prices.get(name, 10.0)
+            if name in signal_coins:
+                prev_oi = self._oi_history.get(name, random.uniform(5e6, 5e7))
+                prev_vol = self._vol_history.get(name, 1_000_000.0)
+            else:
+                prev_oi = self._oi_history.get(name, random.uniform(5e6, 5e7))
+                prev_vol = self._vol_history.get(name, random.uniform(1e7, 1e8))
+
+            if name in signal_coins:
+                # Signal coins: grow OI 10-15% per tick
+                # dayNtlVlm ~1M (passes 500K filter). avg_4h=166K.
+                # Candle spike ~1.2M → ratio = 1.2M/166K ≈ 7x (exceeds 5x IMMEDIATE_MOVER threshold)
+                oi = prev_oi * (1 + random.uniform(0.10, 0.15))
+                vol = 1_000_000.0  # ~1M 24h volume → avg_4h = 166K
+                funding = round(random.uniform(0.0001, 0.0003), 6)  # favorable
+                mark_px = bp * (1 + self._tick * 0.02)  # trending up
+            elif name == "BTC":
+                # BTC: stable uptrend (good macro context)
+                oi = prev_oi * (1 + random.uniform(0.01, 0.03))
+                vol = prev_vol * random.uniform(0.9, 1.2) if prev_vol < 1e8 else random.uniform(5e7, 1e8)
+                funding = round(random.uniform(-0.0001, 0.0002), 6)
+                mark_px = bp * (1 + self._tick * 0.005)
+            else:
+                # Others: flat/random
+                oi = prev_oi * (1 + random.uniform(-0.02, 0.02))
+                vol = prev_vol * random.uniform(0.8, 1.2) if prev_vol < 1e8 else random.uniform(1e7, 5e7)
+                funding = round(random.uniform(-0.0005, 0.0005), 6)
+                mark_px = bp * (1 + random.uniform(-0.02, 0.02))
+
+            self._oi_history[name] = oi
+            self._vol_history[name] = vol
+
             asset_ctxs.append({
-                "funding": str(round(random.uniform(-0.0005, 0.0005), 6)),
-                "openInterest": str(round(random.uniform(1e5, 1e8), 2)),
-                "prevDayPx": str(round(random.uniform(0.5, 60000), 2)),
-                "dayNtlVlm": str(round(random.uniform(1e5, 5e8), 2)),
-                "markPx": str(round(random.uniform(0.5, 60000), 2)),
+                "funding": str(funding),
+                "openInterest": str(round(oi, 2)),
+                "prevDayPx": str(round(bp * 0.98, 2)),
+                "dayNtlVlm": str(round(vol, 2)),
+                "markPx": str(round(mark_px, 2)),
             })
         return [{"universe": universe}, asset_ctxs]
 
     def get_all_mids(self) -> Dict[str, str]:
-        """Return mock mid prices."""
-        return {"BTC": "50000.0", "ETH": "2500.0", "SOL": "100.0"}
+        """Return mock mid prices for all assets."""
+        return {
+            "BTC": "50000.0", "ETH": "2500.0", "SOL": "100.0", "DOGE": "0.15",
+            "ARB": "1.2", "OP": "2.5", "AVAX": "35.0", "MATIC": "0.8",
+            "LINK": "15.0", "UNI": "7.0", "AAVE": "100.0", "CRV": "0.5",
+            "MKR": "1500.0", "SNX": "3.0", "COMP": "50.0",
+        }
 
     def get_fills(self, since_ms: int = 0) -> List[HLFill]:
         """Get fills since a given timestamp."""

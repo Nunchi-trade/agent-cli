@@ -8,17 +8,25 @@ VENV_DIR="${VENV_DIR:-.venv}"
 
 echo "=== Agent-CLI Bootstrap ==="
 
-# 1. Check Python version (>=3.9)
+# 1. Check Python version (>=3.10)
+# Prefer uv if available (auto-reads .python-version)
+if command -v uv &>/dev/null; then
+    echo "OK  uv detected — using uv for venv"
+    USE_UV=1
+else
+    USE_UV=0
+fi
+
 PY_VERSION=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "none")
 if [ "$PY_VERSION" = "none" ]; then
-    echo "ERROR: python3 not found. Install Python 3.9+."
+    echo "ERROR: python3 not found. Install Python 3.10+."
     exit 1
 fi
 
 PY_MAJOR=$($PYTHON -c 'import sys; print(sys.version_info.major)')
 PY_MINOR=$($PYTHON -c 'import sys; print(sys.version_info.minor)')
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; }; then
-    echo "ERROR: Python 3.9+ required (found $PY_VERSION)"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
+    echo "ERROR: Python 3.10+ required (found $PY_VERSION)"
     exit 1
 fi
 echo "OK  Python $PY_VERSION"
@@ -27,7 +35,11 @@ echo "OK  Python $PY_VERSION"
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     if [ ! -d "$VENV_DIR" ]; then
         echo "Creating venv at $VENV_DIR ..."
-        $PYTHON -m venv "$VENV_DIR"
+        if [ "$USE_UV" -eq 1 ]; then
+            uv venv "$VENV_DIR"
+        else
+            $PYTHON -m venv "$VENV_DIR"
+        fi
     fi
     echo "Activating $VENV_DIR ..."
     source "$VENV_DIR/bin/activate"
@@ -37,7 +49,11 @@ fi
 
 # 3. Install package
 echo "Installing agent-cli ..."
-pip install -e . --quiet 2>&1 | tail -3
+if [ "$USE_UV" -eq 1 ]; then
+    uv pip install -e . --quiet 2>&1 | tail -3
+else
+    pip install -e . --quiet 2>&1 | tail -3
+fi
 
 # 4. Verify
 echo ""

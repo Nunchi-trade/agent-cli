@@ -174,6 +174,11 @@ def setup_claim_usdyp():
     except urllib.error.HTTPError as e:
         body = e.read().decode() if e.fp else ""
         typer.echo(f"ERROR: HTTP {e.code}: {body}", err=True)
+        if "not eligible" in body.lower() or "verify" in body.lower():
+            typer.echo("")
+            typer.echo("This usually means the wallet hasn't connected to Hyperliquid yet.")
+            typer.echo("Fix: Visit https://app.hyperliquid-testnet.xyz and connect this wallet first,")
+            typer.echo("     then re-run 'hl setup claim-usdyp'.")
         raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"ERROR: {e}", err=True)

@@ -24,8 +24,7 @@ Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making
 ```bash
 cd ~/agent-cli
 bash scripts/bootstrap.sh           # Creates venv, installs, validates
-hl wallet auto                       # Creates wallet (no prompts)
-export HL_KEYSTORE_PASSWORD=<password from above>
+hl wallet auto --save-env             # Creates wallet, saves creds to ~/.hl-agent/env
 hl setup claim-usdyp                 # Claim testnet USDyP
 hl builder approve                   # Approve builder fee (one-time)
 hl run avellaneda_mm --mock --max-ticks 3  # Validate
