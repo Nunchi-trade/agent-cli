@@ -1,4 +1,4 @@
-"""DSL configuration models and presets. Pure data, no I/O."""
+"""Guard configuration models and presets. Pure data, no I/O."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,7 +36,7 @@ class Tier:
 
 
 @dataclass
-class DSLConfig:
+class GuardConfig:
     """Immutable configuration for one DSL guard instance."""
 
     direction: str = "long"             # "long" or "short"
@@ -79,7 +79,7 @@ class DSLConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> DSLConfig:
+    def from_dict(cls, data: Dict[str, Any]) -> GuardConfig:
         tiers = [Tier.from_dict(t) for t in data.get("tiers", [])]
         return cls(
             direction=data.get("direction", "long"),
@@ -97,21 +97,21 @@ class DSLConfig:
         )
 
     @classmethod
-    def from_yaml(cls, path: str) -> DSLConfig:
+    def from_yaml(cls, path: str) -> GuardConfig:
         import yaml
         with open(path) as f:
             data = yaml.safe_load(f) or {}
-        dsl_data = data.get("dsl", data)
-        return cls.from_dict(dsl_data)
+        guard_data = data.get("guard", data.get("dsl", data))
+        return cls.from_dict(guard_data)
 
 
 # ---- Built-in Presets ----
 
-PRESETS: Dict[str, DSLConfig] = {}
+PRESETS: Dict[str, GuardConfig] = {}
 
 
 def _register_presets() -> None:
-    PRESETS["moderate"] = DSLConfig(
+    PRESETS["moderate"] = GuardConfig(
         phase1_retrace=0.03,
         phase1_max_breaches=3,
         phase2_retrace=0.015,
@@ -127,7 +127,7 @@ def _register_presets() -> None:
         ],
     )
 
-    PRESETS["tight"] = DSLConfig(
+    PRESETS["tight"] = GuardConfig(
         phase1_retrace=0.05,
         phase1_max_breaches=3,
         phase2_retrace=0.015,

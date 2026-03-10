@@ -25,7 +25,7 @@ class TradeRecord:
     timestamp_ms: int = 0
     fee: float = 0.0
     strategy: str = ""
-    meta: str = ""           # e.g. "dsl_close"
+    meta: str = ""           # e.g. "guard_close"
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TradeRecord":

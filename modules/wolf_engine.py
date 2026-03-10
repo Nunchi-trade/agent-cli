@@ -111,7 +111,7 @@ class WolfEngine:
             return WolfAction(
                 action="exit", slot_id=slot.slot_id,
                 instrument=slot.instrument, direction=slot.direction,
-                reason=f"dsl_close: {dsl_result.get('reason', '')}",
+                reason=f"guard_close: {dsl_result.get('reason', '')}",
             )
 
         # 2. Hard stop

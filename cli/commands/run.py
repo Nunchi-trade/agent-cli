@@ -258,20 +258,20 @@ def run_cmd(
     if markout_tracker is not None:
         engine.markout_tracker = markout_tracker
 
-    # Attach DSL guard if configured
-    if cfg.dsl and cfg.dsl.get("enabled"):
-        from modules.dsl_config import DSLConfig, PRESETS
+    # Attach Guard if configured
+    if cfg.guard and cfg.guard.get("enabled"):
+        from modules.guard_config import GuardConfig, PRESETS
 
-        preset_name = cfg.dsl.get("preset")
+        preset_name = cfg.guard.get("preset")
         if preset_name and preset_name in PRESETS:
-            dsl_cfg = DSLConfig.from_dict(PRESETS[preset_name].to_dict())
+            guard_cfg = GuardConfig.from_dict(PRESETS[preset_name].to_dict())
         else:
-            dsl_cfg = DSLConfig.from_dict(cfg.dsl)
+            guard_cfg = GuardConfig.from_dict(cfg.guard)
 
-        if "leverage" in cfg.dsl:
-            dsl_cfg.leverage = float(cfg.dsl["leverage"])
+        if "leverage" in cfg.guard:
+            guard_cfg.leverage = float(cfg.guard["leverage"])
 
-        engine.dsl_config = dsl_cfg
-        typer.echo(f"DSL: enabled (preset={preset_name or 'custom'}, tiers={len(dsl_cfg.tiers)})")
+        engine.guard_config = guard_cfg
+        typer.echo(f"Guard: enabled (preset={preset_name or 'custom'}, tiers={len(guard_cfg.tiers)})")
 
     engine.run(max_ticks=cfg.max_ticks, resume=resume)

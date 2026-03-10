@@ -1,4 +1,4 @@
-"""hl dsl — Dynamic Stop Loss trailing stop commands."""
+"""hl guard — Guard trailing stop commands."""
 from __future__ import annotations
 
 import logging
@@ -8,15 +8,15 @@ from typing import Optional
 
 import typer
 
-dsl_app = typer.Typer(
-    name="dsl",
-    help="Dynamic Stop Loss — trailing stop system for Hyperliquid perps.",
+guard_app = typer.Typer(
+    name="guard",
+    help="Guard — trailing stop system for Hyperliquid perps.",
     no_args_is_help=True,
 )
 
 
-@dsl_app.command("start")
-def dsl_start(
+@guard_app.command("start")
+def guard_start(
     instrument: str = typer.Argument(
         ..., help="Trading instrument (e.g., ETH-PERP, VXX-USDYP)",
     ),
@@ -36,7 +36,7 @@ def dsl_start(
         None, "--preset", "-p", help="Preset: moderate, tight",
     ),
     config: Optional[Path] = typer.Option(
-        None, "--config", "-c", help="DSL YAML config file",
+        None, "--config", "-c", help="Guard YAML config file",
     ),
     tick: float = typer.Option(
         5.0, "--tick", "-t", help="Check interval in seconds",
@@ -51,10 +51,10 @@ def dsl_start(
         False, "--mock", help="Use mock market data (no HL connection)",
     ),
     data_dir: str = typer.Option(
-        "data/dsl", "--data-dir", help="Directory for DSL state files",
+        "data/guard", "--data-dir", help="Directory for Guard state files",
     ),
 ):
-    """Start a standalone DSL guard for an existing position."""
+    """Start a standalone Guard for an existing position."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -65,41 +65,41 @@ def dsl_start(
         datefmt="%H:%M:%S",
     )
 
-    from modules.dsl_config import DSLConfig, PRESETS
-    from modules.dsl_guard import DSLGuard
-    from modules.dsl_state import DSLState, DSLStateStore
+    from modules.guard_config import GuardConfig, PRESETS
+    from modules.guard_bridge import GuardBridge
+    from modules.guard_state import GuardState, GuardStateStore
 
     # Build config
     if config:
-        dsl_cfg = DSLConfig.from_yaml(str(config))
+        guard_cfg = GuardConfig.from_yaml(str(config))
     elif preset:
         if preset not in PRESETS:
             typer.echo(f"Unknown preset '{preset}'. Available: {', '.join(PRESETS.keys())}")
             raise typer.Exit(1)
-        dsl_cfg = DSLConfig.from_dict(PRESETS[preset].to_dict())  # Copy
+        guard_cfg = GuardConfig.from_dict(PRESETS[preset].to_dict())  # Copy
     else:
-        dsl_cfg = DSLConfig()
+        guard_cfg = GuardConfig()
 
-    dsl_cfg.direction = direction
-    dsl_cfg.leverage = leverage
+    guard_cfg.direction = direction
+    guard_cfg.leverage = leverage
 
     # Auto-compute absolute floor if not set (3% max loss)
-    if dsl_cfg.phase1_absolute_floor == 0.0:
+    if guard_cfg.phase1_absolute_floor == 0.0:
         if direction == "long":
-            dsl_cfg.phase1_absolute_floor = entry_price * (1 - 0.03 / leverage)
+            guard_cfg.phase1_absolute_floor = entry_price * (1 - 0.03 / leverage)
         else:
-            dsl_cfg.phase1_absolute_floor = entry_price * (1 + 0.03 / leverage)
+            guard_cfg.phase1_absolute_floor = entry_price * (1 + 0.03 / leverage)
 
     # Build state
-    store = DSLStateStore(data_dir=data_dir)
-    state = DSLState.new(
+    store = GuardStateStore(data_dir=data_dir)
+    state = GuardState.new(
         instrument=instrument,
         entry_price=entry_price,
         position_size=size,
         direction=direction,
     )
 
-    guard = DSLGuard(config=dsl_cfg, state=state, store=store)
+    guard = GuardBridge(config=guard_cfg, state=state, store=store)
 
     # Build HL adapter
     if mock or dry_run:
@@ -124,13 +124,13 @@ def dsl_start(
 
     typer.echo(f"Instrument: {resolved}")
     typer.echo(f"Direction: {direction} | Entry: {entry_price} | Size: {size} | Leverage: {leverage}x")
-    typer.echo(f"Preset: {preset or 'custom'} | Tiers: {len(dsl_cfg.tiers)}")
+    typer.echo(f"Preset: {preset or 'custom'} | Tiers: {len(guard_cfg.tiers)}")
     typer.echo(f"Tick: {tick}s | State: {data_dir}/{state.position_id}.json")
     typer.echo("")
 
-    from skills.dsl.scripts.standalone_runner import StandaloneDSLRunner
+    from skills.guard.scripts.standalone_runner import StandaloneGuardRunner
 
-    runner = StandaloneDSLRunner(
+    runner = StandaloneGuardRunner(
         hl=hl,
         guard=guard,
         instrument=resolved,
@@ -140,24 +140,24 @@ def dsl_start(
     runner.run()
 
 
-@dsl_app.command("status")
-def dsl_status(
+@guard_app.command("status")
+def guard_status(
     data_dir: str = typer.Option(
-        "data/dsl", "--data-dir", help="DSL state directory",
+        "data/guard", "--data-dir", help="Guard state directory",
     ),
 ):
-    """Show DSL state for all active guards."""
+    """Show Guard state for all active guards."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.dsl_state import DSLStateStore
+    from modules.guard_state import GuardStateStore
 
-    store = DSLStateStore(data_dir=data_dir)
+    store = GuardStateStore(data_dir=data_dir)
     active = store.list_active()
 
     if not active:
-        typer.echo("No active DSL guards.")
+        typer.echo("No active guards.")
         return
 
     typer.echo(f"{'ID':<30} {'Inst':<12} {'Dir':<6} {'Entry':>10} {'Tier':>5} {'ROE%':>8} {'Breaches':>9}")
@@ -177,14 +177,14 @@ def dsl_status(
         )
 
 
-@dsl_app.command("presets")
-def dsl_presets():
-    """List available DSL presets with tier details."""
+@guard_app.command("presets")
+def guard_presets():
+    """List available Guard presets with tier details."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.dsl_config import PRESETS
+    from modules.guard_config import PRESETS
 
     for name, cfg in PRESETS.items():
         typer.echo(f"\n{name.upper()}")

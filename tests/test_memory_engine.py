@@ -66,7 +66,7 @@ class TestMemoryEngine:
         engine = MemoryEngine()
         event = engine.create_notable_trade_event(
             instrument="ETH-PERP", direction="long", pnl=45.0,
-            roe_pct=12.5, entry_source="scanner", close_reason="dsl_close",
+            roe_pct=12.5, entry_source="scanner", close_reason="guard_close",
         )
         assert event.event_type == "notable_trade"
         assert "ETH-PERP" in event.summary

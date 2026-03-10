@@ -239,8 +239,8 @@ class JournalEngine:
     @staticmethod
     def _generate_exit_reasoning(close_reason: str, roe_pct: float, holding_ms: int) -> str:
         hours = holding_ms / 3_600_000
-        if close_reason == "dsl_close":
-            return f"DSL trailing stop triggered at {roe_pct:+.1f}% ROE after {hours:.1f}h"
+        if close_reason == "guard_close":
+            return f"Guard trailing stop triggered at {roe_pct:+.1f}% ROE after {hours:.1f}h"
         elif close_reason == "conviction_collapse":
             return f"Signal lost conviction, exited at {roe_pct:+.1f}% ROE after {hours:.1f}h"
         elif close_reason == "stagnation":
@@ -279,8 +279,8 @@ class JournalEngine:
 
         if close_reason == "conviction_collapse" and roe_pct < -2:
             parts.append("Conviction collapse with significant loss — tighter stop or faster exit needed.")
-        elif close_reason == "dsl_close" and roe_pct > 5:
-            parts.append("DSL captured a good move. Current tier settings are working.")
+        elif close_reason == "guard_close" and roe_pct > 5:
+            parts.append("Guard captured a good move. Current tier settings are working.")
         elif close_reason == "stagnation" and roe_pct > 0:
             parts.append("Stagnation exit with profit — patience paid off but momentum was limited.")
 

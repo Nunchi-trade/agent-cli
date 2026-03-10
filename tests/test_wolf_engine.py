@@ -75,14 +75,14 @@ class TestExitLogic:
     def setup_method(self):
         self.engine = WolfEngine(WolfConfig(max_negative_roe=-5.0))
 
-    def test_dsl_close(self):
+    def test_guard_close(self):
         state = _make_state(slots=[_active_slot(0, "ETH-PERP")])
         dsl_results = {0: {"action": "close", "reason": "tier_breach"}}
 
         actions = self.engine.evaluate(state, [], [], {}, dsl_results)
         exits = [a for a in actions if a.action == "exit"]
         assert len(exits) == 1
-        assert "dsl_close" in exits[0].reason
+        assert "guard_close" in exits[0].reason
 
     def test_hard_stop(self):
         state = _make_state(slots=[

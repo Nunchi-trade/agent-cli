@@ -1,4 +1,4 @@
-"""Pure DSL (Dynamic Stop Loss) trailing stop engine.
+"""Pure Guard (Dynamic Stop Loss) trailing stop engine.
 
 Zero I/O. Zero HL dependency. Takes price + state in, returns updated state + action out.
 Fully deterministic and testable.
@@ -10,22 +10,22 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from modules.dsl_config import DSLConfig
-from modules.dsl_state import DSLState
+from modules.guard_config import GuardConfig
+from modules.guard_state import GuardState
 
 
-class DSLAction(Enum):
+class GuardAction(Enum):
     HOLD = "hold"
     CLOSE = "close"
     TIER_CHANGED = "tier_changed"
 
 
 @dataclass
-class DSLResult:
-    """Output of a single DSL evaluation tick."""
+class GuardResult:
+    """Output of a single Guard evaluation tick."""
 
-    action: DSLAction
-    state: DSLState
+    action: GuardAction
+    state: GuardState
     reason: str = ""
     new_tier_index: Optional[int] = None
     effective_floor: float = 0.0
@@ -35,26 +35,26 @@ class DSLResult:
 
 
 class TrailingStopEngine:
-    """Stateless DSL evaluation engine.
+    """Stateless Guard evaluation engine.
 
     Each call to evaluate() receives the full state and returns
     a new state + action. The caller is responsible for persistence.
     """
 
-    def __init__(self, config: DSLConfig):
+    def __init__(self, config: GuardConfig):
         self.config = config
 
     def evaluate(
         self,
         price: float,
-        state: DSLState,
+        state: GuardState,
         now_ms: Optional[int] = None,
-    ) -> DSLResult:
-        """Core DSL tick: given current price and state, return action + updated state.
+    ) -> GuardResult:
+        """Core Guard tick: given current price and state, return action + updated state.
 
         Args:
             price: Current market price.
-            state: Current DSL state (not mutated; a copy is made internally).
+            state: Current Guard state (not mutated; a copy is made internally).
             now_ms: Optional timestamp override for testability.
         """
         if now_ms is None:
@@ -84,7 +84,7 @@ class TrailingStopEngine:
         else:
             return self._phase2(price, s, roe, now_ms)
 
-    def _compute_roe(self, price: float, state: DSLState) -> float:
+    def _compute_roe(self, price: float, state: GuardState) -> float:
         """ROE = (delta / entry) * leverage * 100.
 
         LONG: delta = price - entry
@@ -100,8 +100,8 @@ class TrailingStopEngine:
             return (entry - price) / entry * leverage * 100.0
 
     def _phase1(
-        self, price: float, s: DSLState, roe: float, now_ms: int,
-    ) -> DSLResult:
+        self, price: float, s: GuardState, roe: float, now_ms: int,
+    ) -> GuardResult:
         """Phase 1: 'Let it breathe' — wide retrace, patient breach counting."""
         cfg = self.config
         is_long = cfg.direction == "long"
@@ -112,8 +112,8 @@ class TrailingStopEngine:
             s.current_tier_index = 0
             s.breach_count = 0
             tier_fl = self._tier_floor_price(0, s)
-            return DSLResult(
-                action=DSLAction.TIER_CHANGED,
+            return GuardResult(
+                action=GuardAction.TIER_CHANGED,
                 state=s,
                 reason=f"Phase 1->2: tier 0 activated (ROE {roe:.1f}% >= {cfg.tiers[0].trigger_pct}%)",
                 new_tier_index=0,
@@ -139,8 +139,8 @@ class TrailingStopEngine:
         if is_breach:
             s.breach_count += 1
             if s.breach_count >= cfg.phase1_max_breaches:
-                return DSLResult(
-                    action=DSLAction.CLOSE,
+                return GuardResult(
+                    action=GuardAction.CLOSE,
                     state=s,
                     reason=(
                         f"Phase 1 close: {s.breach_count}/{cfg.phase1_max_breaches} breaches, "
@@ -153,8 +153,8 @@ class TrailingStopEngine:
         else:
             s.breach_count = _decay_breach(s.breach_count, cfg.breach_decay_mode)
 
-        return DSLResult(
-            action=DSLAction.HOLD,
+        return GuardResult(
+            action=GuardAction.HOLD,
             state=s,
             reason=f"Phase 1: ROE={roe:.1f}%, HW={s.high_water:.4f}, breaches={s.breach_count}",
             effective_floor=effective_fl,
@@ -163,8 +163,8 @@ class TrailingStopEngine:
         )
 
     def _phase2(
-        self, price: float, s: DSLState, roe: float, now_ms: int,
-    ) -> DSLResult:
+        self, price: float, s: GuardState, roe: float, now_ms: int,
+    ) -> GuardResult:
         """Phase 2: 'Lock the bag' — tight retrace, tier ratcheting."""
         cfg = self.config
         is_long = cfg.direction == "long"
@@ -187,8 +187,8 @@ class TrailingStopEngine:
             stale_ms = now_ms - s.high_water_ts
             if stale_ms >= cfg.stagnation_timeout_ms:
                 tier_fl = self._tier_floor_price(s.current_tier_index, s)
-                return DSLResult(
-                    action=DSLAction.CLOSE,
+                return GuardResult(
+                    action=GuardAction.CLOSE,
                     state=s,
                     reason=(
                         f"Stagnation TP: ROE={roe:.1f}% >= {cfg.stagnation_min_roe}%, "
@@ -214,8 +214,8 @@ class TrailingStopEngine:
 
         # Return tier change event before breach check (tier upgrade is higher priority info)
         if tier_changed:
-            return DSLResult(
-                action=DSLAction.TIER_CHANGED,
+            return GuardResult(
+                action=GuardAction.TIER_CHANGED,
                 state=s,
                 reason=(
                     f"Tier upgrade: {prev_tier}->{s.current_tier_index} "
@@ -234,8 +234,8 @@ class TrailingStopEngine:
         if is_breach:
             s.breach_count += 1
             if s.breach_count >= max_breaches:
-                return DSLResult(
-                    action=DSLAction.CLOSE,
+                return GuardResult(
+                    action=GuardAction.CLOSE,
                     state=s,
                     reason=(
                         f"Phase 2 close: tier {s.current_tier_index}, "
@@ -251,8 +251,8 @@ class TrailingStopEngine:
         else:
             s.breach_count = _decay_breach(s.breach_count, cfg.breach_decay_mode)
 
-        return DSLResult(
-            action=DSLAction.HOLD,
+        return GuardResult(
+            action=GuardAction.HOLD,
             state=s,
             reason=(
                 f"Phase 2: tier {s.current_tier_index}, ROE={roe:.1f}%, "
@@ -264,7 +264,7 @@ class TrailingStopEngine:
             roe_pct=roe,
         )
 
-    def _tier_floor_price(self, tier_index: int, state: DSLState) -> float:
+    def _tier_floor_price(self, tier_index: int, state: GuardState) -> float:
         """Calculate the price floor for a given tier.
 
         LONG:  entry * (1 + lockPct / 100 / leverage)

@@ -24,7 +24,7 @@ def _make_trades(pairs):
             "price": str(exit_p),
             "quantity": str(qty),
             "timestamp_ms": ts,
-            "meta": "dsl_close",
+            "meta": "guard_close",
         })
         ts += 1000
     return trades
@@ -95,10 +95,10 @@ class TestJudgeEngine:
             "instrument": "ETH-PERP",
             "high_water_roe": 10.0,
             "current_roe": 4.0,
-            "close_reason": "dsl_close",
+            "close_reason": "guard_close",
         }]
         report = engine.evaluate([], closed_slots=slots)
-        dsl_findings = [f for f in report.findings if f.finding_type == "dsl_efficiency"]
+        dsl_findings = [f for f in report.findings if f.finding_type == "guard_efficiency"]
         assert len(dsl_findings) == 1
         assert dsl_findings[0].score == 40.0
 

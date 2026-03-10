@@ -74,7 +74,7 @@ def _read_wolf_state(wolf_dir: str) -> Dict[str, Any] | None:
                 "size": s.get("entry_size", 0),
                 "entry": s.get("entry_price", 0),
                 "roe": s.get("roe_pct", 0),
-                "phase": s.get("dsl_phase", 0),
+                "phase": s.get("guard_phase", 0),
             }
             for s in active_slots
         ],

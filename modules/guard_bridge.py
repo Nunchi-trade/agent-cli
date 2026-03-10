@@ -1,7 +1,7 @@
-"""DSL Guard — bridges the pure DSL engine with I/O (persistence, logging).
+"""Guard Bridge — bridges the pure Guard engine with I/O (persistence, logging).
 
 Can be used:
-  1. Standalone (with StandaloneDSLRunner providing the tick loop)
+  1. Standalone (with StandaloneGuardRunner providing the tick loop)
   2. Composed into TradingEngine (called after each engine tick)
 """
 from __future__ import annotations
@@ -10,33 +10,33 @@ import logging
 import time
 from typing import Optional
 
-from modules.dsl_config import DSLConfig
-from modules.dsl_state import DSLState, DSLStateStore
-from modules.trailing_stop import DSLResult, TrailingStopEngine
+from modules.guard_config import GuardConfig
+from modules.guard_state import GuardState, GuardStateStore
+from modules.trailing_stop import GuardResult, TrailingStopEngine
 
-log = logging.getLogger("dsl_guard")
+log = logging.getLogger("guard_bridge")
 
 
-class DSLGuard:
-    """Manages one DSL guard for one position.
+class GuardBridge:
+    """Manages one Guard for one position.
 
-    Owns: DSL engine instance, state, persistence.
+    Owns: Guard engine instance, state, persistence.
     Does NOT own: price fetching or order placement (injected by caller).
     """
 
     def __init__(
         self,
-        config: DSLConfig,
-        state: DSLState,
-        store: Optional[DSLStateStore] = None,
+        config: GuardConfig,
+        state: GuardState,
+        store: Optional[GuardStateStore] = None,
     ):
         self.engine = TrailingStopEngine(config)
         self.config = config
         self.state = state
-        self.store = store or DSLStateStore()
+        self.store = store or GuardStateStore()
 
-    def check(self, price: float) -> DSLResult:
-        """Run one DSL evaluation cycle. Persists state automatically."""
+    def check(self, price: float) -> GuardResult:
+        """Run one Guard evaluation cycle. Persists state automatically."""
         result = self.engine.evaluate(price, self.state)
         self.state = result.state
         self.state.last_check_ts = int(time.time() * 1000)
@@ -44,7 +44,7 @@ class DSLGuard:
         self.store.save(self.state, self.config.to_dict())
 
         log.info(
-            "DSL [%s] price=%.4f ROE=%.1f%% tier=%d floor=%.4f -> %s: %s",
+            "GUARD [%s] price=%.4f ROE=%.1f%% tier=%d floor=%.4f -> %s: %s",
             self.state.position_id,
             price,
             result.roe_pct,
@@ -63,7 +63,7 @@ class DSLGuard:
         self.state.close_price = price
         self.state.close_ts = int(time.time() * 1000)
         self.store.save(self.state, self.config.to_dict())
-        log.info("DSL [%s] marked closed: %s", self.state.position_id, reason)
+        log.info("GUARD [%s] marked closed: %s", self.state.position_id, reason)
 
     @property
     def is_active(self) -> bool:
@@ -73,13 +73,13 @@ class DSLGuard:
     def from_store(
         cls,
         position_id: str,
-        store: Optional[DSLStateStore] = None,
-    ) -> Optional[DSLGuard]:
+        store: Optional[GuardStateStore] = None,
+    ) -> Optional[GuardBridge]:
         """Restore a guard from persisted state file."""
-        store = store or DSLStateStore()
+        store = store or GuardStateStore()
         data = store.load(position_id)
         if data is None:
             return None
-        state = DSLState.from_dict(data["state"])
-        config = DSLConfig.from_dict(data.get("config", {}))
+        state = GuardState.from_dict(data["state"])
+        config = GuardConfig.from_dict(data.get("config", {}))
         return cls(config=config, state=state, store=store)

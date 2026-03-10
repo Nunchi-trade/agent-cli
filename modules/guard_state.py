@@ -1,4 +1,4 @@
-"""DSL runtime state — serializable to/from JSON for persistence."""
+"""Guard runtime state — serializable to/from JSON for persistence."""
 from __future__ import annotations
 
 import copy
@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional
 
 
 @dataclass
-class DSLState:
-    """Mutable runtime state for one DSL-guarded position."""
+class GuardState:
+    """Mutable runtime state for one Guard-managed position."""
 
     # Position identity
     instrument: str = ""
@@ -20,7 +20,7 @@ class DSLState:
     position_size: float = 0.0
     direction: str = "long"
 
-    # Runtime DSL state
+    # Runtime Guard state
     high_water: float = 0.0
     high_water_ts: int = 0          # ms when HW was last updated
     current_tier_index: int = -1    # -1 = Phase 1 (no tier yet)
@@ -35,7 +35,7 @@ class DSLState:
     close_price: float = 0.0
     close_ts: int = 0
 
-    def copy(self) -> DSLState:
+    def copy(self) -> GuardState:
         return copy.copy(self)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,7 +59,7 @@ class DSLState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> DSLState:
+    def from_dict(cls, data: Dict[str, Any]) -> GuardState:
         valid = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         return cls(**valid)
 
@@ -71,7 +71,7 @@ class DSLState:
         position_size: float,
         direction: str = "long",
         position_id: str = "",
-    ) -> DSLState:
+    ) -> GuardState:
         now = int(time.time() * 1000)
         return cls(
             instrument=instrument,
@@ -85,14 +85,14 @@ class DSLState:
         )
 
 
-class DSLStateStore:
-    """JSON file-per-position persistence for DSL state."""
+class GuardStateStore:
+    """JSON file-per-position persistence for Guard state."""
 
-    def __init__(self, data_dir: str = "data/dsl"):
+    def __init__(self, data_dir: str = "data/guard"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-    def save(self, state: DSLState, config_dict: Optional[Dict[str, Any]] = None) -> None:
+    def save(self, state: GuardState, config_dict: Optional[Dict[str, Any]] = None) -> None:
         payload: Dict[str, Any] = {"state": state.to_dict()}
         if config_dict:
             payload["config"] = config_dict
@@ -105,11 +105,11 @@ class DSLStateStore:
             return None
         return json.loads(path.read_text())
 
-    def load_state(self, position_id: str) -> Optional[DSLState]:
+    def load_state(self, position_id: str) -> Optional[GuardState]:
         data = self.load(position_id)
         if data is None:
             return None
-        return DSLState.from_dict(data["state"])
+        return GuardState.from_dict(data["state"])
 
     def list_active(self) -> List[str]:
         active = []

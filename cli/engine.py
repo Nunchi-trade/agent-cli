@@ -57,9 +57,9 @@ class TradingEngine:
         self.start_time_ms = 0
         self._running = False
 
-        # Optional DSL guard (composable mode — set via dsl_config)
-        self.dsl_guard = None   # type: ignore[assignment]
-        self.dsl_config = None  # type: ignore[assignment]
+        # Optional Guard (composable mode — set via guard_config)
+        self.guard_bridge = None   # type: ignore[assignment]
+        self.guard_config = None  # type: ignore[assignment]
 
         # Managed order book (brackets, conditionals, pegged orders)
         self.managed_orders = ManagedOrderBook()
@@ -221,20 +221,20 @@ class TradingEngine:
                     detector_scores=detector_scores,
                 )
 
-        # 7b. Lazy DSL guard init (after first fill establishes a position)
-        if self.dsl_config is not None and self.dsl_guard is None and fills:
+        # 7b. Lazy Guard init (after first fill establishes a position)
+        if self.guard_config is not None and self.guard_bridge is None and fills:
             pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
             if pos.net_qty != ZERO:
-                self._init_dsl_guard(pos)
+                self._init_guard_bridge(pos)
 
-        # 7c. Sync DSL position size with tracker (handles partial closes / add-ons)
-        if self.dsl_guard is not None and self.dsl_guard.is_active and fills:
+        # 7c. Sync Guard position size with tracker (handles partial closes / add-ons)
+        if self.guard_bridge is not None and self.guard_bridge.is_active and fills:
             pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
             if pos.net_qty == ZERO:
-                # Position fully closed by strategy — deactivate DSL
-                self.dsl_guard.mark_closed(snapshot.mid_price, "Position closed by strategy")
+                # Position fully closed by strategy — deactivate Guard
+                self.guard_bridge.mark_closed(snapshot.mid_price, "Position closed by strategy")
             else:
-                self.dsl_guard.state.position_size = float(abs(pos.net_qty))
+                self.guard_bridge.state.position_size = float(abs(pos.net_qty))
 
         # 7d. Update markout windows with current mid price
         if self.markout_tracker is not None:
@@ -249,18 +249,18 @@ class TradingEngine:
         # 10. Log tick
         self._log_tick(snapshot, valid_decisions, fills, ok=True)
 
-        # 11. DSL guard check (composable mode)
-        if self.dsl_guard is not None and self.dsl_guard.is_active:
-            from modules.trailing_stop import DSLAction
-            result = self.dsl_guard.check(snapshot.mid_price)
-            if result.action == DSLAction.CLOSE:
-                log.warning("DSL CLOSE: %s", result.reason)
-                self._dsl_close_position(snapshot)
-                self.dsl_guard.mark_closed(snapshot.mid_price, result.reason)
+        # 11. Guard check (composable mode)
+        if self.guard_bridge is not None and self.guard_bridge.is_active:
+            from modules.trailing_stop import GuardAction
+            result = self.guard_bridge.check(snapshot.mid_price)
+            if result.action == GuardAction.CLOSE:
+                log.warning("GUARD CLOSE: %s", result.reason)
+                self._guard_close_position(snapshot)
+                self.guard_bridge.mark_closed(snapshot.mid_price, result.reason)
                 self._running = False
 
-    def _dsl_close_position(self, snapshot: MarketSnapshot) -> None:
-        """Close position when DSL trailing stop triggers."""
+    def _guard_close_position(self, snapshot: MarketSnapshot) -> None:
+        """Close position when Guard trailing stop triggers."""
         agent_id = self.strategy.strategy_id
         pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
         if pos.net_qty == ZERO:
@@ -274,7 +274,7 @@ class TradingEngine:
             price = round(float(snapshot.ask) * 1.005, 6)
 
         if self.dry_run:
-            log.info("[DRY RUN] DSL close: %s %.6f @ %.4f", close_side, size, price)
+            log.info("[DRY RUN] Guard close: %s %.6f @ %.4f", close_side, size, price)
             return
 
         fill = self.hl.place_order(
@@ -300,39 +300,39 @@ class TradingEngine:
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": self.strategy.strategy_id,
-                "meta": "dsl_close",
+                "meta": "guard_close",
             })
-            log.info("DSL closed position: %s %s @ %s", fill.side, fill.quantity, fill.price)
+            log.info("Guard closed position: %s %s @ %s", fill.side, fill.quantity, fill.price)
         else:
-            log.warning("DSL close order did not fill — will retry next tick")
+            log.warning("Guard close order did not fill — will retry next tick")
             self._running = True  # Keep running to retry
 
-    def _init_dsl_guard(self, pos) -> None:
-        """Initialize DSL guard from dsl_config after first position is established."""
-        from modules.dsl_config import DSLConfig
-        from modules.dsl_guard import DSLGuard
-        from modules.dsl_state import DSLState
+    def _init_guard_bridge(self, pos) -> None:
+        """Initialize Guard from guard_config after first position is established."""
+        from modules.guard_config import GuardConfig
+        from modules.guard_bridge import GuardBridge
+        from modules.guard_state import GuardState
 
         direction = "long" if pos.net_qty > ZERO else "short"
-        self.dsl_config.direction = direction
+        self.guard_config.direction = direction
 
         # Auto-compute absolute floor if not set
         entry = float(pos.avg_entry_price)
-        if self.dsl_config.phase1_absolute_floor == 0.0:
-            lev = self.dsl_config.leverage
+        if self.guard_config.phase1_absolute_floor == 0.0:
+            lev = self.guard_config.leverage
             if direction == "long":
-                self.dsl_config.phase1_absolute_floor = entry * (1 - 0.03 / lev)
+                self.guard_config.phase1_absolute_floor = entry * (1 - 0.03 / lev)
             else:
-                self.dsl_config.phase1_absolute_floor = entry * (1 + 0.03 / lev)
+                self.guard_config.phase1_absolute_floor = entry * (1 + 0.03 / lev)
 
-        dsl_state = DSLState.new(
+        guard_state = GuardState.new(
             instrument=self.instrument,
             entry_price=entry,
             position_size=float(abs(pos.net_qty)),
             direction=direction,
         )
-        self.dsl_guard = DSLGuard(config=self.dsl_config, state=dsl_state)
-        log.info("DSL guard activated: entry=%.4f size=%.6f dir=%s",
+        self.guard_bridge = GuardBridge(config=self.guard_config, state=guard_state)
+        log.info("Guard activated: entry=%.4f size=%.6f dir=%s",
                  entry, float(abs(pos.net_qty)), direction)
 
     def _close_all_positions(self) -> None:

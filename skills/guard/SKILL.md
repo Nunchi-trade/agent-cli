@@ -1,7 +1,7 @@
 ---
-name: dsl-trailing-stop
+name: guard-trailing-stop
 description: >-
-  Dynamic Stop Loss — two-phase ROE-based trailing stop system for Hyperliquid perps.
+  Guard — two-phase ROE-based trailing stop system for Hyperliquid perps.
   Phase 1 lets the trade breathe with wide retrace and patient breach counting.
   Phase 2 locks profit through configurable tier ratcheting with per-tier retrace overrides.
   Supports LONG and SHORT, hard/soft breach decay, stagnation take-profit, and preset configs.
@@ -18,7 +18,7 @@ metadata:
   category: risk-management
 ---
 
-# DSL Trailing Stop
+# Guard Trailing Stop
 
 Two-phase ROE-based trailing stop that protects profits on Hyperliquid perp positions.
 
@@ -43,7 +43,7 @@ All triggers use ROE (Return on Equity): `PnL / margin * 100`. At 10x leverage, 
 
 ### Standalone — Guard an existing position
 ```bash
-hl dsl start ETH-PERP \
+hl guard start ETH-PERP \
   --entry 2500.0 \
   --size 1.0 \
   --direction long \
@@ -58,7 +58,7 @@ hl dsl start ETH-PERP \
 strategy: avellaneda_mm
 instrument: ETH-PERP
 tick_interval: 10.0
-dsl:
+guard:
   enabled: true
   preset: tight
   leverage: 10.0
@@ -76,19 +76,19 @@ hl run avellaneda_mm --config config.yaml
 
 ### Module API
 ```python
-from modules.trailing_stop import TrailingStopEngine, DSLAction
-from modules.dsl_config import DSLConfig, PRESETS
-from modules.dsl_state import DSLState
+from modules.trailing_stop import TrailingStopEngine, GuardAction
+from modules.guard_config import GuardConfig, PRESETS
+from modules.guard_state import GuardState
 
 config = PRESETS["tight"]
 config.leverage = 10.0
 config.direction = "long"
 
 engine = TrailingStopEngine(config)
-state = DSLState.new("ETH-PERP", entry_price=2500.0, position_size=1.0, direction="long")
+state = GuardState.new("ETH-PERP", entry_price=2500.0, position_size=1.0, direction="long")
 
 result = engine.evaluate(price=2520.0, state=state)
-# result.action: DSLAction.HOLD | .CLOSE | .TIER_CHANGED
+# result.action: GuardAction.HOLD | .CLOSE | .TIER_CHANGED
 # result.state: updated state (persist this)
 # result.roe_pct, result.effective_floor, result.reason
 ```
@@ -134,11 +134,11 @@ tiers:
 
 ## Agent Mandate
 
-You are the DSL trailing stop guardian. Your job is to protect profits and limit losses on open positions. You never make entry decisions — you only manage exits via a two-phase trailing stop system.
+You are the Guard trailing stop guardian. Your job is to protect profits and limit losses on open positions. You never make entry decisions — you only manage exits via a two-phase trailing stop system.
 
 RULES:
-- ALWAYS attach DSL to every open position — unprotected positions are unacceptable
-- NEVER override a CLOSE signal — if DSL says close, close immediately
+- ALWAYS attach Guard to every open position — unprotected positions are unacceptable
+- NEVER override a CLOSE signal — if Guard says close, close immediately
 - ALWAYS use the correct direction (long/short) — wrong direction inverts all logic
 - Let Phase 1 breathe — do not panic on early retrace within 3% threshold
 - In Phase 2, trust the tier system — floors only ratchet up, never down
@@ -148,9 +148,9 @@ RULES:
 
 | Condition | Action |
 |-----------|--------|
-| DSL returns `CLOSE` | Close position immediately — no hesitation |
-| DSL returns `TIER_CHANGED` | Log the new tier — no action needed, floors auto-ratchet |
-| DSL returns `HOLD` | Do nothing — position is healthy |
+| Guard returns `CLOSE` | Close position immediately — no hesitation |
+| Guard returns `TIER_CHANGED` | Log the new tier — no action needed, floors auto-ratchet |
+| Guard returns `HOLD` | Do nothing — position is healthy |
 | ROE > 10% and still Phase 1 | Normal — Phase 2 triggers at first tier (usually 10% ROE) |
 | Breach count incrementing but no close | Phase 1 patience — 3 consecutive breaches needed |
 | Stagnation timer triggered | Close — profit is stale, capital better deployed elsewhere |
@@ -164,28 +164,28 @@ RULES:
 ## Anti-Patterns
 
 - **Using tight preset on trending assets**: Tight stops exit too early on strong trends. Use moderate for trend-following strategies.
-- **Wrong direction parameter**: Setting `direction=long` on a short position means DSL will hold losses and exit winners. Always double-check.
-- **Overriding CLOSE signals**: "It'll come back" → it won't. DSL computed the exit. Trust it.
-- **Starting DSL after the move**: DSL needs accurate entry price. Starting DSL at current price when entry was 2% ago means the trailing is wrong.
-- **Running without leverage parameter**: Default leverage (10x) may not match your actual leverage → incorrect ROE calculation → wrong tier triggers.
+- **Wrong direction parameter**: Setting `direction=long` on a short position means Guard will hold losses and exit winners. Always double-check.
+- **Overriding CLOSE signals**: "It'll come back" — it won't. Guard computed the exit. Trust it.
+- **Starting Guard after the move**: Guard needs accurate entry price. Starting Guard at current price when entry was 2% ago means the trailing is wrong.
+- **Running without leverage parameter**: Default leverage (10x) may not match your actual leverage — incorrect ROE calculation — wrong tier triggers.
 
 ## Error Recovery
 
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `No position found` | Position already closed or wrong instrument | Check `hl status` for actual positions |
-| `DSL state stale` | Process crashed mid-tick | Restart DSL — state file preserves last known state |
+| `Guard state stale` | Process crashed mid-tick | Restart Guard — state file preserves last known state |
 | `Negative ROE but no close` | Still in Phase 1 tolerance | Normal if within 3% retrace. Hard stop at -5% ROE is separate |
 | `Tier jumped from 1 to 4` | Fast price move between ticks | Normal — tiers are checked sequentially but can skip |
 
 ## Composition
 
-DSL is a sub-component of WOLF (runs every tick per active slot). Can also be used standalone to guard any position. When used with WOLF, DSL states are managed automatically. When used standalone, you must provide entry price, size, direction, and leverage.
+Guard is a sub-component of WOLF (runs every tick per active slot). Can also be used standalone to guard any position. When used with WOLF, Guard states are managed automatically. When used standalone, you must provide entry price, size, direction, and leverage.
 
 ## Cron Template
 
 ```bash
-# DSL is typically long-running (attached to a position), not cron-scheduled.
+# Guard is typically long-running (attached to a position), not cron-scheduled.
 # Start manually when opening a position:
-hl dsl start ETH-PERP --entry 2500 --direction long --leverage 10 --preset moderate --tick 5
+hl guard start ETH-PERP --entry 2500 --direction long --leverage 10 --preset moderate --tick 5
 ```

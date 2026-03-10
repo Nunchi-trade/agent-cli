@@ -23,7 +23,7 @@ from cli.commands.status import status_cmd
 from cli.commands.trade import trade_cmd
 from cli.commands.account import account_cmd
 from cli.commands.strategies import strategies_cmd
-from cli.commands.dsl import dsl_app
+from cli.commands.guard import guard_app
 from cli.commands.scanner import scanner_app
 from cli.commands.movers import movers_app
 from cli.commands.wolf import wolf_app
@@ -40,7 +40,7 @@ app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
 app.command("trade", help="Place a single manual order")(trade_cmd)
 app.command("account", help="Show HL account state")(account_cmd)
 app.command("strategies", help="List available strategies")(strategies_cmd)
-app.add_typer(dsl_app, name="dsl", help="Dynamic Stop Loss trailing stop system")
+app.add_typer(guard_app, name="guard", help="Guard trailing stop system")
 app.add_typer(scanner_app, name="scanner", help="Opportunity scanner — screen HL perps for setups")
 app.add_typer(movers_app, name="movers", help="Emerging movers — detect assets with capital inflow")
 app.add_typer(wolf_app, name="wolf", help="WOLF strategy — autonomous multi-slot trading")

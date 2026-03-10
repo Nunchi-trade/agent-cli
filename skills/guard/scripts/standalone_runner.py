@@ -1,6 +1,6 @@
-"""Standalone DSL runner — monitors a position and closes when triggered.
+"""Standalone Guard runner — monitors a position and closes when triggered.
 
-Fetches prices from Hyperliquid, runs DSL checks, and closes positions
+Fetches prices from Hyperliquid, runs Guard checks, and closes positions
 directly via aggressive IOC orders. No agent intervention needed.
 """
 from __future__ import annotations
@@ -11,19 +11,19 @@ import logging
 import signal
 import time
 
-from modules.dsl_guard import DSLGuard
-from modules.trailing_stop import DSLAction
+from modules.guard_bridge import GuardBridge
+from modules.trailing_stop import GuardAction
 
-log = logging.getLogger("dsl_runner")
+log = logging.getLogger("guard_runner")
 
 
-class StandaloneDSLRunner:
-    """Tick loop: fetch price -> DSL check -> close if triggered."""
+class StandaloneGuardRunner:
+    """Tick loop: fetch price -> Guard check -> close if triggered."""
 
     def __init__(
         self,
         hl,  # DirectHLProxy | DirectMockProxy
-        guard: DSLGuard,
+        guard: GuardBridge,
         instrument: str,
         tick_interval: float = 5.0,
         dry_run: bool = False,
@@ -41,7 +41,7 @@ class StandaloneDSLRunner:
         signal.signal(signal.SIGTERM, self._stop)
 
         log.info(
-            "DSL Runner started: %s instrument=%s tick=%.1fs dry=%s",
+            "Guard Runner started: %s instrument=%s tick=%.1fs dry=%s",
             self.guard.state.position_id,
             self.instrument,
             self.tick_interval,
@@ -52,13 +52,13 @@ class StandaloneDSLRunner:
             try:
                 self._tick()
             except Exception as e:
-                log.error("DSL tick error: %s", e, exc_info=True)
+                log.error("Guard tick error: %s", e, exc_info=True)
 
             if self._running and self.guard.is_active:
                 time.sleep(self.tick_interval)
 
         reason = "closed" if self.guard.state.closed else "stopped"
-        log.info("DSL Runner finished: %s (%s)", self.guard.state.position_id, reason)
+        log.info("Guard Runner finished: %s (%s)", self.guard.state.position_id, reason)
 
     def _tick(self) -> None:
         snapshot = self.hl.get_snapshot(self.instrument)
@@ -68,8 +68,8 @@ class StandaloneDSLRunner:
 
         result = self.guard.check(snapshot.mid_price)
 
-        if result.action == DSLAction.CLOSE:
-            log.warning("DSL CLOSE: %s", result.reason)
+        if result.action == GuardAction.CLOSE:
+            log.warning("GUARD CLOSE: %s", result.reason)
             closed = self._close_position(snapshot.mid_price)
             if closed:
                 self.guard.mark_closed(snapshot.mid_price, result.reason)

@@ -30,9 +30,9 @@ class WolfConfig:
     daily_loss_limit: float = 500.0
     max_same_direction: int = 2
 
-    # DSL preset for position guards
-    dsl_preset: str = "tight"
-    dsl_leverage_override: Optional[float] = None
+    # Guard preset for position guards
+    guard_preset: str = "tight"
+    guard_leverage_override: Optional[float] = None
 
     # Tick schedule
     tick_interval_s: float = 60.0

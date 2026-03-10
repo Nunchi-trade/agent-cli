@@ -29,14 +29,14 @@ class TestJournalEngine:
             roe_pct=5.0,
             entry_source="scanner",
             entry_signal_score=210.0,
-            close_reason="dsl_close",
+            close_reason="guard_close",
             entry_ts=1000000,
             close_ts=4600000,
         )
         assert entry.entry_id == "ETH-PERP-1000000"
         assert entry.signal_quality == "good"  # High score + profitable
         assert "scanner opportunity" in entry.entry_reasoning
-        assert "DSL trailing stop" in entry.exit_reasoning
+        assert "Guard trailing stop" in entry.exit_reasoning
         assert entry.holding_ms == 3600000
 
     def test_create_entry_movers_loss(self):
@@ -75,7 +75,7 @@ class TestJournalEngine:
 
     def test_retrospective_dsl_profit(self):
         engine = JournalEngine()
-        retro = engine._generate_retrospective("good", "scanner", "dsl_close", 8.0, 40.0)
+        retro = engine._generate_retrospective("good", "scanner", "guard_close", 8.0, 40.0)
         assert "working" in retro.lower()
 
     def test_retrospective_conviction_loss(self):

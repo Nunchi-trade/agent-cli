@@ -1,7 +1,7 @@
 """WOLF standalone runner — multi-slot orchestrator tick loop.
 
-Composes scanner + movers + DSL + HOWL into a single autonomous strategy.
-Each tick: fetch prices → update ROEs → check DSL → run movers → evaluate.
+Composes scanner + movers + Guard + HOWL into a single autonomous strategy.
+Each tick: fetch prices → update ROEs → check Guard → run movers → evaluate.
 Periodic: HOWL performance review → auto-adjust config parameters.
 Scheduled: daily PnL reset, comprehensive HOWL reports.
 """
@@ -19,9 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from modules.dsl_config import DSLConfig, PRESETS as DSL_PRESETS
-from modules.dsl_guard import DSLGuard
-from modules.dsl_state import DSLState, DSLStateStore
+from modules.guard_config import GuardConfig, PRESETS as GUARD_PRESETS
+from modules.guard_bridge import GuardBridge
+from modules.guard_state import GuardState, GuardStateStore
 from modules.howl_adapter import adapt, apply_adjustments
 from modules.howl_engine import HowlEngine, TradeRecord
 from modules.howl_reporter import HowlReporter
@@ -45,7 +45,7 @@ class WolfRunner:
     """Autonomous WOLF strategy tick loop.
 
     Tick schedule (60s base):
-      Every tick:      Fetch prices → update ROEs → check DSL → run movers → evaluate
+      Every tick:      Fetch prices → update ROEs → check Guard → run movers → evaluate
       Every 5 ticks:   Watchdog health check
       Every 15 ticks:  Run scanner → queue high-score opportunities
     """
@@ -82,9 +82,9 @@ class WolfRunner:
         self.scanner_guard = ScannerGuard()
         self.scanner_guard.history.path = f"{data_dir}/scanner-history.json"
 
-        # DSL guards per slot (created on entry, removed on exit)
-        self.dsl_guards: Dict[int, DSLGuard] = {}
-        self._restore_dsl_guards()
+        # Guard bridges per slot (created on entry, removed on exit)
+        self.guard_bridges: Dict[int, GuardBridge] = {}
+        self._restore_guard_bridges()
 
         # Trade logging for HOWL
         self.trade_log = JSONLStore(path=f"{data_dir}/trades.jsonl")
@@ -142,15 +142,15 @@ class WolfRunner:
 
         self._running = False
 
-    def _restore_dsl_guards(self) -> None:
-        """Restore DSL guards for active slots from persisted state."""
-        dsl_store = DSLStateStore(data_dir=f"{self.data_dir}/dsl")
+    def _restore_guard_bridges(self) -> None:
+        """Restore Guard bridges for active slots from persisted state."""
+        guard_store = GuardStateStore(data_dir=f"{self.data_dir}/guard")
         for slot in self.state.active_slots():
             pos_id = f"wolf-slot-{slot.slot_id}"
-            guard = DSLGuard.from_store(pos_id, store=dsl_store)
+            guard = GuardBridge.from_store(pos_id, store=guard_store)
             if guard and guard.is_active:
-                self.dsl_guards[slot.slot_id] = guard
-                log.info("Restored DSL guard for slot %d (%s)", slot.slot_id, slot.instrument)
+                self.guard_bridges[slot.slot_id] = guard
+                log.info("Restored Guard bridge for slot %d (%s)", slot.slot_id, slot.instrument)
 
     def run(self, max_ticks: int = 0) -> None:
         """Main loop. Blocks until max_ticks reached or SIGINT."""
@@ -252,8 +252,8 @@ class WolfRunner:
         # 1. Fetch current prices for active slots
         slot_prices = self._fetch_slot_prices()
 
-        # 2. Run DSL checks for active slots
-        slot_dsl_results = self._run_dsl_checks(slot_prices)
+        # 2. Run Guard checks for active slots
+        slot_guard_results = self._run_guard_checks(slot_prices)
 
         # 3. Run movers (every tick)
         movers_signals = self._run_movers()
@@ -289,7 +289,7 @@ class WolfRunner:
             movers_signals=movers_signals,
             scanner_opps=scanner_opps,
             slot_prices=slot_prices,
-            slot_dsl_results=slot_dsl_results,
+            slot_guard_results=slot_guard_results,
             now_ms=now_ms,
             smart_money_signals=smart_money_signals,
         )
@@ -325,12 +325,12 @@ class WolfRunner:
 
         return prices
 
-    def _run_dsl_checks(self, slot_prices: Dict[int, float]) -> Dict[int, Dict[str, Any]]:
-        """Run DSL guard checks for each active slot with a DSL guard."""
+    def _run_guard_checks(self, slot_prices: Dict[int, float]) -> Dict[int, Dict[str, Any]]:
+        """Run Guard checks for each active slot with a Guard bridge."""
         results: Dict[int, Dict[str, Any]] = {}
 
         for slot in self.state.active_slots():
-            guard = self.dsl_guards.get(slot.slot_id)
+            guard = self.guard_bridges.get(slot.slot_id)
             if guard is None or not guard.is_active:
                 continue
 
@@ -339,19 +339,19 @@ class WolfRunner:
                 continue
 
             try:
-                dsl_result = guard.check(price)
-                if dsl_result.action.value == "CLOSE":
+                guard_result = guard.check(price)
+                if guard_result.action.value == "CLOSE":
                     results[slot.slot_id] = {
                         "action": "close",
-                        "reason": dsl_result.reason,
+                        "reason": guard_result.reason,
                     }
                 else:
                     results[slot.slot_id] = {
-                        "action": dsl_result.action.value.lower(),
-                        "roe_pct": dsl_result.roe_pct,
+                        "action": guard_result.action.value.lower(),
+                        "roe_pct": guard_result.roe_pct,
                     }
             except Exception as e:
-                log.warning("DSL check failed for slot %d: %s", slot.slot_id, e)
+                log.warning("Guard check failed for slot %d: %s", slot.slot_id, e)
 
         return results
 
@@ -516,8 +516,8 @@ class WolfRunner:
                 slot.high_water_roe = 0.0
                 slot.current_roe = 0.0
 
-                # Create DSL guard for this slot
-                self._create_dsl_guard(slot)
+                # Create Guard bridge for this slot
+                self._create_guard_bridge(slot)
 
                 self.state.total_trades += 1
                 self._log_trade(
@@ -584,8 +584,8 @@ class WolfRunner:
 
     def _close_slot(self, slot: WolfSlot, reason: str, pnl: float) -> None:
         """Reset a slot to empty and update PnL tracking."""
-        # Close DSL guard
-        guard = self.dsl_guards.pop(slot.slot_id, None)
+        # Close Guard bridge
+        guard = self.guard_bridges.pop(slot.slot_id, None)
         if guard:
             guard.mark_closed(slot.current_price, reason)
 
@@ -645,15 +645,15 @@ class WolfRunner:
         slot.current_roe = 0.0
         slot.high_water_roe = 0.0
 
-    def _create_dsl_guard(self, slot: WolfSlot) -> None:
-        """Create a DSL guard for a newly entered slot."""
-        preset_name = self.config.dsl_preset
-        dsl_config = DSL_PRESETS.get(preset_name, DSL_PRESETS.get("tight", DSLConfig()))
-        dsl_config = DSLConfig.from_dict(dsl_config.to_dict())  # copy
-        dsl_config.direction = slot.direction
-        dsl_config.leverage = self.config.dsl_leverage_override or self.config.leverage
+    def _create_guard_bridge(self, slot: WolfSlot) -> None:
+        """Create a Guard bridge for a newly entered slot."""
+        preset_name = self.config.guard_preset
+        guard_config = GUARD_PRESETS.get(preset_name, GUARD_PRESETS.get("tight", GuardConfig()))
+        guard_config = GuardConfig.from_dict(guard_config.to_dict())  # copy
+        guard_config.direction = slot.direction
+        guard_config.leverage = self.config.guard_leverage_override or self.config.leverage
 
-        dsl_state = DSLState.new(
+        guard_state = GuardState.new(
             instrument=slot.instrument,
             entry_price=slot.entry_price,
             position_size=slot.entry_size,
@@ -661,9 +661,9 @@ class WolfRunner:
             position_id=f"wolf-slot-{slot.slot_id}",
         )
 
-        dsl_store = DSLStateStore(data_dir=f"{self.data_dir}/dsl")
-        guard = DSLGuard(config=dsl_config, state=dsl_state, store=dsl_store)
-        self.dsl_guards[slot.slot_id] = guard
+        guard_store = GuardStateStore(data_dir=f"{self.data_dir}/guard")
+        guard = GuardBridge(config=guard_config, state=guard_state, store=guard_store)
+        self.guard_bridges[slot.slot_id] = guard
 
     def _log_trade(self, tick: int, instrument: str, side: str,
                    price: float, quantity: float, fee: float = 0,

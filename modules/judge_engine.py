@@ -1,7 +1,7 @@
 """Judge engine — pure computation, zero I/O.
 
 Post-hoc evaluation of WOLF trading decisions. Scores signal quality,
-identifies false positives per signal source, evaluates DSL efficiency,
+identifies false positives per signal source, evaluates Guard efficiency,
 builds playbook stats, and generates config recommendations.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ class SignalQualityScore:
 @dataclass
 class JudgeFinding:
     """A single evaluation finding."""
-    finding_type: str = ""    # signal_quality, false_positive, dsl_efficiency,
+    finding_type: str = ""    # signal_quality, false_positive, guard_efficiency,
                               # exit_quality, recommendation
     source: str = ""          # Which signal source
     instrument: str = ""
@@ -114,7 +114,7 @@ class JudgeEngine:
         Args:
             trades: Raw trade record dicts from trades.jsonl
             closed_slots: Optional list of closed WolfSlot dicts with
-                          high_water_roe for DSL efficiency analysis
+                          high_water_roe for Guard efficiency analysis
         """
         now_ms = int(time.time() * 1000)
 
@@ -145,10 +145,10 @@ class JudgeEngine:
                     recommendation=f"Monitor {source} — approaching unreliable territory",
                 ))
 
-        # DSL efficiency (if slot data available)
+        # Guard efficiency (if slot data available)
         if closed_slots:
             for slot in closed_slots:
-                finding = self._evaluate_dsl_efficiency(slot)
+                finding = self._evaluate_guard_efficiency(slot)
                 if finding:
                     findings.append(finding)
 
@@ -279,30 +279,30 @@ class JudgeEngine:
         return rates
 
     # ------------------------------------------------------------------
-    # DSL efficiency
+    # Guard efficiency
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _evaluate_dsl_efficiency(slot: dict) -> Optional[JudgeFinding]:
-        """Evaluate how much of the price move DSL captured."""
+    def _evaluate_guard_efficiency(slot: dict) -> Optional[JudgeFinding]:
+        """Evaluate how much of the price move Guard captured."""
         high_water = slot.get("high_water_roe", 0)
         close_roe = slot.get("current_roe", 0)
         close_reason = slot.get("close_reason", "")
 
-        if close_reason != "dsl_close" or high_water <= 0:
+        if close_reason != "guard_close" or high_water <= 0:
             return None
 
         capture_pct = (close_roe / high_water * 100) if high_water else 0
 
         if capture_pct < 50:
             return JudgeFinding(
-                finding_type="dsl_efficiency",
-                source="dsl",
+                finding_type="guard_efficiency",
+                source="guard",
                 instrument=slot.get("instrument", ""),
-                detail=f"DSL captured only {capture_pct:.0f}% of peak move "
+                detail=f"Guard captured only {capture_pct:.0f}% of peak move "
                        f"(exit {close_roe:.1f}% vs peak {high_water:.1f}%)",
                 score=capture_pct,
-                recommendation="Consider tighter DSL tiers to lock more profit",
+                recommendation="Consider tighter Guard tiers to lock more profit",
             )
         return None
 

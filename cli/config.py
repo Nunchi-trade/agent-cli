@@ -14,8 +14,8 @@ class TradingConfig:
     strategy: str = "avellaneda_mm"
     strategy_params: Dict[str, Any] = field(default_factory=dict)
 
-    # DSL (Dynamic Stop Loss) — optional composable guard
-    dsl: Dict[str, Any] = field(default_factory=dict)
+    # Guard (Dynamic Stop Loss) — optional composable guard
+    guard: Dict[str, Any] = field(default_factory=dict)
 
     # Anomaly protection — optional MEV protection for YEX markets
     protection: Dict[str, Any] = field(default_factory=dict)

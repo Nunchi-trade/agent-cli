@@ -1,18 +1,18 @@
-"""Unit tests for the pure DSL trailing stop engine."""
+"""Unit tests for the pure Guard trailing stop engine."""
 from __future__ import annotations
 
 import pytest
 
-from modules.dsl_config import DSLConfig, Tier, PRESETS
-from modules.dsl_state import DSLState
-from modules.trailing_stop import DSLAction, TrailingStopEngine
+from modules.guard_config import GuardConfig, Tier, PRESETS
+from modules.guard_state import GuardState
+from modules.trailing_stop import GuardAction, TrailingStopEngine
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _long_config(**overrides) -> DSLConfig:
+def _long_config(**overrides) -> GuardConfig:
     """Standard LONG config with 3 tiers at 10x leverage."""
     defaults = dict(
         direction="long",
@@ -31,12 +31,12 @@ def _long_config(**overrides) -> DSLConfig:
     )
     defaults.update(overrides)
     tiers = defaults.pop("tiers")
-    cfg = DSLConfig(**defaults)
+    cfg = GuardConfig(**defaults)
     cfg.tiers = tiers
     return cfg
 
 
-def _short_config(**overrides) -> DSLConfig:
+def _short_config(**overrides) -> GuardConfig:
     defaults = dict(
         direction="short",
         leverage=7.0,
@@ -53,13 +53,13 @@ def _short_config(**overrides) -> DSLConfig:
     )
     defaults.update(overrides)
     tiers = defaults.pop("tiers")
-    cfg = DSLConfig(**defaults)
+    cfg = GuardConfig(**defaults)
     cfg.tiers = tiers
     return cfg
 
 
-def _state(entry: float = 100.0, size: float = 10.0, direction: str = "long") -> DSLState:
-    return DSLState(
+def _state(entry: float = 100.0, size: float = 10.0, direction: str = "long") -> GuardState:
+    return GuardState(
         instrument="TEST-PERP",
         position_id="test-1",
         entry_price=entry,
@@ -89,7 +89,7 @@ class TestPhase1:
         # Price 100.5 → ROE = 5% (below tier 0 trigger of 10%), stays Phase 1
         r = engine.evaluate(100.5, s, now_ms=NOW)
         assert r.state.high_water == 100.5
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
 
     def test_high_water_does_not_decrease_long(self):
         cfg = _long_config()
@@ -108,7 +108,7 @@ class TestPhase1:
 
         # Floor = 100 * (1 - 0.03) = 97.0. Price 98 is above floor.
         r = engine.evaluate(98.0, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.breach_count == 0
 
     def test_single_breach_no_close(self):
@@ -119,7 +119,7 @@ class TestPhase1:
 
         # Floor = 97.0. Price 96 breaches.
         r = engine.evaluate(96.0, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.breach_count == 1
 
     def test_three_breaches_close(self):
@@ -132,7 +132,7 @@ class TestPhase1:
             r = engine.evaluate(96.0, s, now_ms=NOW)
             s = r.state
 
-        assert r.action == DSLAction.CLOSE
+        assert r.action == GuardAction.CLOSE
         assert r.state.breach_count == 3
 
     def test_absolute_floor_long(self):
@@ -143,7 +143,7 @@ class TestPhase1:
 
         # Trailing floor = 97.0, absolute = 98.0. Effective = max(97, 98) = 98.
         r = engine.evaluate(97.5, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.breach_count == 1  # 97.5 <= 98.0
 
     def test_hard_decay_resets_to_zero(self):
@@ -190,7 +190,7 @@ class TestGraduation:
         s = _state(entry=100.0)
 
         r = engine.evaluate(101.0, s, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.new_tier_index == 0
         assert r.state.current_tier_index == 0
         assert r.state.breach_count == 0
@@ -202,7 +202,7 @@ class TestGraduation:
 
         # ROE at 100.99 = (0.99/100)*10*100 = 9.9% < 10%
         r = engine.evaluate(100.99, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.current_tier_index == -1
 
 
@@ -234,7 +234,7 @@ class TestPhase2:
         s.high_water = 102.0
 
         r = engine.evaluate(102.0, s, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.state.current_tier_index == 1
         assert r.new_tier_index == 1
         assert r.state.breach_count == 0
@@ -250,7 +250,7 @@ class TestPhase2:
         s.high_water = 105.0
 
         r = engine.evaluate(105.0, s, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.state.current_tier_index == 2
         assert r.new_tier_index == 2
 
@@ -292,7 +292,7 @@ class TestPhase2:
         # Effective = max(100.5, 99.485) = 100.5
         # Price 100.0 <= 100.5 → breach. max_breaches=1 → close immediately.
         r = engine.evaluate(100.0, s, now_ms=NOW)
-        assert r.action == DSLAction.CLOSE
+        assert r.action == GuardAction.CLOSE
         assert r.state.breach_count == 1
 
     def test_phase2_breach_close(self):
@@ -305,11 +305,11 @@ class TestPhase2:
         # Tier floor = 100.5, default max_breaches = 2
         # Price 100.0 < 100.5 → breach
         r1 = engine.evaluate(100.0, s, now_ms=NOW)
-        assert r1.action == DSLAction.HOLD
+        assert r1.action == GuardAction.HOLD
         assert r1.state.breach_count == 1
 
         r2 = engine.evaluate(100.0, r1.state, now_ms=NOW)
-        assert r2.action == DSLAction.CLOSE
+        assert r2.action == GuardAction.CLOSE
         assert r2.state.breach_count == 2
 
 
@@ -346,7 +346,7 @@ class TestShort:
         s.high_water = 985.0
 
         r = engine.evaluate(985.0, s, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.state.current_tier_index == 0
 
     def test_short_tier_floor(self):
@@ -377,7 +377,7 @@ class TestShort:
         assert r1.state.breach_count == 1
 
         r2 = engine.evaluate(993.0, r1.state, now_ms=NOW)
-        assert r2.action == DSLAction.CLOSE
+        assert r2.action == GuardAction.CLOSE
 
     def test_short_absolute_floor(self):
         """SHORT absolute floor is above entry (caps max loss)."""
@@ -410,7 +410,7 @@ class TestStagnation:
         # ROE at 101.5 = 15%, HW stale for > 1hr
         now = 1_000_000 + 3_700_000  # 3700 seconds later
         r = engine.evaluate(101.5, s, now_ms=now)
-        assert r.action == DSLAction.CLOSE
+        assert r.action == GuardAction.CLOSE
         assert "Stagnation" in r.reason
 
     def test_stagnation_does_not_trigger_if_hw_fresh(self):
@@ -424,7 +424,7 @@ class TestStagnation:
 
         # HW updated recently
         r = engine.evaluate(101.5, s, now_ms=5_100_000)
-        assert r.action != DSLAction.CLOSE
+        assert r.action != GuardAction.CLOSE
 
     def test_stagnation_does_not_trigger_if_roe_too_low(self):
         cfg = _long_config(stagnation_enabled=True, stagnation_min_roe=8.0,
@@ -437,7 +437,7 @@ class TestStagnation:
 
         # ROE at 100.5 = 5% < 8%
         r = engine.evaluate(100.5, s, now_ms=1_000_000 + 4_000_000)
-        assert r.action != DSLAction.CLOSE
+        assert r.action != GuardAction.CLOSE
 
 
 # ---------------------------------------------------------------------------
@@ -453,22 +453,22 @@ class TestLifecycle:
 
         # Price rises slowly — still Phase 1
         r = engine.evaluate(100.5, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.current_tier_index == -1
 
         # Price hits tier 0 (10% ROE = 101.0)
         r = engine.evaluate(101.0, r.state, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.state.current_tier_index == 0
 
         # Price keeps rising to tier 1 (20% ROE = 102.0)
         r = engine.evaluate(102.0, r.state, now_ms=NOW)
-        assert r.action == DSLAction.TIER_CHANGED
+        assert r.action == GuardAction.TIER_CHANGED
         assert r.state.current_tier_index == 1
 
         # Price rises more but not enough for tier 2 (50% ROE = 105.0)
         r = engine.evaluate(103.0, r.state, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.current_tier_index == 1
         assert r.state.high_water == 103.0
 
@@ -477,12 +477,12 @@ class TestLifecycle:
         # effective = max(100.14, 101.455) = 101.455
         # Price 101.0 < 101.455 → breach
         r = engine.evaluate(101.0, r.state, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.breach_count == 1
 
         # Second breach → close (phase2_max_breaches = 2)
         r = engine.evaluate(101.0, r.state, now_ms=NOW)
-        assert r.action == DSLAction.CLOSE
+        assert r.action == GuardAction.CLOSE
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +516,7 @@ class TestEdgeCases:
 
         # Even at high ROE, no tiers → stays Phase 1
         r = engine.evaluate(110.0, s, now_ms=NOW)
-        assert r.action == DSLAction.HOLD
+        assert r.action == GuardAction.HOLD
         assert r.state.current_tier_index == -1
 
 
@@ -545,15 +545,15 @@ class TestSerialization:
     def test_config_roundtrip(self):
         cfg = PRESETS["moderate"]
         d = cfg.to_dict()
-        cfg2 = DSLConfig.from_dict(d)
+        cfg2 = GuardConfig.from_dict(d)
         assert cfg2.leverage == cfg.leverage
         assert len(cfg2.tiers) == len(cfg.tiers)
         assert cfg2.tiers[2].retrace == cfg.tiers[2].retrace
 
     def test_state_roundtrip(self):
-        s = DSLState.new("ETH-PERP", 2500.0, 1.0, "long", "test-pos")
+        s = GuardState.new("ETH-PERP", 2500.0, 1.0, "long", "test-pos")
         d = s.to_dict()
-        s2 = DSLState.from_dict(d)
+        s2 = GuardState.from_dict(d)
         assert s2.entry_price == 2500.0
         assert s2.position_id == "test-pos"
         assert s2.high_water == 2500.0
