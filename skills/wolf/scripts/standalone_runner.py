@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import skills._bootstrap  # noqa: F401 — auto-setup sys.path
 
+import json
 import logging
 import os
 import signal
@@ -196,8 +197,52 @@ class WolfRunner:
         self._print_status()
         return actions
 
+    def _check_config_override(self):
+        """Check for and apply config override from UI."""
+        override_path = Path(self.data_dir) / "config-override.json"
+        if not override_path.exists():
+            return
+        try:
+            with open(override_path) as f:
+                override = json.load(f)
+            params = override.get("params", {})
+            changed = []
+            for key, value in params.items():
+                if hasattr(self.config, key):
+                    old = getattr(self.config, key)
+                    if old != value:
+                        setattr(self.config, key, value)
+                        changed.append(f"{key}: {old} -> {value}")
+            if override.get("preset"):
+                self.state.preset = override["preset"]
+            if changed:
+                self.engine = WolfEngine(self.config)
+                log.info("Config override applied: %s", ", ".join(changed))
+            override_path.unlink()
+        except Exception as e:
+            log.warning("Config override failed: %s", e)
+
+    def _persist_account_state(self):
+        """Write account state to disk for HTTP API."""
+        try:
+            state = self.hl.info.user_state(self.hl.wallet.address)
+            margin = state.get("marginSummary", {})
+            account = {
+                "value": float(margin.get("accountValue", 0)),
+                "margin": float(margin.get("totalMarginUsed", 0)),
+                "withdrawable": float(margin.get("totalRawUsd", 0)),
+                "network": "testnet" if os.environ.get("HL_TESTNET", "true").lower() == "true" else "mainnet",
+                "updated_at": int(time.time() * 1000),
+            }
+            account_path = Path(self.data_dir) / "account.json"
+            with open(account_path, "w") as f:
+                json.dump(account, f)
+        except Exception as e:
+            log.debug("Account persist failed: %s", e)
+
     def _tick(self) -> List[WolfAction]:
         """Execute a single WOLF tick cycle."""
+        self._check_config_override()
         self.state.tick_count += 1
         tick = self.state.tick_count
         now_ms = int(time.time() * 1000)
@@ -229,6 +274,7 @@ class WolfRunner:
         # 5. Watchdog (every N ticks)
         if tick % self.config.watchdog_interval_ticks == 0:
             self._watchdog()
+            self._persist_account_state()
 
         # 5b. HOWL self-improvement (every N ticks)
         if tick % self.config.howl_interval_ticks == 0:

@@ -7,6 +7,9 @@
  *   3. Serve health checks + proxy all other traffic to gateway
  */
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
 const httpProxy = require("http-proxy");
 const { bootstrap } = require("./bootstrap.mjs");
 const { startGateway, waitForGatewayReady, getGatewayProcess } = require("./gateway");
@@ -18,6 +21,8 @@ const PORT = parseInt(process.env.PORT || "8080", 10);
 const GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST || "127.0.0.1";
 const GATEWAY_PORT = parseInt(process.env.INTERNAL_GATEWAY_PORT || "18789", 10);
 const START_TIME = Date.now();
+const AGENT_CLI_DIR = "/agent-cli";
+const DATA_DIR = process.env.DATA_DIR || "/data";
 
 // Proxy to OpenClaw gateway
 const proxy = httpProxy.createProxyServer({
@@ -150,6 +155,72 @@ app.post("/api/resume", (req, res) => {
     }
   } else {
     res.status(409).json({ error: "No paused agent to resume" });
+  }
+});
+
+// API: Configure agent (write config override)
+app.post("/api/configure", express.json(), (req, res) => {
+  const configPath = path.join(DATA_DIR, "wolf", "config-override.json");
+  try {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(req.body, null, 2));
+    res.json({ status: "ok", applied_at: "next_tick" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// API: Trade history
+app.get("/api/trades", (req, res) => {
+  const limit = parseInt(req.query.limit || "50", 10);
+  try {
+    const output = execSync(
+      `python3 -m cli.api.status_reader trades --data-dir ${DATA_DIR} --limit ${limit}`,
+      { timeout: 10000, encoding: "utf-8", cwd: AGENT_CLI_DIR, stdio: ["pipe", "pipe", "pipe"] }
+    );
+    res.json(JSON.parse(output.trim()));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: HOWL reports
+app.get("/api/howl", (req, res) => {
+  try {
+    const output = execSync(
+      `python3 -m cli.api.status_reader howl --data-dir ${DATA_DIR}`,
+      { timeout: 10000, encoding: "utf-8", cwd: AGENT_CLI_DIR, stdio: ["pipe", "pipe", "pipe"] }
+    );
+    res.json(JSON.parse(output.trim()));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Scanner history
+app.get("/api/scanner", (req, res) => {
+  try {
+    const output = execSync(
+      `python3 -m cli.api.status_reader scanner --data-dir ${DATA_DIR}`,
+      { timeout: 10000, encoding: "utf-8", cwd: AGENT_CLI_DIR, stdio: ["pipe", "pipe", "pipe"] }
+    );
+    res.json(JSON.parse(output.trim()));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Journal entries
+app.get("/api/journal", (req, res) => {
+  const limit = parseInt(req.query.limit || "50", 10);
+  try {
+    const output = execSync(
+      `python3 -m cli.api.status_reader journal --data-dir ${DATA_DIR} --limit ${limit}`,
+      { timeout: 10000, encoding: "utf-8", cwd: AGENT_CLI_DIR, stdio: ["pipe", "pipe", "pipe"] }
+    );
+    res.json(JSON.parse(output.trim()));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

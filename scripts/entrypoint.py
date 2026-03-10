@@ -90,6 +90,86 @@ class HealthHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        elif self.path.startswith("/api/trades"):
+            data_dir = os.environ.get("DATA_DIR", "/data")
+            try:
+                from urllib.parse import urlparse, parse_qs
+                from cli.api.status_reader import read_trades
+                qs = parse_qs(urlparse(self.path).query)
+                limit = int(qs.get("limit", ["50"])[0])
+                body = json.dumps(read_trades(data_dir, limit=limit))
+            except Exception as e:
+                body = json.dumps({"error": str(e)})
+            self._cors_headers()
+            self._json_response(body)
+
+        elif self.path == "/api/howl":
+            data_dir = os.environ.get("DATA_DIR", "/data")
+            try:
+                from cli.api.status_reader import read_howl
+                body = json.dumps(read_howl(data_dir))
+            except Exception as e:
+                body = json.dumps({"error": str(e)})
+            self._cors_headers()
+            self._json_response(body)
+
+        elif self.path == "/api/scanner":
+            data_dir = os.environ.get("DATA_DIR", "/data")
+            try:
+                from cli.api.status_reader import read_scanner
+                body = json.dumps(read_scanner(data_dir))
+            except Exception as e:
+                body = json.dumps({"error": str(e)})
+            self._cors_headers()
+            self._json_response(body)
+
+        elif self.path.startswith("/api/journal"):
+            data_dir = os.environ.get("DATA_DIR", "/data")
+            try:
+                from urllib.parse import urlparse, parse_qs
+                from cli.api.status_reader import read_journal
+                qs = parse_qs(urlparse(self.path).query)
+                limit = int(qs.get("limit", ["50"])[0])
+                body = json.dumps(read_journal(data_dir, limit=limit))
+            except Exception as e:
+                body = json.dumps({"error": str(e)})
+            self._cors_headers()
+            self._json_response(body)
+
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/api/configure":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                config = json.loads(body)
+                data_dir = os.environ.get("DATA_DIR", "/data")
+                from cli.api.status_reader import write_config_override
+                write_config_override(data_dir, config)
+                self._cors_headers()
+                self._json_response(json.dumps({"status": "ok", "applied_at": "next_tick"}))
+            except Exception as e:
+                self.send_response(400)
+                self._cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.write(json.dumps({"error": str(e)}))
+
+        elif self.path == "/api/pause":
+            if CHILD_PROC and CHILD_PROC.poll() is None:
+                os.kill(CHILD_PROC.pid, signal.SIGSTOP)
+            self._cors_headers()
+            self._json_response(json.dumps({"status": "paused"}))
+
+        elif self.path == "/api/resume":
+            if CHILD_PROC and CHILD_PROC.poll() is None:
+                os.kill(CHILD_PROC.pid, signal.SIGCONT)
+            self._cors_headers()
+            self._json_response(json.dumps({"status": "resumed"}))
+
         else:
             self.send_response(404)
             self.end_headers()
