@@ -1,4 +1,4 @@
-"""Scanner configuration — pillar weights, thresholds, and presets."""
+"""Radar configuration — pillar weights, thresholds, and presets."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,8 +6,8 @@ from typing import Any, Dict
 
 
 @dataclass
-class ScannerConfig:
-    """Configuration for the opportunity scanner."""
+class RadarConfig:
+    """Configuration for the opportunity radar."""
 
     # Screening thresholds
     min_volume_24h: float = 500_000.0
@@ -49,12 +49,12 @@ class ScannerConfig:
     lookback_15m_ms: int = 900_000 * 48      # 48 15m candles
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ScannerConfig":
+    def from_dict(cls, d: Dict[str, Any]) -> "RadarConfig":
         valid = {f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in d.items() if k in valid})
 
     @classmethod
-    def from_yaml(cls, path: str) -> "ScannerConfig":
+    def from_yaml(cls, path: str) -> "RadarConfig":
         import yaml
         with open(path) as f:
             data = yaml.safe_load(f) or {}
@@ -75,9 +75,9 @@ class ScannerConfig:
         }
 
 
-SCANNER_PRESETS: Dict[str, ScannerConfig] = {
-    "default": ScannerConfig(),
-    "aggressive": ScannerConfig(
+RADAR_PRESETS: Dict[str, RadarConfig] = {
+    "default": RadarConfig(),
+    "aggressive": RadarConfig(
         min_volume_24h=100_000.0,
         top_n_deep=30,
         score_threshold=120,

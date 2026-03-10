@@ -1,4 +1,4 @@
-"""hl scanner — opportunity screening commands."""
+"""hl radar — opportunity screening commands."""
 from __future__ import annotations
 
 import logging
@@ -8,11 +8,11 @@ from typing import Optional
 
 import typer
 
-scanner_app = typer.Typer(no_args_is_help=True)
+radar_app = typer.Typer(no_args_is_help=True)
 
 
-@scanner_app.command("run")
-def scanner_run(
+@radar_app.command("run")
+def radar_run(
     tick: float = typer.Option(
         900.0, "--tick", "-t",
         help="Seconds between scans (default: 15 min)",
@@ -54,12 +54,12 @@ def scanner_run(
         help="Stop after N scans (0 = run forever)",
     ),
     data_dir: str = typer.Option(
-        "data/scanner", "--data-dir",
+        "data/radar", "--data-dir",
         help="Directory for scan history",
     ),
 ):
     """Start continuous opportunity scanning."""
-    _run_scanner(
+    _run_radar(
         tick=tick, top_n=top_n, min_volume=min_volume,
         score_threshold=score_threshold, preset=preset,
         config=config, mock=mock, mainnet=mainnet,
@@ -68,8 +68,8 @@ def scanner_run(
     )
 
 
-@scanner_app.command("once")
-def scanner_once(
+@radar_app.command("once")
+def radar_once(
     top_n: int = typer.Option(20, "--top-n", "-n"),
     min_volume: float = typer.Option(500_000.0, "--min-volume"),
     score_threshold: int = typer.Option(150, "--score-threshold"),
@@ -78,10 +78,10 @@ def scanner_once(
     mock: bool = typer.Option(False, "--mock"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
-    data_dir: str = typer.Option("data/scanner", "--data-dir"),
+    data_dir: str = typer.Option("data/radar", "--data-dir"),
 ):
     """Run a single scan and exit."""
-    _run_scanner(
+    _run_radar(
         tick=0, top_n=top_n, min_volume=min_volume,
         score_threshold=score_threshold, preset=preset,
         config=config, mock=mock, mainnet=mainnet,
@@ -90,25 +90,25 @@ def scanner_once(
     )
 
 
-@scanner_app.command("status")
-def scanner_status(
-    data_dir: str = typer.Option("data/scanner", "--data-dir"),
+@radar_app.command("status")
+def radar_status(
+    data_dir: str = typer.Option("data/radar", "--data-dir"),
 ):
     """Show last scan results from history."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.scanner_state import ScanHistoryStore, ScanResult
+    from modules.radar_state import RadarHistoryStore, RadarResult
 
-    store = ScanHistoryStore(path=f"{data_dir}/scan-history.json")
+    store = RadarHistoryStore(path=f"{data_dir}/scan-history.json")
     history = store.get_history()
 
     if not history:
         typer.echo("No scan history found.")
         raise typer.Exit()
 
-    last = ScanResult.from_dict(history[-1])
+    last = RadarResult.from_dict(history[-1])
     import time
     scan_age = (time.time() * 1000 - last.scan_time_ms) / 1000
 
@@ -126,16 +126,16 @@ def scanner_status(
         typer.echo("No qualifying opportunities in last scan.")
 
 
-@scanner_app.command("presets")
-def scanner_presets():
-    """List available scanner presets."""
+@radar_app.command("presets")
+def radar_presets():
+    """List available radar presets."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.scanner_config import SCANNER_PRESETS
+    from modules.radar_config import RADAR_PRESETS
 
-    for name, cfg in SCANNER_PRESETS.items():
+    for name, cfg in RADAR_PRESETS.items():
         typer.echo(f"\n{name}:")
         typer.echo(f"  min_volume_24h: ${cfg.min_volume_24h:,.0f}")
         typer.echo(f"  top_n_deep: {cfg.top_n_deep}")
@@ -143,7 +143,7 @@ def scanner_presets():
         typer.echo(f"  pillar_weights: {cfg.pillar_weights}")
 
 
-def _run_scanner(
+def _run_radar(
     tick, top_n, min_volume, score_threshold, preset, config,
     mock, mainnet, json_output, max_scans, data_dir, single=False,
 ):
@@ -152,15 +152,15 @@ def _run_scanner(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.scanner_config import ScannerConfig, SCANNER_PRESETS
+    from modules.radar_config import RadarConfig, RADAR_PRESETS
 
     # Build config
     if config:
-        cfg = ScannerConfig.from_yaml(str(config))
-    elif preset and preset in SCANNER_PRESETS:
-        cfg = ScannerConfig.from_dict(SCANNER_PRESETS[preset].to_dict())
+        cfg = RadarConfig.from_yaml(str(config))
+    elif preset and preset in RADAR_PRESETS:
+        cfg = RadarConfig.from_dict(RADAR_PRESETS[preset].to_dict())
     else:
-        cfg = ScannerConfig()
+        cfg = RadarConfig()
 
     cfg.top_n_deep = top_n
     cfg.min_volume_24h = min_volume
@@ -196,9 +196,9 @@ def _run_scanner(
     typer.echo(f"Top N: {cfg.top_n_deep}  |  Min Vol: ${cfg.min_volume_24h:,.0f}  |  "
                f"Threshold: {cfg.score_threshold}")
 
-    from skills.scanner.scripts.standalone_runner import ScannerRunner
+    from skills.radar.scripts.standalone_runner import RadarRunner
 
-    runner = ScannerRunner(
+    runner = RadarRunner(
         hl=hl,
         config=cfg,
         tick_interval=tick,

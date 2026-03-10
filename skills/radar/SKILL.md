@@ -1,12 +1,12 @@
 ---
-name: opportunity-scanner
+name: opportunity-radar
 version: 1.0.0
 description: Screens all Hyperliquid perps and surfaces top trading setups
 author: Nunchi Trade
-tags: [scanner, screener, technicals, opportunities, hyperliquid]
+tags: [radar, screener, technicals, opportunities, hyperliquid]
 ---
 
-# Opportunity Scanner
+# Opportunity Radar
 
 Screens all Hyperliquid perpetual markets through a 4-stage funnel to surface
 the highest-conviction trading setups.
@@ -42,20 +42,20 @@ Stage 4: Momentum + Final Ranking
 
 ### CLI
 ```bash
-hl scanner once              # Single scan
-hl scanner run --tick 900    # Continuous (15 min intervals)
-hl scanner once --json       # JSON output
-hl scanner once --mock       # With mock data (no HL connection)
-hl scanner status            # Show last scan results
-hl scanner presets            # List presets
+hl radar once              # Single scan
+hl radar run --tick 900    # Continuous (15 min intervals)
+hl radar once --json       # JSON output
+hl radar once --mock       # With mock data (no HL connection)
+hl radar status            # Show last scan results
+hl radar presets            # List presets
 ```
 
 ### Standalone
 ```python
-from skills.scanner.scripts.standalone_runner import ScannerRunner
+from skills.radar.scripts.standalone_runner import RadarRunner
 from cli.hl_adapter import DirectHLProxy
 
-runner = ScannerRunner(hl=hl, tick_interval=900)
+runner = RadarRunner(hl=hl, tick_interval=900)
 runner.run()
 ```
 
@@ -69,7 +69,7 @@ Via YAML config or CLI flags:
 
 ## Agent Mandate
 
-You are the opportunity scanner. Your job is to screen the entire Hyperliquid perps universe and rank assets by trading conviction. You do NOT place trades — you surface setups for WOLF or the human operator.
+You are the opportunity radar. Your job is to screen the entire Hyperliquid perps universe and rank assets by trading conviction. You do NOT place trades — you surface setups for WOLF or the human operator.
 
 RULES:
 - ALWAYS check BTC macro context first — if headwind modifier < -30, all scores are suppressed
@@ -99,7 +99,7 @@ RULES:
 
 - **Chasing yesterday's winners**: An asset scored 300 yesterday but 120 today → do not enter. Scores are point-in-time.
 - **Ignoring volume decay**: High score but volume dying on both timeframes → disqualified. The setup is stale.
-- **Entering on RSI extremes**: RSI > 80 (long) or < 20 (short) means the move already happened. Scanner correctly disqualifies these.
+- **Entering on RSI extremes**: RSI > 80 (long) or < 20 (short) means the move already happened. Radar correctly disqualifies these.
 - **Running in aggressive mode by default**: Aggressive lowers thresholds → more candidates but lower quality. Use default unless you have excess budget.
 
 ## Error Recovery
@@ -108,16 +108,16 @@ RULES:
 |-------|-------|-----|
 | `0 candidates after scan` | Low-vol period | Normal — no action needed. Don't force trades. |
 | `Candle fetch timeout` | HL API rate limit | Reduce `--top-n` or increase tick interval |
-| `BTC candle unavailable` | API issue | Scanner defaults to neutral macro — safe fallback |
+| `BTC candle unavailable` | API issue | Radar defaults to neutral macro — safe fallback |
 | `Score calculation error` | Missing data for asset | Asset auto-skipped — check logs for pattern |
 
 ## Composition
 
-Scanner is a sub-component of WOLF (runs every 15 ticks). Can also be used standalone for manual trade selection. Pairs with Movers for confirmation — Scanner finds setups, Movers detects timing.
+Radar is a sub-component of WOLF (runs every 15 ticks). Can also be used standalone for manual trade selection. Pairs with Movers for confirmation — Radar finds setups, Movers detects timing.
 
 ## Cron Template
 
 ```bash
-# Standalone scanner every 15 min during trading hours
-*/15 8-20 * * 1-5 cd ~/agent-cli && hl scanner once --json >> data/scanner/scans.jsonl 2>&1
+# Standalone radar every 15 min during trading hours
+*/15 8-20 * * 1-5 cd ~/agent-cli && hl radar once --json >> data/radar/scans.jsonl 2>&1
 ```

@@ -1,7 +1,7 @@
-"""Tests for modules/scanner_technicals.py — pure math, zero I/O."""
+"""Tests for modules/radar_technicals.py — pure math, zero I/O."""
 import pytest
 
-from modules.scanner_technicals import (
+from modules.radar_technicals import (
     calc_ema,
     calc_rsi,
     classify_hourly_trend,

@@ -15,7 +15,7 @@ class WolfSlot:
     status: str = "empty"       # empty, active, closed
     instrument: str = ""
     direction: str = ""         # "long" or "short"
-    entry_source: str = ""      # movers_immediate, movers_signal, scanner
+    entry_source: str = ""      # movers_immediate, movers_signal, radar
     entry_signal_score: float = 0.0
 
     # Position data

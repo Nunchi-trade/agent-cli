@@ -81,7 +81,7 @@ class NightlyReviewResult:
 # ---------------------------------------------------------------------------
 
 _QUALITY_THRESHOLDS = {
-    "scanner": {"good_score": 200, "fair_score": 170},
+    "radar": {"good_score": 200, "fair_score": 170},
     "movers_immediate": {"good_score": 100, "fair_score": 80},
     "movers_signal": {"good_score": 80, "fair_score": 60},
 }
@@ -228,8 +228,8 @@ class JournalEngine:
         if source == "movers_immediate":
             return (f"Entered {instrument} {direction} on immediate mover signal "
                     f"(OI breakout + volume surge, confidence {score:.0f})")
-        elif source == "scanner":
-            return (f"Entered {instrument} {direction} on scanner opportunity "
+        elif source == "radar":
+            return (f"Entered {instrument} {direction} on radar opportunity "
                     f"(score {score:.0f}/400, above threshold)")
         elif source == "movers_signal":
             return (f"Entered {instrument} {direction} on movers signal "
@@ -272,8 +272,8 @@ class JournalEngine:
         parts = []
         if quality == "poor" and source == "movers_immediate":
             parts.append("Immediate mover signal was a false positive. Consider requiring volume confirmation.")
-        elif quality == "poor" and source == "scanner":
-            parts.append("High-score scanner entry lost money. Check if macro conditions were unfavorable.")
+        elif quality == "poor" and source == "radar":
+            parts.append("High-score radar entry lost money. Check if macro conditions were unfavorable.")
         elif quality == "poor":
             parts.append(f"Signal from {source} did not translate to profit. Review entry criteria.")
 

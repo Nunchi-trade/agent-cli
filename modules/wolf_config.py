@@ -16,7 +16,7 @@ class WolfConfig:
     margin_per_slot: float = 0.0  # auto-computed
 
     # Entry thresholds
-    scanner_score_threshold: int = 170
+    radar_score_threshold: int = 170
     movers_immediate_auto_entry: bool = True
     movers_confidence_threshold: float = 70.0
 
@@ -36,7 +36,7 @@ class WolfConfig:
 
     # Tick schedule
     tick_interval_s: float = 60.0
-    scanner_interval_ticks: int = 15
+    radar_interval_ticks: int = 15
     watchdog_interval_ticks: int = 5
 
     # HOWL self-improvement
@@ -103,14 +103,14 @@ WOLF_PRESETS: Dict[str, WolfConfig] = {
     "conservative": WolfConfig(
         max_slots=2,
         leverage=5.0,
-        scanner_score_threshold=190,
+        radar_score_threshold=190,
         movers_confidence_threshold=80.0,
         daily_loss_limit=250.0,
     ),
     "aggressive": WolfConfig(
         max_slots=3,
         leverage=15.0,
-        scanner_score_threshold=150,
+        radar_score_threshold=150,
         movers_confidence_threshold=60.0,
         daily_loss_limit=1000.0,
     ),

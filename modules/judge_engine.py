@@ -101,7 +101,7 @@ class JudgeEngine:
     """Evaluates closed round trips for signal quality and trading patterns.
 
     Works with enriched trade records that contain entry source info in the
-    `meta` field (e.g., "entry:movers_immediate", "entry:scanner").
+    `meta` field (e.g., "entry:movers_immediate", "entry:radar").
     """
 
     def evaluate(
@@ -372,14 +372,14 @@ class JudgeEngine:
                 "summary": "Raise movers confidence threshold",
             })
 
-        # Scanner: if FP > 50%, raise threshold
-        if fp_rates.get("scanner", 0) > 50:
+        # Radar: if FP > 50%, raise threshold
+        if fp_rates.get("radar", 0) > 50:
             recs.append({
-                "param": "scanner_score_threshold",
+                "param": "radar_score_threshold",
                 "suggested_value": 200,
-                "reason": f"Scanner FP rate is {fp_rates['scanner']:.0f}% — "
+                "reason": f"Radar FP rate is {fp_rates['radar']:.0f}% — "
                           "raise score threshold to allow only high-conviction entries",
-                "summary": "Raise scanner score threshold",
+                "summary": "Raise radar score threshold",
             })
 
         # Check for direction imbalance causing losses

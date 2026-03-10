@@ -1,7 +1,7 @@
 """MCP server for agent-cli — exposes trading tools via Model Context Protocol.
 
 Fast tools (account, strategies, builder, wallet, setup) call Python directly.
-Long-running tools (run_strategy, wolf_run, scanner, howl) use subprocess.
+Long-running tools (run_strategy, wolf_run, radar, howl) use subprocess.
 """
 from __future__ import annotations
 
@@ -211,9 +211,9 @@ def create_mcp_server():
         return _run_hl(*args, timeout=max(60, (max_ticks or 10) * tick + 30))
 
     @mcp.tool()
-    def scanner_run(mock: bool = False) -> str:
-        """Run opportunity scanner — screen HL perps for trading setups."""
-        args = ["scanner", "once"]
+    def radar_run(mock: bool = False) -> str:
+        """Run opportunity radar — screen HL perps for trading setups."""
+        args = ["radar", "once"]
         if mock:
             args.append("--mock")
         return _run_hl(*args, timeout=60)

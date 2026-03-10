@@ -269,5 +269,5 @@ This skill is the entry point for all other skills. After completing onboarding:
 - **Trade**: `hl run <strategy>` — see strategies with `hl strategies`
 - **WOLF**: `hl wolf run` — multi-slot orchestrator
 - **HOWL**: `hl howl run` — nightly performance review
-- **Scanner**: `hl scanner run` — find trading opportunities
+- **Radar**: `hl radar run` — find trading opportunities
 - **DSL**: `hl dsl start <instrument>` — trailing stop protection

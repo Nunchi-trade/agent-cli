@@ -32,7 +32,7 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: DSL trailing stops, opportunity scanner, emerging movers detector, WOLF orchestrator, HOWL performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: DSL trailing stops, opportunity radar, emerging movers detector, WOLF orchestrator, HOWL performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
 
 ---
 
@@ -149,8 +149,8 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 | Skill | What it does | Install |
 |-------|-------------|---------|
 | **[Onboard](#onboard)** | Step-by-step first-time setup — from zero to first trade. Decision trees, verification at each step, error recovery. | [`SKILL.md`](skills/onboard/SKILL.md) |
-| **[WOLF Strategy](#wolf--autonomous-multi-slot-strategy)** | Fully autonomous 2-3 slot trading. Composes Scanner + Movers + DSL. Proven on testnet: signal detection, entry, trailing stop, exit. | [`SKILL.md`](skills/wolf/SKILL.md) |
-| **[Opportunity Scanner](#scanner--opportunity-scanner)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/scanner/SKILL.md) |
+| **[WOLF Strategy](#wolf--autonomous-multi-slot-strategy)** | Fully autonomous 2-3 slot trading. Composes Radar + Movers + DSL. Proven on testnet: signal detection, entry, trailing stop, exit. | [`SKILL.md`](skills/wolf/SKILL.md) |
+| **[Opportunity Radar](#radar--opportunity-radar)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/radar/SKILL.md) |
 | **[Emerging Movers](#movers--emerging-movers-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/movers/SKILL.md) |
 | **[DSL (Dynamic Stop Loss)](#dsl--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/dsl/SKILL.md) |
 | **[HOWL](#howl--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/howl/SKILL.md) |
@@ -162,7 +162,7 @@ Grab the raw URL and go:
 ```
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/onboard/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/wolf/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/scanner/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/movers/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/dsl/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/howl/SKILL.md
@@ -225,7 +225,7 @@ hl dsl run -i ETH-PERP --preset tight
 
 ---
 
-### Scanner — Opportunity Scanner
+### Radar — Opportunity Radar
 
 Multi-factor screening engine that evaluates all HL perps for trade setups. 4-stage funnel, scores 0-400.
 
@@ -237,11 +237,11 @@ Multi-factor screening engine that evaluates all HL perps for trade setups. 4-st
 | BTC Macro | 15 | Trend alignment, regime filter |
 
 ```bash
-hl scanner once --mock    # Single scan
-hl scanner run --mock     # Continuous (every 15 min)
+hl radar once --mock    # Single scan
+hl radar run --mock     # Continuous (every 15 min)
 ```
 
-**[Download SKILL.md](skills/scanner/SKILL.md)**
+**[Download SKILL.md](skills/radar/SKILL.md)**
 
 ---
 
@@ -267,24 +267,24 @@ hl movers run --mock      # Continuous (every 60s)
 
 ### WOLF — Autonomous Multi-Slot Strategy
 
-The top-level orchestrator. Composes Scanner + Movers + DSL into a single autonomous strategy managing 2-3 concurrent positions.
+The top-level orchestrator. Composes Radar + Movers + DSL into a single autonomous strategy managing 2-3 concurrent positions.
 
 **Tick schedule** (60s base):
 - Every tick: Fetch prices, update ROEs, check DSL, run movers, evaluate entry/exit
 - Every 5 ticks: Watchdog health check
-- Every 15 ticks: Run opportunity scanner
+- Every 15 ticks: Run opportunity radar
 
 **Entry priority:**
 
 | Priority | Source | Condition |
 |----------|--------|-----------|
 | 1 | Movers IMMEDIATE | Auto-enter on compound OI + volume signal |
-| 2 | Scanner | Score > 170 |
+| 2 | Radar | Score > 170 |
 | 3 | Movers signal | Confidence > 70 |
 
 **Presets:**
 
-| Preset | Slots | Leverage | Scanner Threshold | Daily Loss Limit |
+| Preset | Slots | Leverage | Radar Threshold | Daily Loss Limit |
 |--------|-------|----------|-------------------|------------------|
 | `default` | 3 | 10x | 170 | $500 |
 | `conservative` | 2 | 5x | 190 | $250 |
@@ -326,8 +326,8 @@ When running inside WOLF, HOWL executes automatically every 240 ticks (~4 hours)
 
 | Finding | Automatic Adjustment |
 |---------|---------------------|
-| FDR > 30% (fees eating profits) | Raise scanner threshold, disable immediate mover entries |
-| Win rate < 40% | Tighten both scanner and movers confidence thresholds |
+| FDR > 30% (fees eating profits) | Raise radar threshold, disable immediate mover entries |
+| Win rate < 40% | Tighten both radar and movers confidence thresholds |
 | 5+ consecutive losses | Reduce daily loss limit by 20% |
 | Direction imbalance (e.g. longs losing) | Limit same-direction slots |
 | Fees exceed gross PnL | **Emergency mode**: disable auto-entries, raise all thresholds |
@@ -354,7 +354,7 @@ hl skills list                    # Discover installed skills
 
 # Autonomous stack
 hl wolf run [options]             # WOLF multi-slot orchestrator
-hl scanner run [options]          # Opportunity scanner
+hl radar run [options]            # Opportunity radar
 hl movers run [options]           # Emerging movers detector
 hl dsl run -i ETH-PERP [options] # DSL trailing stop
 hl howl run [--since DATE]        # Performance review
@@ -379,7 +379,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `scanner_run`, `wolf_status`, `wolf_run`, `howl_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
+**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `wolf_status`, `wolf_run`, `howl_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
@@ -443,7 +443,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 4. Ask "how did we do?" → it runs HOWL and reports performance metrics
 5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
 
-Both options persist state via Railway volume at `/data` — WOLF state, HOWL reports, scanner history, and agent memory survive redeploys.
+Both options persist state via Railway volume at `/data` — WOLF state, HOWL reports, radar history, and agent memory survive redeploys.
 
 ---
 
@@ -469,7 +469,7 @@ hl run engine_mm -i BTCSWP-USDYP --tick 10
 
 ```
 cli/           CLI commands and trading engine
-  commands/    Subcommand modules (run, wolf, scanner, movers, dsl, howl, house, ...)
+  commands/    Subcommand modules (run, wolf, radar, movers, dsl, howl, house, ...)
   mcp_server.py  MCP server (16 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
@@ -478,14 +478,14 @@ cli/           CLI commands and trading engine
 strategies/    14 trading strategy implementations
 modules/       Pure logic modules (zero I/O)
   wolf_engine.py     WOLF decision engine
-  scanner_engine.py  Opportunity scanner
+  radar_engine.py    Opportunity radar
   movers_engine.py   Emerging movers detector
   trailing_stop.py   DSL trailing stop
   howl_engine.py     Performance analysis
 skills/        Agent Skills (SKILL.md + runners)
   onboard/     First-time setup guide
   wolf/        WOLF orchestrator
-  scanner/     Opportunity scanner
+  radar/       Opportunity radar
   movers/      Emerging movers
   dsl/         Dynamic stop loss
   howl/        Performance review

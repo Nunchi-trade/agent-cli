@@ -1,17 +1,17 @@
-"""ScannerGuard — bridge between pure engine, persistence, and logging."""
+"""RadarGuard — bridge between pure engine, persistence, and logging."""
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from modules.scanner_config import ScannerConfig
-from modules.scanner_engine import OpportunityScannerEngine
-from modules.scanner_state import ScanHistoryStore, ScanResult
+from modules.radar_config import RadarConfig
+from modules.radar_engine import OpportunityRadarEngine
+from modules.radar_state import RadarHistoryStore, RadarResult
 
-log = logging.getLogger("scanner_guard")
+log = logging.getLogger("radar_guard")
 
 
-class ScannerGuard:
+class RadarGuard:
     """Owns engine + history store + logging.
 
     Wraps the pure engine with persistence and human-readable output.
@@ -19,15 +19,15 @@ class ScannerGuard:
 
     def __init__(
         self,
-        config: Optional[ScannerConfig] = None,
-        history_store: Optional[ScanHistoryStore] = None,
+        config: Optional[RadarConfig] = None,
+        history_store: Optional[RadarHistoryStore] = None,
     ):
-        self.config = config or ScannerConfig()
-        self.engine = OpportunityScannerEngine(self.config)
-        self.history = history_store or ScanHistoryStore(
+        self.config = config or RadarConfig()
+        self.engine = OpportunityRadarEngine(self.config)
+        self.history = history_store or RadarHistoryStore(
             max_size=self.config.scan_history_size,
         )
-        self.last_result: Optional[ScanResult] = None
+        self.last_result: Optional[RadarResult] = None
 
     def scan(
         self,
@@ -35,7 +35,7 @@ class ScannerGuard:
         btc_candles_4h: List[Dict],
         btc_candles_1h: List[Dict],
         asset_candles: Dict[str, Dict[str, List[Dict]]],
-    ) -> ScanResult:
+    ) -> RadarResult:
         """Run a full scan, persist results, and log summary."""
         # Load history for momentum
         scan_history = self.history.get_history()

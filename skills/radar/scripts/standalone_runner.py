@@ -1,4 +1,4 @@
-"""Standalone scanner runner — tick loop that fetches data and runs scans."""
+"""Standalone radar runner — tick loop that fetches data and runs scans."""
 from __future__ import annotations
 
 import skills._bootstrap  # noqa: F401 — auto-setup sys.path
@@ -9,15 +9,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
-from modules.scanner_config import ScannerConfig
-from modules.scanner_guard import ScannerGuard
-from modules.scanner_state import ScanResult
+from modules.radar_config import RadarConfig
+from modules.radar_guard import RadarGuard
+from modules.radar_state import RadarResult
 
-log = logging.getLogger("scanner_runner")
+log = logging.getLogger("radar_runner")
 
 
-class ScannerRunner:
-    """Autonomous scanner tick loop.
+class RadarRunner:
+    """Autonomous radar tick loop.
 
     Each tick:
       1. Fetch all markets from HL
@@ -30,16 +30,16 @@ class ScannerRunner:
     def __init__(
         self,
         hl,
-        config: Optional[ScannerConfig] = None,
+        config: Optional[RadarConfig] = None,
         tick_interval: float = 900.0,  # 15 min default
         json_output: bool = False,
-        data_dir: str = "data/scanner",
+        data_dir: str = "data/radar",
     ):
         self.hl = hl
-        self.config = config or ScannerConfig()
+        self.config = config or RadarConfig()
         self.tick_interval = tick_interval
         self.json_output = json_output
-        self.guard = ScannerGuard(
+        self.guard = RadarGuard(
             config=self.config,
             history_store=None,  # uses default path
         )
@@ -53,7 +53,7 @@ class ScannerRunner:
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
-        log.info("Scanner started: tick=%.0fs top_n=%d min_vol=%.0f",
+        log.info("Radar started: tick=%.0fs top_n=%d min_vol=%.0f",
                  self.tick_interval, self.config.top_n_deep,
                  self.config.min_volume_24h)
 
@@ -72,23 +72,23 @@ class ScannerRunner:
             if self._running and self.tick_interval > 0 and (max_scans == 0 or self.scan_count < max_scans):
                 time.sleep(self.tick_interval)
 
-        log.info("Scanner stopped after %d scans", self.scan_count)
+        log.info("Radar stopped after %d scans", self.scan_count)
 
-    def run_once(self) -> ScanResult:
+    def run_once(self) -> RadarResult:
         """Single scan pass — no loop."""
         result = self._scan_tick()
         self.scan_count = 1
         self._print_result(result)
         return result
 
-    def _scan_tick(self) -> ScanResult:
+    def _scan_tick(self) -> RadarResult:
         """Execute a single scan cycle."""
         # 1. Fetch all markets
         all_markets = self.hl.get_all_markets()
 
         # 2. Pre-screen to find which assets need candle data
-        from modules.scanner_engine import OpportunityScannerEngine
-        temp_engine = OpportunityScannerEngine(self.config)
+        from modules.radar_engine import OpportunityRadarEngine
+        temp_engine = OpportunityRadarEngine(self.config)
         assets = temp_engine._bulk_screen(all_markets)
         top_assets = temp_engine._select_top(assets)
         asset_names = [a.name for a in top_assets]
@@ -148,7 +148,7 @@ class ScannerRunner:
 
         return result
 
-    def _print_result(self, result: ScanResult) -> None:
+    def _print_result(self, result: RadarResult) -> None:
         """Print scan results."""
         if self.json_output:
             import json

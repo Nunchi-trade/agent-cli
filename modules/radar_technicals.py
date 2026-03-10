@@ -1,4 +1,4 @@
-"""Pure technical analysis functions for the opportunity scanner.
+"""Pure technical analysis functions for the opportunity radar.
 
 Zero I/O — all functions take raw data and return computed values.
 """

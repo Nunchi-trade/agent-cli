@@ -1,6 +1,6 @@
-"""OpportunityScannerEngine — pure, stateless scanner (zero I/O).
+"""OpportunityRadarEngine — pure, stateless radar (zero I/O).
 
-All data passed in. Returns ScanResult. Fully testable.
+All data passed in. Returns RadarResult. Fully testable.
 """
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from modules.scanner_config import ScannerConfig
-from modules.scanner_state import DisqualifiedAsset, Opportunity, ScanResult
-from modules.scanner_technicals import (
+from modules.radar_config import RadarConfig
+from modules.radar_state import DisqualifiedAsset, Opportunity, RadarResult
+from modules.radar_technicals import (
     analyze_4h_trend,
     calc_ema,
     calc_rsi,
@@ -32,11 +32,11 @@ class AssetMeta:
     mark_price: float
 
 
-class OpportunityScannerEngine:
-    """Stateless scanner engine. All data passed in — zero I/O."""
+class OpportunityRadarEngine:
+    """Stateless radar engine. All data passed in — zero I/O."""
 
-    def __init__(self, config: Optional[ScannerConfig] = None):
-        self.config = config or ScannerConfig()
+    def __init__(self, config: Optional[RadarConfig] = None):
+        self.config = config or RadarConfig()
 
     def scan(
         self,
@@ -45,7 +45,7 @@ class OpportunityScannerEngine:
         btc_candles_1h: List[Dict],
         asset_candles: Dict[str, Dict[str, List[Dict]]],
         scan_history: List[Dict] = None,
-    ) -> ScanResult:
+    ) -> RadarResult:
         """Run the full 4-stage scan pipeline.
 
         Args:
@@ -101,7 +101,7 @@ class OpportunityScannerEngine:
         qualified = [o for o in opportunities if o.final_score >= self.config.score_threshold]
 
         elapsed_ms = int(time.time() * 1000) - start_ms
-        return ScanResult(
+        return RadarResult(
             scan_time_ms=start_ms,
             btc_macro=btc_macro,
             opportunities=qualified,

@@ -24,7 +24,7 @@ from cli.commands.trade import trade_cmd
 from cli.commands.account import account_cmd
 from cli.commands.strategies import strategies_cmd
 from cli.commands.guard import guard_app
-from cli.commands.scanner import scanner_app
+from cli.commands.radar import radar_app
 from cli.commands.movers import movers_app
 from cli.commands.wolf import wolf_app
 from cli.commands.builder import builder_app
@@ -41,7 +41,7 @@ app.command("trade", help="Place a single manual order")(trade_cmd)
 app.command("account", help="Show HL account state")(account_cmd)
 app.command("strategies", help="List available strategies")(strategies_cmd)
 app.add_typer(guard_app, name="guard", help="Guard trailing stop system")
-app.add_typer(scanner_app, name="scanner", help="Opportunity scanner — screen HL perps for setups")
+app.add_typer(radar_app, name="radar", help="Radar — screen HL perps for setups")
 app.add_typer(movers_app, name="movers", help="Emerging movers — detect assets with capital inflow")
 app.add_typer(wolf_app, name="wolf", help="WOLF strategy — autonomous multi-slot trading")
 app.add_typer(builder_app, name="builder", help="Builder fee — revenue collection on trades")

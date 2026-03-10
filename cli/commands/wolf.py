@@ -97,7 +97,7 @@ def wolf_presets():
         typer.echo(f"  budget: ${cfg.total_budget:,.0f}")
         typer.echo(f"  max_slots: {cfg.max_slots}")
         typer.echo(f"  leverage: {cfg.leverage}x")
-        typer.echo(f"  scanner_threshold: {cfg.scanner_score_threshold}")
+        typer.echo(f"  radar_threshold: {cfg.radar_score_threshold}")
         typer.echo(f"  daily_loss_limit: ${cfg.daily_loss_limit:,.0f}")
 
 

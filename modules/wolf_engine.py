@@ -21,7 +21,7 @@ class WolfAction:
     direction: str = ""     # "long" or "short"
     size: float = 0.0
     reason: str = ""
-    source: str = ""        # movers_immediate, movers_signal, scanner
+    source: str = ""        # movers_immediate, movers_signal, radar
     signal_score: float = 0.0
     execution_algo: str = "immediate"  # "immediate" or "twap"
 
@@ -202,15 +202,15 @@ class WolfEngine:
                         "priority": 1.5 if sig.get("signal_type") == "HIGH_CONVICTION" else 2.5,
                     })
 
-        # Priority 2: Scanner high scores
+        # Priority 2: Radar high scores
         for opp in scanner_opps:
-            if opp.get("final_score", 0) >= cfg.scanner_score_threshold:
+            if opp.get("final_score", 0) >= cfg.radar_score_threshold:
                 instrument = opp["asset"] + "-PERP"
                 if instrument not in active_instruments and instrument not in cfg.excluded_instruments:
                     candidates.append({
                         "instrument": instrument,
                         "direction": opp.get("direction", "LONG").lower(),
-                        "source": "scanner",
+                        "source": "radar",
                         "score": opp.get("final_score", 0),
                         "priority": 2,
                     })

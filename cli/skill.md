@@ -146,11 +146,11 @@ hl dsl status
 hl dsl presets
 ```
 
-### Scanner & Movers
+### Radar & Movers
 
 ```bash
-hl scanner run [--top 10] [--min-score 7.0]
-hl scanner history [-n 5]
+hl radar run [--top 10] [--min-score 7.0]
+hl radar history [-n 5]
 hl movers run [--top 10]
 ```
 
@@ -186,7 +186,7 @@ hl mcp serve                         # Start MCP server (stdio transport)
 hl mcp serve --transport sse         # Start MCP server (SSE transport)
 ```
 
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `scanner_run`, `wolf_status`, `wolf_run`, `howl_run`, `agent_memory`, `trade_journal`, `judge_report`
+Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `wolf_status`, `wolf_run`, `howl_run`, `agent_memory`, `trade_journal`, `judge_report`
 
 ## Strategies (14)
 

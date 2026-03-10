@@ -1,6 +1,6 @@
 """WOLF standalone runner — multi-slot orchestrator tick loop.
 
-Composes scanner + movers + Guard + HOWL into a single autonomous strategy.
+Composes radar + movers + Guard + HOWL into a single autonomous strategy.
 Each tick: fetch prices → update ROEs → check Guard → run movers → evaluate.
 Periodic: HOWL performance review → auto-adjust config parameters.
 Scheduled: daily PnL reset, comprehensive HOWL reports.
@@ -31,7 +31,7 @@ from modules.judge_guard import JudgeGuard
 from modules.memory_engine import MemoryEngine
 from modules.memory_guard import MemoryGuard
 from modules.movers_guard import MoversGuard
-from modules.scanner_guard import ScannerGuard
+from modules.radar_guard import RadarGuard
 from modules.wolf_config import WolfConfig
 from modules.wolf_engine import WolfAction, WolfEngine
 from modules.wolf_state import WolfSlot, WolfState, WolfStateStore
@@ -47,7 +47,7 @@ class WolfRunner:
     Tick schedule (60s base):
       Every tick:      Fetch prices → update ROEs → check Guard → run movers → evaluate
       Every 5 ticks:   Watchdog health check
-      Every 15 ticks:  Run scanner → queue high-score opportunities
+      Every 15 ticks:  Run radar → queue high-score opportunities
     """
 
     def __init__(
@@ -79,8 +79,8 @@ class WolfRunner:
 
         # Sub-guards
         self.movers_guard = MoversGuard()
-        self.scanner_guard = ScannerGuard()
-        self.scanner_guard.history.path = f"{data_dir}/scanner-history.json"
+        self.radar_guard = RadarGuard()
+        self.radar_guard.history.path = f"{data_dir}/radar-history.json"
 
         # Guard bridges per slot (created on entry, removed on exit)
         self.guard_bridges: Dict[int, GuardBridge] = {}
@@ -266,9 +266,9 @@ class WolfRunner:
             except Exception as e:
                 log.warning("Smart money scan failed: %s", e)
 
-        # 4. Run scanner (every N ticks)
+        # 4. Run radar (every N ticks)
         scanner_opps = []
-        if tick % self.config.scanner_interval_ticks == 0:
+        if tick % self.config.radar_interval_ticks == 0:
             scanner_opps = self._run_scanner()
 
         # 5. Watchdog (every N ticks)
@@ -397,7 +397,7 @@ class WolfRunner:
             return []
 
     def _run_scanner(self) -> List[Dict[str, Any]]:
-        """Run scanner and return opportunity dicts for the engine."""
+        """Run radar and return opportunity dicts for the engine."""
         try:
             all_markets = self.hl.get_all_markets()
 
@@ -405,7 +405,7 @@ class WolfRunner:
             btc_4h = self.hl.get_candles("BTC", "4h", 7 * 24 * 3600 * 1000)
             btc_1h = self.hl.get_candles("BTC", "1h", 48 * 3600 * 1000)
 
-            result = self.scanner_guard.scan(
+            result = self.radar_guard.scan(
                 all_markets=all_markets,
                 btc_candles_4h=btc_4h,
                 btc_candles_1h=btc_1h,
@@ -421,7 +421,7 @@ class WolfRunner:
                 for opp in result.opportunities
             ]
         except Exception as e:
-            log.warning("Scanner failed: %s", e)
+            log.warning("Radar failed: %s", e)
             return []
 
     def _watchdog(self) -> None:

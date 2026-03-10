@@ -301,9 +301,9 @@ def read_howl(data_dir: str) -> Dict[str, Any]:
 
 
 def read_scanner(data_dir: str) -> Dict[str, Any]:
-    """Read scanner history."""
-    primary = Path(data_dir) / "wolf" / "scanner-history.json"
-    fallback = Path(data_dir) / "scanner" / "scan-history.json"
+    """Read radar history."""
+    primary = Path(data_dir) / "wolf" / "radar-history.json"
+    fallback = Path(data_dir) / "radar" / "scan-history.json"
 
     scan_path = primary if primary.exists() else (fallback if fallback.exists() else None)
     if scan_path is None:

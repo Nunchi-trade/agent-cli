@@ -71,7 +71,7 @@ async function autoOnboard() {
     try {
       await sendTelegramMessage(
         process.env.TELEGRAM_BOT_TOKEN,
-        "Nunchi trading agent is ready. Say 'hl wolf run' to start autonomous trading, or 'hl scanner once' to scan for opportunities.",
+        "Nunchi trading agent is ready. Say 'hl wolf run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
       );
       console.log("[onboard] Sent ready message to Telegram");
     } catch (err) {

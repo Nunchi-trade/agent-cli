@@ -68,7 +68,7 @@ RULES:
 | FDR > 30% | CRITICAL | Reduce trade frequency or widen entry criteria immediately |
 | FDR 20-30% | WARNING | Monitor — consider reducing size or frequency |
 | FDR < 20% | OK | Fees are manageable |
-| Win rate < 35% | CRITICAL | Tighten entry criteria — Scanner threshold to 200+ |
+| Win rate < 35% | CRITICAL | Tighten entry criteria — Radar threshold to 200+ |
 | Win rate 35-45% | WARNING | Review losing trades for pattern |
 | Win rate > 50% | OK | Entries are working |
 | Monster dep > 60% | WARNING | One trade carrying the session — diversify alpha |
@@ -96,7 +96,7 @@ RULES:
 
 ## Composition
 
-HOWL is the learning layer of the WOLF system. Run HOWL nightly after WOLF stops. Feed HOWL insights back into WOLF configuration (Scanner thresholds, DSL presets, position sizing). Over time, HOWL recommendations should converge as the system improves.
+HOWL is the learning layer of the WOLF system. Run HOWL nightly after WOLF stops. Feed HOWL insights back into WOLF configuration (Radar thresholds, DSL presets, position sizing). Over time, HOWL recommendations should converge as the system improves.
 
 ## Cron Template
 

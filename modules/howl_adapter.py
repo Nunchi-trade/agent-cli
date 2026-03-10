@@ -22,7 +22,7 @@ class Adjustment:
 
 # Guardrail bounds — no parameter goes beyond these
 _BOUNDS = {
-    "scanner_score_threshold": (120, 280),
+    "radar_score_threshold": (120, 280),
     "movers_confidence_threshold": (40.0, 95.0),
     "daily_loss_limit": (50.0, 5000.0),
 }
@@ -48,9 +48,9 @@ def adapt(
 
     # 2. FDR > 30% — reduce trade frequency
     if metrics.fdr > 30:
-        adj = _clamp_adjust(config, "scanner_score_threshold",
-                            getattr(config, "scanner_score_threshold") + 10,
-                            "FDR critical (>30%): raise scanner threshold")
+        adj = _clamp_adjust(config, "radar_score_threshold",
+                            getattr(config, "radar_score_threshold") + 10,
+                            "FDR critical (>30%): raise radar threshold")
         if adj:
             adjustments.append(adj)
         if getattr(config, "movers_immediate_auto_entry", True):
@@ -70,9 +70,9 @@ def adapt(
 
     # 4. Win rate < 40% — tighten entry criteria
     if metrics.win_rate < 40 and metrics.total_round_trips >= 5:
-        adj = _clamp_adjust(config, "scanner_score_threshold",
-                            getattr(config, "scanner_score_threshold") + 10,
-                            f"Win rate low ({metrics.win_rate:.0f}%): raise scanner threshold")
+        adj = _clamp_adjust(config, "radar_score_threshold",
+                            getattr(config, "radar_score_threshold") + 10,
+                            f"Win rate low ({metrics.win_rate:.0f}%): raise radar threshold")
         if adj:
             adjustments.append(adj)
         adj2 = _clamp_adjust(config, "movers_confidence_threshold",
@@ -107,11 +107,11 @@ def adapt(
             and metrics.fdr < 15
             and metrics.total_round_trips >= 5):
         default_threshold = 170  # WolfConfig default
-        cur = getattr(config, "scanner_score_threshold")
+        cur = getattr(config, "radar_score_threshold")
         if cur > default_threshold:
-            adj = _clamp_adjust(config, "scanner_score_threshold",
+            adj = _clamp_adjust(config, "radar_score_threshold",
                                 cur - 5,
-                                "Profitable + healthy: relax scanner threshold slightly")
+                                "Profitable + healthy: relax radar threshold slightly")
             if adj:
                 adjustments.append(adj)
 
@@ -160,8 +160,8 @@ def _emergency_tighten(config) -> List[Adjustment]:
         new_value=False,
         reason="EMERGENCY: disable all immediate entries",
     ))
-    adj = _clamp_adjust(config, "scanner_score_threshold", 250,
-                        "EMERGENCY: raise scanner threshold to 250")
+    adj = _clamp_adjust(config, "radar_score_threshold", 250,
+                        "EMERGENCY: raise radar threshold to 250")
     if adj:
         adjs.append(adj)
     adj2 = _clamp_adjust(config, "movers_confidence_threshold", 90.0,

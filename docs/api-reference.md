@@ -768,12 +768,12 @@ Args: {
 
 This is a **long-running** call. If `max_ticks` is set, it returns after completion. Without `max_ticks`, it runs indefinitely (set a timeout on your MCP client).
 
-#### `scanner_run(mock=false)`
+#### `radar_run(mock=false)`
 
-Run the opportunity scanner once — screen all HL perps for trading setups.
+Run the opportunity radar once — screen all HL perps for trading setups.
 
 ```
-Tool: scanner_run
+Tool: radar_run
 Args: { "mock": false }
 ```
 
@@ -904,10 +904,10 @@ sqlite3 $DATA_DIR/cli/state.db "SELECT key, value FROM kv"
 
 Keys: `tick_count`, `positions`, `risk`, `start_time_ms`, `strategy_id`, `instrument`, `order_stats`.
 
-### Scanner Results
+### Radar Results
 
 ```bash
-cat $DATA_DIR/scanner/scan-history.json | python -m json.tool
+cat $DATA_DIR/radar/scan-history.json | python -m json.tool
 ```
 
 ### Movers Signals
@@ -1056,7 +1056,7 @@ else:
 | `status` | Subprocess | <1s | None |
 | `trade` | Subprocess | 1-5s | Places order on HL |
 | `run_strategy` | Subprocess | Minutes+ | Runs trading loop |
-| `scanner_run` | Subprocess | 10-30s | None |
+| `radar_run` | Subprocess | 10-30s | None |
 | `wolf_status` | Subprocess | <1s | None |
 | `wolf_run` | Subprocess | Minutes+ | Runs WOLF loop |
 | `howl_run` | Subprocess | 5-15s | None |

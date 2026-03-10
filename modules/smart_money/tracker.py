@@ -22,7 +22,7 @@ class WalletSnapshot:
 class SmartMoneyTracker:
     """Polls HL Info API to track position changes of watched addresses.
 
-    Stateless polling model — same pattern as scanner/movers.
+    Stateless polling model — same pattern as radar/movers.
     """
 
     def __init__(self, config: SmartMoneyConfig):

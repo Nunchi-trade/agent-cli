@@ -27,13 +27,13 @@ class TestPlaybook:
 
     def test_roundtrip(self):
         p = Playbook()
-        p.entries["ETH-PERP:scanner"] = PlaybookEntry(
-            instrument="ETH-PERP", signal_source="scanner",
+        p.entries["ETH-PERP:radar"] = PlaybookEntry(
+            instrument="ETH-PERP", signal_source="radar",
             trade_count=10, win_count=6, total_pnl=50.0, total_roe=25.0,
         )
         d = p.to_dict()
         p2 = Playbook.from_dict(d)
-        e = p2.entries["ETH-PERP:scanner"]
+        e = p2.entries["ETH-PERP:radar"]
         assert e.trade_count == 10
         assert e.win_rate == 60.0
         assert e.avg_roe == 2.5
@@ -43,11 +43,11 @@ class TestMemoryEngine:
     def test_create_param_change_event(self):
         from modules.howl_adapter import Adjustment
         engine = MemoryEngine()
-        adj = [Adjustment(param="scanner_score_threshold", old_value=170, new_value=180, reason="test")]
+        adj = [Adjustment(param="radar_score_threshold", old_value=170, new_value=180, reason="test")]
         event = engine.create_param_change_event(adj)
         assert event.event_type == "param_change"
         assert "170->180" in event.summary
-        assert event.payload["adjustments"][0]["param"] == "scanner_score_threshold"
+        assert event.payload["adjustments"][0]["param"] == "radar_score_threshold"
 
     def test_create_session_event(self):
         engine = MemoryEngine()
@@ -66,7 +66,7 @@ class TestMemoryEngine:
         engine = MemoryEngine()
         event = engine.create_notable_trade_event(
             instrument="ETH-PERP", direction="long", pnl=45.0,
-            roe_pct=12.5, entry_source="scanner", close_reason="guard_close",
+            roe_pct=12.5, entry_source="radar", close_reason="guard_close",
         )
         assert event.event_type == "notable_trade"
         assert "ETH-PERP" in event.summary
@@ -75,7 +75,7 @@ class TestMemoryEngine:
         engine = MemoryEngine()
         event = engine.create_judge_event(
             findings_count=3,
-            false_positive_rates={"scanner": 25.0, "movers_immediate": 60.0},
+            false_positive_rates={"radar": 25.0, "movers_immediate": 60.0},
             recommendations=["Disable movers auto-entry"],
         )
         assert event.event_type == "judge_finding"
@@ -86,14 +86,14 @@ class TestMemoryEngine:
         playbook = Playbook()
 
         slots = [
-            {"instrument": "ETH-PERP", "entry_source": "scanner",
+            {"instrument": "ETH-PERP", "entry_source": "radar",
              "close_pnl": 10.0, "current_roe": 5.0, "entry_ts": 1000, "close_ts": 5000},
-            {"instrument": "ETH-PERP", "entry_source": "scanner",
+            {"instrument": "ETH-PERP", "entry_source": "radar",
              "close_pnl": -5.0, "current_roe": -2.5, "entry_ts": 6000, "close_ts": 9000},
         ]
 
         playbook = engine.update_playbook(playbook, slots)
-        entry = playbook.entries["ETH-PERP:scanner"]
+        entry = playbook.entries["ETH-PERP:radar"]
         assert entry.trade_count == 2
         assert entry.win_count == 1
         assert entry.total_pnl == 5.0

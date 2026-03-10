@@ -1,9 +1,9 @@
-"""Tests for modules/scanner_engine.py — full pipeline with synthetic data."""
+"""Tests for modules/radar_engine.py — full pipeline with synthetic data."""
 import pytest
 
-from modules.scanner_config import ScannerConfig
-from modules.scanner_engine import AssetMeta, OpportunityScannerEngine
-from modules.scanner_state import Opportunity, ScanResult
+from modules.radar_config import RadarConfig
+from modules.radar_engine import AssetMeta, OpportunityRadarEngine
+from modules.radar_state import Opportunity, RadarResult
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ def _make_markets(assets_data):
 
 class TestBtcMacro:
     def setup_method(self):
-        self.engine = OpportunityScannerEngine()
+        self.engine = OpportunityRadarEngine()
 
     def test_strong_uptrend(self):
         candles_4h = _uptrend_candles(start=40000, n=50, step=200)
@@ -104,7 +104,7 @@ class TestBtcMacro:
 
 class TestBulkScreen:
     def setup_method(self):
-        self.engine = OpportunityScannerEngine()
+        self.engine = OpportunityRadarEngine()
 
     def test_filters_by_volume(self):
         markets = _make_markets([
@@ -127,8 +127,8 @@ class TestBulkScreen:
 
 class TestSelectTop:
     def test_selects_top_n(self):
-        config = ScannerConfig(top_n_deep=2)
-        engine = OpportunityScannerEngine(config)
+        config = RadarConfig(top_n_deep=2)
+        engine = OpportunityRadarEngine(config)
 
         assets = [
             AssetMeta("A", 1e6, 0.0, 1e6, 100),
@@ -144,7 +144,7 @@ class TestSelectTop:
 
 class TestDeepDive:
     def setup_method(self):
-        self.engine = OpportunityScannerEngine()
+        self.engine = OpportunityRadarEngine()
         self.asset = AssetMeta("TEST", 5e6, 0.0001, 5e6, 100)
         self.btc_macro = {
             "trend": "neutral",
@@ -252,7 +252,7 @@ class TestDeepDive:
 
 class TestPillarScoring:
     def setup_method(self):
-        self.engine = OpportunityScannerEngine()
+        self.engine = OpportunityRadarEngine()
 
     def test_market_structure_high_volume(self):
         asset = AssetMeta("X", 100e6, 0.0, 50e6, 100)
@@ -287,12 +287,12 @@ class TestPillarScoring:
 
 class TestFullPipeline:
     def test_scan_with_synthetic_data(self):
-        config = ScannerConfig(
+        config = RadarConfig(
             min_volume_24h=100_000,
             top_n_deep=5,
             score_threshold=50,  # Low threshold for test
         )
-        engine = OpportunityScannerEngine(config)
+        engine = OpportunityRadarEngine(config)
 
         markets = _make_markets([
             ("ETH", 5e8, 0.0001, 5e7, 2500),
@@ -326,7 +326,7 @@ class TestFullPipeline:
             asset_candles=asset_candles,
         )
 
-        assert isinstance(result, ScanResult)
+        assert isinstance(result, RadarResult)
         assert result.stats["assets_scanned"] == 4
         assert result.stats["passed_stage1"] == 3  # SMALL filtered
         # At least some should qualify or get disqualified
@@ -334,7 +334,7 @@ class TestFullPipeline:
         assert total > 0
 
     def test_scan_empty_markets(self):
-        engine = OpportunityScannerEngine()
+        engine = OpportunityRadarEngine()
         result = engine.scan(
             all_markets=[{}, []],
             btc_candles_4h=[],
@@ -345,8 +345,8 @@ class TestFullPipeline:
         assert result.stats.get("passed_stage1", 0) == 0
 
     def test_momentum_tracking(self):
-        config = ScannerConfig(score_threshold=0)
-        engine = OpportunityScannerEngine(config)
+        config = RadarConfig(score_threshold=0)
+        engine = OpportunityRadarEngine(config)
 
         # Fake previous scan history
         history = [{

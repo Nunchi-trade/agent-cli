@@ -9,7 +9,7 @@ The primary tool provider. Exposes 13 trading tools via Model Context Protocol:
 - `trade` — Place a single order (instrument, side, size)
 - `run_strategy` — Start autonomous strategy trading
 - `strategies` — List all 14 available strategies
-- `scanner_run` — Run opportunity scanner across all HL perps
+- `radar_run` — Run opportunity radar across all HL perps
 - `wolf_status` — Show WOLF orchestrator state
 - `wolf_run` — Start WOLF autonomous multi-slot trading
 - `howl_run` — Run HOWL performance review
@@ -24,7 +24,7 @@ All MCP tools are also available as CLI commands. Use the CLI for operations not
 
 ```bash
 hl wolf run [--preset default|conservative|aggressive] [--mainnet]
-hl scanner once [--mock]
+hl radar once [--mock]
 hl movers once [--mock]
 hl dsl run -i ETH-PERP [--preset tight]
 hl howl run [--since DATE]

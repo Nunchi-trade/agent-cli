@@ -18,7 +18,7 @@ class TestJournalEntry:
 
 
 class TestJournalEngine:
-    def test_create_entry_scanner(self):
+    def test_create_entry_radar(self):
         engine = JournalEngine()
         entry = engine.create_entry(
             instrument="ETH-PERP",
@@ -27,7 +27,7 @@ class TestJournalEngine:
             exit_price=3150.0,
             pnl=50.0,
             roe_pct=5.0,
-            entry_source="scanner",
+            entry_source="radar",
             entry_signal_score=210.0,
             close_reason="guard_close",
             entry_ts=1000000,
@@ -35,7 +35,7 @@ class TestJournalEngine:
         )
         assert entry.entry_id == "ETH-PERP-1000000"
         assert entry.signal_quality == "good"  # High score + profitable
-        assert "scanner opportunity" in entry.entry_reasoning
+        assert "radar opportunity" in entry.entry_reasoning
         assert "Guard trailing stop" in entry.exit_reasoning
         assert entry.holding_ms == 3600000
 
@@ -60,11 +60,11 @@ class TestJournalEngine:
     def test_signal_quality_assessment(self):
         engine = JournalEngine()
         # Good: profitable + high score
-        assert engine._assess_signal_quality("scanner", 210, 50, 5) == "good"
+        assert engine._assess_signal_quality("radar", 210, 50, 5) == "good"
         # Fair: profitable + low score
-        assert engine._assess_signal_quality("scanner", 160, 10, 1) == "fair"
+        assert engine._assess_signal_quality("radar", 160, 10, 1) == "fair"
         # Poor: high score but lost money
-        assert engine._assess_signal_quality("scanner", 250, -20, -3) == "poor"
+        assert engine._assess_signal_quality("radar", 250, -20, -3) == "poor"
 
     def test_nightly_review_empty(self):
         engine = JournalEngine()
@@ -75,7 +75,7 @@ class TestJournalEngine:
 
     def test_retrospective_dsl_profit(self):
         engine = JournalEngine()
-        retro = engine._generate_retrospective("good", "scanner", "guard_close", 8.0, 40.0)
+        retro = engine._generate_retrospective("good", "radar", "guard_close", 8.0, 40.0)
         assert "working" in retro.lower()
 
     def test_retrospective_conviction_loss(self):

@@ -47,11 +47,11 @@ hl movers presets           # List presets
 
 ## Agent Mandate
 
-You are the emerging movers detector. Your job is to catch capital inflow signals BEFORE the crowd. You detect timing — Scanner detects setups. Together they form the WOLF entry pipeline.
+You are the emerging movers detector. Your job is to catch capital inflow signals BEFORE the crowd. You detect timing — Radar detects setups. Together they form the WOLF entry pipeline.
 
 RULES:
 - IMMEDIATE_MOVER is the only signal strong enough for standalone entry
-- All other signals require Scanner confirmation (score > 170)
+- All other signals require Radar confirmation (score > 170)
 - ALWAYS check baseline history — signals from assets with < 2 scans are unreliable
 - NEVER act on erratic assets (rank bouncing between scans)
 - Report direction with every signal — directionless signals are useless
@@ -61,8 +61,8 @@ RULES:
 | Signal Type | Confidence | Standalone Entry? | Action |
 |------------|------------|-------------------|--------|
 | IMMEDIATE_MOVER | 100 | YES | Enter immediately — rare, high-conviction |
-| VOLUME_SURGE | 70 | NO | Check Scanner score. Enter if > 170 |
-| OI_BREAKOUT | 60 | NO | Check Scanner score. Enter if > 200 |
+| VOLUME_SURGE | 70 | NO | Check Radar score. Enter if > 170 |
+| OI_BREAKOUT | 60 | NO | Check Radar score. Enter if > 200 |
 | FUNDING_FLIP | 50 | NO | Informational only — do not enter on funding alone |
 | Multiple signals same asset | Varies | YES if combined > 150 | Compound conviction — enter with caution |
 
@@ -76,7 +76,7 @@ RULES:
 ## Anti-Patterns
 
 - **Acting on FUNDING_FLIP alone**: Funding flips are noisy and low-conviction. Only useful as confirming signal.
-- **Entering on VOLUME_SURGE without Scanner**: Volume surges occur on news, liquidations, and wash trading. 30% are false positives without Scanner confirmation.
+- **Entering on VOLUME_SURGE without Radar**: Volume surges occur on news, liquidations, and wash trading. 30% are false positives without Radar confirmation.
 - **Ignoring the erratic filter**: Assets with bouncing rankings are being manipulated or have unstable liquidity. The erratic filter exists for a reason.
 - **Running too frequently**: Movers needs time between scans to build baselines. Running every 10s wastes API calls without improving signal quality. Use 60s minimum.
 
@@ -91,7 +91,7 @@ RULES:
 
 ## Composition
 
-Movers is a sub-component of WOLF (runs every tick). Pairs with Scanner — Scanner identifies high-quality setups, Movers detects the optimal entry timing via capital flow signals. When used standalone, always cross-check with `hl scanner once`.
+Movers is a sub-component of WOLF (runs every tick). Pairs with Radar — Radar identifies high-quality setups, Movers detects the optimal entry timing via capital flow signals. When used standalone, always cross-check with `hl radar once`.
 
 ## Cron Template
 

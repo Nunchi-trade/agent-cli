@@ -1,4 +1,4 @@
-"""Scanner state models — scan results, opportunities, and history persistence."""
+"""Radar state models — scan results, opportunities, and history persistence."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class Opportunity:
-    """A scored trading opportunity from the scanner."""
+    """A scored trading opportunity from the radar."""
     asset: str
     direction: str  # "LONG" or "SHORT"
     final_score: float
@@ -42,8 +42,8 @@ class DisqualifiedAsset:
 
 
 @dataclass
-class ScanResult:
-    """Complete result of a single scanner pass."""
+class RadarResult:
+    """Complete result of a single radar pass."""
     scan_time_ms: int
     btc_macro: Dict[str, Any] = field(default_factory=dict)
     # {trend, strength, ema5, ema13, diff_pct, chg1h, modifiers}
@@ -64,7 +64,7 @@ class ScanResult:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ScanResult":
+    def from_dict(cls, d: Dict[str, Any]) -> "RadarResult":
         return cls(
             scan_time_ms=d.get("scan_time_ms", 0),
             btc_macro=d.get("btc_macro", {}),
@@ -74,17 +74,17 @@ class ScanResult:
         )
 
 
-class ScanHistoryStore:
+class RadarHistoryStore:
     """Persists scan history to JSON for cross-scan momentum tracking."""
 
-    def __init__(self, path: str = "data/scanner/scan-history.json", max_size: int = 12):
+    def __init__(self, path: str = "data/radar/scan-history.json", max_size: int = 12):
         self.path = path
         self.max_size = max_size
 
     def _ensure_dir(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
-    def save_scan(self, result: ScanResult) -> None:
+    def save_scan(self, result: RadarResult) -> None:
         """Append a scan result, trimming history to max_size."""
         history = self.get_history()
         history.append(result.to_dict())
