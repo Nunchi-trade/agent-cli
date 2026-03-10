@@ -32,7 +32,7 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: DSL trailing stops, opportunity radar, emerging movers detector, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
 
 ---
 
@@ -149,10 +149,10 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 | Skill | What it does | Install |
 |-------|-------------|---------|
 | **[Onboard](#onboard)** | Step-by-step first-time setup — from zero to first trade. Decision trees, verification at each step, error recovery. | [`SKILL.md`](skills/onboard/SKILL.md) |
-| **[APEX Strategy](#apex--autonomous-multi-slot-strategy)** | Fully autonomous 2-3 slot trading. Composes Radar + Movers + DSL. Proven on testnet: signal detection, entry, trailing stop, exit. | [`SKILL.md`](skills/apex/SKILL.md) |
-| **[Opportunity Radar](#radar--opportunity-radar)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/radar/SKILL.md) |
-| **[Emerging Movers](#movers--emerging-movers-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/movers/SKILL.md) |
-| **[DSL (Dynamic Stop Loss)](#dsl--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/dsl/SKILL.md) |
+| **[APEX Strategy](#apex--autonomous-multi-slot-strategy)** | Fully autonomous 2-3 slot trading. Composes Radar + Pulse + Guard. Proven on testnet: signal detection, entry, trailing stop, exit. | [`SKILL.md`](skills/apex/SKILL.md) |
+| **[Radar](#radar--opportunity-radar)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/radar/SKILL.md) |
+| **[Pulse](#pulse--emerging-pulse-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/pulse/SKILL.md) |
+| **[Guard (Dynamic Stop Loss)](#guard--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/guard/SKILL.md) |
 | **[REFLECT](#reflect--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/reflect/SKILL.md) |
 
 ### Install a skill (agents)
@@ -163,8 +163,8 @@ Grab the raw URL and go:
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/onboard/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/apex/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/movers/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/dsl/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/pulse/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/guard/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
 ```
 
@@ -204,7 +204,7 @@ hl run avellaneda_mm --mock --max-ticks 3  # Step 6: Validate
 
 ---
 
-### DSL — Dynamic Stop Loss
+### Guard — Dynamic Stop Loss
 
 Trailing stop system with tiered profit-locking. Protects profits while letting winners run.
 
@@ -218,10 +218,10 @@ Trailing stop system with tiered profit-locking. Protects profits while letting 
 | `tight` | 5% | 4 tiers (10-75% ROE) | Yes (8% ROE, 1h) |
 
 ```bash
-hl dsl run -i ETH-PERP --preset tight
+hl guard run -i ETH-PERP --preset tight
 ```
 
-**[Download SKILL.md](skills/dsl/SKILL.md)**
+**[Download SKILL.md](skills/guard/SKILL.md)**
 
 ---
 
@@ -245,7 +245,7 @@ hl radar run --mock     # Continuous (every 15 min)
 
 ---
 
-### Movers — Emerging Movers Detector
+### Pulse — Emerging Momentum Detector
 
 Detects assets with sudden capital inflow using OI, volume, funding, and price signals. Runs every 60 seconds.
 
@@ -257,20 +257,20 @@ Detects assets with sudden capital inflow using OI, volume, funding, and price s
 | `FUNDING_FLIP` | Funding rate reverses or accelerates 50%+ | 50 |
 
 ```bash
-hl movers once --mock     # Single scan
-hl movers run --mock      # Continuous (every 60s)
+hl pulse once --mock      # Single scan
+hl pulse run --mock       # Continuous (every 60s)
 ```
 
-**[Download SKILL.md](skills/movers/SKILL.md)**
+**[Download SKILL.md](skills/pulse/SKILL.md)**
 
 ---
 
 ### APEX — Autonomous Multi-Slot Strategy
 
-The top-level orchestrator. Composes Radar + Movers + DSL into a single autonomous strategy managing 2-3 concurrent positions.
+The top-level orchestrator. Composes Radar + Pulse + Guard into a single autonomous strategy managing 2-3 concurrent positions.
 
 **Tick schedule** (60s base):
-- Every tick: Fetch prices, update ROEs, check DSL, run movers, evaluate entry/exit
+- Every tick: Fetch prices, update ROEs, check Guard, run Pulse, evaluate entry/exit
 - Every 5 ticks: Watchdog health check
 - Every 15 ticks: Run opportunity radar
 
@@ -355,8 +355,8 @@ hl skills list                    # Discover installed skills
 # Autonomous stack
 hl apex run [options]             # APEX multi-slot orchestrator
 hl radar run [options]            # Opportunity radar
-hl movers run [options]           # Emerging movers detector
-hl dsl run -i ETH-PERP [options] # DSL trailing stop
+hl pulse run [options]            # Pulse momentum detector
+hl guard run -i ETH-PERP [options] # Guard trailing stop
 hl reflect run [--since DATE]        # Performance review
 
 # Infrastructure
@@ -409,7 +409,7 @@ One-click deploy to run APEX autonomously. No AI model needed — pure determini
 | `APEX_PRESET` | No | `default` | `conservative`, `default`, or `aggressive` |
 
 **Run modes:**
-- **apex** (default) — APEX multi-slot orchestrator with autonomous entry, exit, DSL trailing stops, and REFLECT self-improvement loop
+- **apex** (default) — APEX multi-slot orchestrator with autonomous entry, exit, Guard trailing stops, and REFLECT self-improvement loop
 - **strategy** — Single strategy loop (set `STRATEGY=engine_mm`, `avellaneda_mm`, etc.)
 - **mcp** — MCP server for AI agent integration (SSE transport)
 
@@ -443,7 +443,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 4. Ask "how did we do?" → it runs REFLECT and reports performance metrics
 5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
 
-Both options persist state via Railway volume at `/data` — APEX state, REFLECT reports, radar history, and agent memory survive redeploys.
+Both options persist state via Railway volume at `/data` — APEX state, REFLECT reports, Radar history, and agent memory survive redeploys.
 
 ---
 
@@ -469,7 +469,7 @@ hl run engine_mm -i BTCSWP-USDYP --tick 10
 
 ```
 cli/           CLI commands and trading engine
-  commands/    Subcommand modules (run, apex, radar, movers, dsl, reflect, house, ...)
+  commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
   mcp_server.py  MCP server (16 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
@@ -479,15 +479,15 @@ strategies/    14 trading strategy implementations
 modules/       Pure logic modules (zero I/O)
   apex_engine.py     APEX decision engine
   radar_engine.py    Opportunity radar
-  movers_engine.py   Emerging movers detector
-  trailing_stop.py   DSL trailing stop
+  pulse_engine.py    Pulse momentum detector
+  trailing_stop.py   Guard trailing stop
   reflect_engine.py     Performance analysis
 skills/        Agent Skills (SKILL.md + runners)
   onboard/     First-time setup guide
   apex/        APEX orchestrator
   radar/       Opportunity radar
-  movers/      Emerging movers
-  dsl/         Dynamic stop loss
+  pulse/       Pulse momentum detector
+  guard/       Dynamic stop loss
   reflect/        Performance review
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management

@@ -30,7 +30,7 @@ _BOUNDS = {
 
 def adapt(
     metrics: ReflectMetrics,
-    config,  # WolfConfig — avoid circular import
+    config,  # ApexConfig — avoid circular import
 ) -> Tuple[List[Adjustment], str]:
     """Analyze REFLECT metrics and return config adjustments.
 
@@ -106,7 +106,7 @@ def adapt(
             and metrics.net_pnl > 0
             and metrics.fdr < 15
             and metrics.total_round_trips >= 5):
-        default_threshold = 170  # WolfConfig default
+        default_threshold = 170  # ApexConfig default
         cur = getattr(config, "radar_score_threshold")
         if cur > default_threshold:
             adj = _clamp_adjust(config, "radar_score_threshold",
@@ -128,7 +128,7 @@ def adapt(
 
 
 def apply_adjustments(adjustments: List[Adjustment], config) -> None:
-    """Apply adjustments to a WolfConfig instance in-place."""
+    """Apply adjustments to an ApexConfig instance in-place."""
     for adj in adjustments:
         setattr(config, adj.param, adj.new_value)
 
