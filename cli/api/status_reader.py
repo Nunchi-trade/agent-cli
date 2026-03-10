@@ -279,14 +279,14 @@ def read_trades(data_dir: str, limit: int = 50) -> Dict[str, Any]:
         return {"trades": [], "total": 0}
 
 
-def read_howl(data_dir: str) -> Dict[str, Any]:
-    """Read latest HOWL report from howl/ directory."""
-    howl_dir = Path(data_dir) / "wolf" / "howl"
-    if not howl_dir.exists():
+def read_reflect(data_dir: str) -> Dict[str, Any]:
+    """Read latest REFLECT report from reflect/ directory."""
+    reflect_dir = Path(data_dir) / "wolf" / "reflect"
+    if not reflect_dir.exists():
         return {"report": None, "report_name": None, "reports": []}
 
     try:
-        md_files = sorted(howl_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
+        md_files = sorted(reflect_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
         reports = [f.name for f in md_files]
         if md_files:
             latest = md_files[0]
@@ -356,7 +356,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=["status", "strategies", "trades", "howl", "scanner", "journal"],
+        choices=["status", "strategies", "trades", "reflect", "scanner", "journal"],
         default="status",
         nargs="?",
     )
@@ -368,8 +368,8 @@ if __name__ == "__main__":
         print(json.dumps(read_strategies(), indent=2))
     elif args.command == "trades":
         print(json.dumps(read_trades(args.data_dir, limit=args.limit), indent=2))
-    elif args.command == "howl":
-        print(json.dumps(read_howl(args.data_dir), indent=2))
+    elif args.command == "reflect":
+        print(json.dumps(read_reflect(args.data_dir), indent=2))
     elif args.command == "scanner":
         print(json.dumps(read_scanner(args.data_dir), indent=2))
     elif args.command == "journal":

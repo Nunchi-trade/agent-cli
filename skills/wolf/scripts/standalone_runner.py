@@ -1,9 +1,9 @@
 """WOLF standalone runner — multi-slot orchestrator tick loop.
 
-Composes radar + pulse + Guard + HOWL into a single autonomous strategy.
+Composes radar + pulse + Guard + REFLECT into a single autonomous strategy.
 Each tick: fetch prices -> update ROEs -> check Guard -> run pulse -> evaluate.
-Periodic: HOWL performance review → auto-adjust config parameters.
-Scheduled: daily PnL reset, comprehensive HOWL reports.
+Periodic: REFLECT performance review → auto-adjust config parameters.
+Scheduled: daily PnL reset, comprehensive REFLECT reports.
 """
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ from typing import Any, Dict, List, Optional
 from modules.guard_config import GuardConfig, PRESETS as GUARD_PRESETS
 from modules.guard_bridge import GuardBridge
 from modules.guard_state import GuardState, GuardStateStore
-from modules.howl_adapter import adapt, apply_adjustments
-from modules.howl_engine import HowlEngine, TradeRecord
-from modules.howl_reporter import HowlReporter
+from modules.reflect_adapter import adapt, apply_adjustments
+from modules.reflect_engine import ReflectEngine, TradeRecord
+from modules.reflect_reporter import ReflectReporter
 from modules.journal_engine import JournalEngine
 from modules.journal_guard import JournalGuard
 from modules.judge_guard import JudgeGuard
@@ -86,7 +86,7 @@ class WolfRunner:
         self.guard_bridges: Dict[int, GuardBridge] = {}
         self._restore_guard_bridges()
 
-        # Trade logging for HOWL
+        # Trade logging for REFLECT
         self.trade_log = JSONLStore(path=f"{data_dir}/trades.jsonl")
 
         # Self-improvement subsystems
@@ -276,9 +276,9 @@ class WolfRunner:
             self._watchdog()
             self._persist_account_state()
 
-        # 5b. HOWL self-improvement (every N ticks)
-        if tick % self.config.howl_interval_ticks == 0:
-            self._run_howl()
+        # 5b. REFLECT self-improvement (every N ticks)
+        if tick % self.config.reflect_interval_ticks == 0:
+            self._run_reflect()
 
         # 5c. Scheduled tasks (time-based)
         self._check_scheduled_tasks(now_ms)
@@ -682,46 +682,46 @@ class WolfRunner:
             "meta": meta,
         })
 
-    def _run_howl(self) -> None:
-        """Run HOWL performance review and optionally auto-adjust config."""
+    def _run_reflect(self) -> None:
+        """Run REFLECT performance review and optionally auto-adjust config."""
         try:
             raw_trades = self.trade_log.read_all()
             if not raw_trades:
-                log.info("HOWL: no trades logged yet, skipping")
+                log.info("REFLECT: no trades logged yet, skipping")
                 return
 
             trades = [TradeRecord.from_dict(t) for t in raw_trades]
-            metrics = HowlEngine().compute(trades)
+            metrics = ReflectEngine().compute(trades)
 
             # Log distilled summary
-            summary = HowlReporter().distill(metrics)
+            summary = ReflectReporter().distill(metrics)
             log.info(summary)
 
             # Save report
-            howl_dir = Path(self.data_dir) / "howl"
-            howl_dir.mkdir(parents=True, exist_ok=True)
+            reflect_dir = Path(self.data_dir) / "reflect"
+            reflect_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M")
-            report = HowlReporter().generate(metrics, date=ts)
-            (howl_dir / f"{ts}.md").write_text(report)
+            report = ReflectReporter().generate(metrics, date=ts)
+            (reflect_dir / f"{ts}.md").write_text(report)
 
-            # Log HOWL review to memory
+            # Log REFLECT review to memory
             try:
-                howl_event = self.memory_engine.create_howl_event(
+                reflect_event = self.memory_engine.create_reflect_event(
                     win_rate=metrics.win_rate,
                     net_pnl=metrics.net_pnl,
                     fdr=metrics.fdr,
                     round_trips=metrics.total_round_trips,
                     distilled=summary,
                 )
-                self.memory_guard.log_event(howl_event)
+                self.memory_guard.log_event(reflect_event)
             except Exception:
                 pass
 
-            # Write HOWL report to Obsidian
+            # Write REFLECT report to Obsidian
             if self._obsidian_writer:
                 try:
                     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    self._obsidian_writer.write_howl_report(
+                    self._obsidian_writer.write_reflect_report(
                         briefing_md=report, date=date,
                         win_rate=metrics.win_rate, net_pnl=metrics.net_pnl,
                         fdr=metrics.fdr, round_trips=metrics.total_round_trips,
@@ -730,8 +730,8 @@ class WolfRunner:
                     pass
 
             # Auto-adjust if enabled and enough data
-            if (self.config.howl_auto_adjust
-                    and metrics.total_round_trips >= self.config.howl_min_round_trips):
+            if (self.config.reflect_auto_adjust
+                    and metrics.total_round_trips >= self.config.reflect_min_round_trips):
                 adjustments, adj_log = adapt(metrics, self.config)
                 if adjustments:
                     apply_adjustments(adjustments, self.config)
@@ -748,7 +748,7 @@ class WolfRunner:
                     except Exception:
                         pass
                 else:
-                    log.info("HOWL: no adjustments needed")
+                    log.info("REFLECT: no adjustments needed")
 
             # Run Judge evaluation
             try:
@@ -783,10 +783,10 @@ class WolfRunner:
                 pass
 
         except Exception as e:
-            log.warning("HOWL review failed: %s", e)
+            log.warning("REFLECT review failed: %s", e)
 
     def _check_scheduled_tasks(self, now_ms: int) -> None:
-        """Run time-based scheduled tasks (daily reset, HOWL reports)."""
+        """Run time-based scheduled tasks (daily reset, REFLECT reports)."""
         now = datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc)
         today = now.strftime("%Y-%m-%d")
         current_hour = now.hour
@@ -800,12 +800,12 @@ class WolfRunner:
             self.state.daily_loss_triggered = False
             log.info("Daily PnL reset (was $%.2f)", old_pnl)
 
-        # Scheduled HOWL comprehensive report
-        if (current_hour == self.config.howl_report_hour
-                and self._last_scheduled.get("howl_report") != today):
-            self._last_scheduled["howl_report"] = today
-            log.info("Scheduled HOWL report (UTC %02d:00)", current_hour)
-            self._run_howl()
+        # Scheduled REFLECT comprehensive report
+        if (current_hour == self.config.reflect_report_hour
+                and self._last_scheduled.get("reflect_report") != today):
+            self._last_scheduled["reflect_report"] = today
+            log.info("Scheduled REFLECT report (UTC %02d:00)", current_hour)
+            self._run_reflect()
 
         # Nightly review (today vs 7-day average)
         if (self.config.nightly_review_enabled
@@ -889,13 +889,13 @@ class WolfRunner:
             )
 
             # Save briefing
-            howl_dir = Path(self.data_dir) / "howl"
-            howl_dir.mkdir(parents=True, exist_ok=True)
-            (howl_dir / f"{today}-nightly.md").write_text(result.briefing_md)
+            reflect_dir = Path(self.data_dir) / "reflect"
+            reflect_dir.mkdir(parents=True, exist_ok=True)
+            (reflect_dir / f"{today}-nightly.md").write_text(result.briefing_md)
 
             # Write findings to memory
             for finding in result.key_findings:
-                event = self.memory_engine.create_howl_event(
+                event = self.memory_engine.create_reflect_event(
                     distilled=f"Nightly: {finding}",
                 )
                 self.memory_guard.log_event(event)

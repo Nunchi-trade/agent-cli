@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from modules.howl_engine import HowlEngine, HowlMetrics, TradeRecord
+from modules.reflect_engine import ReflectEngine, ReflectMetrics, TradeRecord
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ class JournalEngine:
         date: str = "",
     ) -> NightlyReviewResult:
         """Compare today's performance to 7-day rolling average."""
-        engine = HowlEngine()
+        engine = ReflectEngine()
 
         metrics_today = engine.compute(today_trades)
         metrics_week = engine.compute(week_trades)
@@ -212,7 +212,7 @@ class JournalEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_key_metrics(m: HowlMetrics) -> Dict[str, Any]:
+    def _extract_key_metrics(m: ReflectMetrics) -> Dict[str, Any]:
         return {
             "round_trips": m.total_round_trips,
             "win_rate": round(m.win_rate, 1),
@@ -299,7 +299,7 @@ class JournalEngine:
         avg: Dict,
         comparison: Dict,
         findings: List[str],
-        metrics: HowlMetrics,
+        metrics: ReflectMetrics,
     ) -> str:
         lines = [
             f"# Nightly Review — {date}",

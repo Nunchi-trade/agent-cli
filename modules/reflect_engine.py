@@ -1,4 +1,4 @@
-"""HOWL engine — pure computation, zero I/O.
+"""REFLECT engine — pure computation, zero I/O.
 
 Computes trading performance metrics from raw trade records.
 FIFO round-trip pairing, holding-period buckets, direction analysis,
@@ -99,8 +99,8 @@ def _holding_bucket(ms: int) -> str:
 
 
 @dataclass
-class HowlMetrics:
-    """All metrics computed by the HOWL engine."""
+class ReflectMetrics:
+    """All metrics computed by the REFLECT engine."""
     # Core
     total_trades: int = 0
     total_round_trips: int = 0
@@ -152,15 +152,15 @@ class HowlMetrics:
     recommendations: List[str] = field(default_factory=list)
 
 
-class HowlEngine:
+class ReflectEngine:
     """Pure computation engine — takes trades, produces metrics."""
 
     def compute(
         self,
         trades: List[TradeRecord],
         wolf_state: Optional[Dict] = None,
-    ) -> HowlMetrics:
-        m = HowlMetrics()
+    ) -> ReflectMetrics:
+        m = ReflectMetrics()
         m.total_trades = len(trades)
 
         if not trades:
@@ -381,7 +381,7 @@ class HowlEngine:
         return stats
 
     @staticmethod
-    def _generate_recommendations(m: HowlMetrics) -> List[str]:
+    def _generate_recommendations(m: ReflectMetrics) -> List[str]:
         """Rule-based recommendations from metrics."""
         recs: List[str] = []
 

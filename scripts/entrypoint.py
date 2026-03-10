@@ -103,11 +103,11 @@ class HealthHandler(BaseHTTPRequestHandler):
             self._cors_headers()
             self._json_response(body)
 
-        elif self.path == "/api/howl":
+        elif self.path == "/api/reflect":
             data_dir = os.environ.get("DATA_DIR", "/data")
             try:
-                from cli.api.status_reader import read_howl
-                body = json.dumps(read_howl(data_dir))
+                from cli.api.status_reader import read_reflect
+                body = json.dumps(read_reflect(data_dir))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
             self._cors_headers()

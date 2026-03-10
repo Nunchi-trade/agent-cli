@@ -1,4 +1,4 @@
-"""hl howl — HOWL performance review commands."""
+"""hl reflect — REFLECT performance review commands."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from typing import Optional
 
 import typer
 
-howl_app = typer.Typer(no_args_is_help=True)
+reflect_app = typer.Typer(no_args_is_help=True)
 
 
 def _load_trades(data_dir: str, since: Optional[str] = None):
@@ -18,7 +18,7 @@ def _load_trades(data_dir: str, since: Optional[str] = None):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.howl_engine import TradeRecord
+    from modules.reflect_engine import TradeRecord
 
     trades_path = Path(data_dir) / "trades.jsonl"
     if not trades_path.exists():
@@ -51,20 +51,20 @@ def _load_trades(data_dir: str, since: Optional[str] = None):
     return trades
 
 
-@howl_app.command("run")
-def howl_run(
+@reflect_app.command("run")
+def reflect_run(
     since: Optional[str] = typer.Option(None, "--since", "-s",
                                         help="Only include trades after this date (YYYY-MM-DD)"),
     data_dir: str = typer.Option("data/cli", "--data-dir"),
-    output_dir: str = typer.Option("data/howl", "--output-dir"),
+    output_dir: str = typer.Option("data/reflect", "--output-dir"),
 ):
-    """Run HOWL performance analysis and generate report."""
+    """Run REFLECT performance analysis and generate report."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    from modules.howl_engine import HowlEngine
-    from modules.howl_reporter import HowlReporter
+    from modules.reflect_engine import ReflectEngine
+    from modules.reflect_reporter import ReflectReporter
 
     trades = _load_trades(data_dir, since)
 
@@ -74,9 +74,9 @@ def howl_run(
 
     typer.echo(f"Analyzing {len(trades)} trades...")
 
-    engine = HowlEngine()
+    engine = ReflectEngine()
     metrics = engine.compute(trades)
-    reporter = HowlReporter()
+    reporter = ReflectReporter()
 
     today = datetime.now().strftime("%Y-%m-%d")
     report = reporter.generate(metrics, date=today)
@@ -92,38 +92,38 @@ def howl_run(
     typer.echo(f"\nFull report saved to: {report_file}")
 
 
-@howl_app.command("report")
-def howl_report(
+@reflect_app.command("report")
+def reflect_report(
     date: Optional[str] = typer.Option(None, "--date", "-d",
                                        help="Report date (YYYY-MM-DD, default: today)"),
-    output_dir: str = typer.Option("data/howl", "--output-dir"),
+    output_dir: str = typer.Option("data/reflect", "--output-dir"),
 ):
-    """View a HOWL report."""
+    """View a REFLECT report."""
     date = date or datetime.now().strftime("%Y-%m-%d")
     report_file = Path(output_dir) / f"{date}.md"
 
     if not report_file.exists():
-        typer.echo(f"No report found for {date}. Run 'hl howl run' first.")
+        typer.echo(f"No report found for {date}. Run 'hl reflect run' first.")
         raise typer.Exit()
 
     typer.echo(report_file.read_text())
 
 
-@howl_app.command("history")
-def howl_history(
-    output_dir: str = typer.Option("data/howl", "--output-dir"),
+@reflect_app.command("history")
+def reflect_history(
+    output_dir: str = typer.Option("data/reflect", "--output-dir"),
     limit: int = typer.Option(10, "--limit", "-n"),
 ):
-    """Show HOWL report history with trend."""
+    """Show REFLECT report history with trend."""
     out_path = Path(output_dir)
     if not out_path.exists():
-        typer.echo("No HOWL reports found.")
+        typer.echo("No REFLECT reports found.")
         raise typer.Exit()
 
     reports = sorted(out_path.glob("*.md"), reverse=True)[:limit]
 
     if not reports:
-        typer.echo("No HOWL reports found.")
+        typer.echo("No REFLECT reports found.")
         raise typer.Exit()
 
     typer.echo(f"{'Date':<12} {'Summary'}")

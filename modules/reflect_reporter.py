@@ -1,4 +1,4 @@
-"""HOWL reporter — generates markdown reports from HowlMetrics.
+"""REFLECT reporter — generates markdown reports from ReflectMetrics.
 
 Two output modes:
   - generate(): Full detailed markdown report
@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from modules.howl_engine import HowlMetrics
+from modules.reflect_engine import ReflectMetrics
 
 
 def _ms_to_human(ms: float) -> str:
@@ -33,16 +33,16 @@ def _pf_str(pf: float) -> str:
     return f"{pf:.2f}"
 
 
-class HowlReporter:
-    """Generate markdown reports from HOWL metrics."""
+class ReflectReporter:
+    """Generate markdown reports from REFLECT metrics."""
 
-    def generate(self, metrics: HowlMetrics, date: Optional[str] = None) -> str:
+    def generate(self, metrics: ReflectMetrics, date: Optional[str] = None) -> str:
         """Full markdown report."""
         date = date or datetime.now().strftime("%Y-%m-%d")
         m = metrics
         lines = []
 
-        lines.append(f"# HOWL Report — {date}")
+        lines.append(f"# REFLECT Report — {date}")
         lines.append("")
 
         # ── Core Stats ──
@@ -147,12 +147,12 @@ class HowlReporter:
 
         return "\n".join(lines)
 
-    def distill(self, metrics: HowlMetrics) -> str:
+    def distill(self, metrics: ReflectMetrics) -> str:
         """3-5 line summary for memory/logging."""
         m = metrics
         lines = []
         lines.append(
-            f"HOWL: {m.total_round_trips} round trips, "
+            f"REFLECT: {m.total_round_trips} round trips, "
             f"{m.win_rate:.0f}% WR, "
             f"net ${m.net_pnl:+.2f}"
         )

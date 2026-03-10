@@ -41,7 +41,7 @@ class TestPlaybook:
 
 class TestMemoryEngine:
     def test_create_param_change_event(self):
-        from modules.howl_adapter import Adjustment
+        from modules.reflect_adapter import Adjustment
         engine = MemoryEngine()
         adj = [Adjustment(param="radar_score_threshold", old_value=170, new_value=180, reason="test")]
         event = engine.create_param_change_event(adj)
@@ -56,10 +56,10 @@ class TestMemoryEngine:
         assert "100 ticks" in event.summary
         assert event.payload["tick_count"] == 100
 
-    def test_create_howl_event(self):
+    def test_create_reflect_event(self):
         engine = MemoryEngine()
-        event = engine.create_howl_event(win_rate=65.0, net_pnl=120.5, fdr=8.0, round_trips=20)
-        assert event.event_type == "howl_review"
+        event = engine.create_reflect_event(win_rate=65.0, net_pnl=120.5, fdr=8.0, round_trips=20)
+        assert event.event_type == "reflect_review"
         assert event.payload["round_trips"] == 20
 
     def test_create_notable_trade_event(self):
@@ -102,7 +102,7 @@ class TestMemoryEngine:
     def test_query(self):
         events = [
             MemoryEvent(event_type="param_change", timestamp_ms=100),
-            MemoryEvent(event_type="howl_review", timestamp_ms=200),
+            MemoryEvent(event_type="reflect_review", timestamp_ms=200),
             MemoryEvent(event_type="param_change", timestamp_ms=300),
         ]
         result = MemoryEngine.query(events, event_type="param_change")

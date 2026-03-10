@@ -1,4 +1,4 @@
-"""HOWL adapter — maps HowlMetrics to WolfConfig parameter adjustments.
+"""REFLECT adapter — maps ReflectMetrics to WolfConfig parameter adjustments.
 
 Pure function, zero I/O. Takes metrics + current config, returns a dict
 of adjustments with reasons. Applies guardrails to prevent oscillation.
@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
 
-from modules.howl_engine import HowlMetrics
+from modules.reflect_engine import ReflectMetrics
 
 
 @dataclass
@@ -29,22 +29,22 @@ _BOUNDS = {
 
 
 def adapt(
-    metrics: HowlMetrics,
+    metrics: ReflectMetrics,
     config,  # WolfConfig — avoid circular import
 ) -> Tuple[List[Adjustment], str]:
-    """Analyze HOWL metrics and return config adjustments.
+    """Analyze REFLECT metrics and return config adjustments.
 
     Returns (adjustments, summary_log).
     """
     adjustments: List[Adjustment] = []
 
     if metrics.total_round_trips < 3:
-        return adjustments, "HOWL: insufficient data (<3 round trips)"
+        return adjustments, "REFLECT: insufficient data (<3 round trips)"
 
     # 1. CRITICAL: Fees exceed gross PnL — emergency tighten
     if metrics.total_fees > abs(metrics.gross_pnl) and metrics.total_round_trips >= 3:
         adjustments.extend(_emergency_tighten(config))
-        return adjustments, "HOWL: EMERGENCY — fees exceed gross PnL, tightening all entries"
+        return adjustments, "REFLECT: EMERGENCY — fees exceed gross PnL, tightening all entries"
 
     # 2. FDR > 30% — reduce trade frequency
     if metrics.fdr > 30:
@@ -117,12 +117,12 @@ def adapt(
 
     # Build summary
     if adjustments:
-        lines = ["HOWL auto-adjust:"]
+        lines = ["REFLECT auto-adjust:"]
         for a in adjustments:
             lines.append(f"  {a.param}: {a.old_value} -> {a.new_value} ({a.reason})")
         summary = "\n".join(lines)
     else:
-        summary = "HOWL: no adjustments needed"
+        summary = "REFLECT: no adjustments needed"
 
     return adjustments, summary
 

@@ -1,7 +1,7 @@
 """Agent memory engine — pure computation, zero I/O.
 
 Persistent memory system for WOLF. Tracks parameter changes, session events,
-HOWL reviews, notable trades, and judge findings. Maintains a playbook of
+REFLECT reviews, notable trades, and judge findings. Maintains a playbook of
 accumulated knowledge about what works per instrument and signal source.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 class MemoryEvent:
     """A single memory event."""
     event_type: str          # param_change, session_start, session_end,
-                             # howl_review, notable_trade, judge_finding
+                             # reflect_review, notable_trade, judge_finding
     timestamp_ms: int = 0
     payload: Dict[str, Any] = field(default_factory=dict)
     summary: str = ""
@@ -169,7 +169,7 @@ class MemoryEngine:
                     f"PnL ${total_pnl:+.2f}, {total_trades} trades",
         )
 
-    def create_howl_event(
+    def create_reflect_event(
         self,
         win_rate: float = 0.0,
         net_pnl: float = 0.0,
@@ -178,7 +178,7 @@ class MemoryEngine:
         distilled: str = "",
     ) -> MemoryEvent:
         return MemoryEvent(
-            event_type="howl_review",
+            event_type="reflect_review",
             timestamp_ms=self._now_ms(),
             payload={
                 "win_rate": round(win_rate, 1),
@@ -186,7 +186,7 @@ class MemoryEngine:
                 "fdr": round(fdr, 1),
                 "round_trips": round_trips,
             },
-            summary=distilled or f"HOWL: {round_trips} RTs, {win_rate:.0f}% WR, "
+            summary=distilled or f"REFLECT: {round_trips} RTs, {win_rate:.0f}% WR, "
                                  f"${net_pnl:+.2f} net, FDR {fdr:.0f}%",
         )
 

@@ -1,6 +1,6 @@
 ---
 name: yex-trader
-description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with WOLF multi-slot orchestrator, HOWL performance review, DSL trailing stops, and builder fee revenue collection.
+description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with WOLF multi-slot orchestrator, REFLECT performance review, DSL trailing stops, and builder fee revenue collection.
 user-invocable: true
 argument-hint: "<strategy> [options]"
 allowed-tools:
@@ -17,7 +17,7 @@ metadata:
 
 # YEX Trader
 
-Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making, momentum, arbitrage, and LLM-powered trading. WOLF multi-slot orchestrator. HOWL nightly performance review. Builder fee revenue collection.
+Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making, momentum, arbitrage, and LLM-powered trading. WOLF multi-slot orchestrator. REFLECT nightly performance review. Builder fee revenue collection.
 
 ## Quick Start (Agent-Friendly)
 
@@ -129,12 +129,12 @@ hl wolf status
 hl wolf presets
 ```
 
-### HOWL Performance Review
+### REFLECT Performance Review
 
 ```bash
-hl howl run [--since 2026-03-01] [--data-dir data/cli]
-hl howl report [--date 2026-03-03]
-hl howl history [-n 10]
+hl reflect run [--since 2026-03-01] [--data-dir data/cli]
+hl reflect report [--date 2026-03-03]
+hl reflect history [-n 10]
 ```
 
 ### Dynamic Stop Loss (DSL)
@@ -186,7 +186,7 @@ hl mcp serve                         # Start MCP server (stdio transport)
 hl mcp serve --transport sse         # Start MCP server (SSE transport)
 ```
 
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `wolf_status`, `wolf_run`, `howl_run`, `agent_memory`, `trade_journal`, `judge_report`
+Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `wolf_status`, `wolf_run`, `reflect_run`, `agent_memory`, `trade_journal`, `judge_report`
 
 ## Strategies (14)
 
@@ -223,12 +223,12 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 7. **Live mainnet**: `hl run engine_mm -i ETH-PERP --tick 10 --mainnet`
 8. **WOLF mode**: `hl wolf run --mainnet` or `hl wolf run --mock --max-ticks 5`
 9. **Monitor**: `hl status --watch`
-10. **Review**: `hl howl run`
+10. **Review**: `hl reflect run`
 
 ## Builder Fee Revenue
 
 Set `BUILDER_ADDRESS` and `BUILDER_FEE_TENTHS_BPS` to collect fees on every trade. Users must approve once via `hl builder approve`. Fee is collected natively by Hyperliquid — no extra gas, no contract calls.
 
-## HOWL Self-Improvement
+## REFLECT Self-Improvement
 
-Run `hl howl run` after a trading session. HOWL computes win rate, fee drag ratio (FDR), direction analysis, holding period buckets, monster trade dependency, and generates actionable recommendations. Reports saved to `data/howl/`.
+Run `hl reflect run` after a trading session. REFLECT computes win rate, fee drag ratio (FDR), direction analysis, holding period buckets, monster trade dependency, and generates actionable recommendations. Reports saved to `data/reflect/`.

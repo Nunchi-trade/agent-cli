@@ -1,4 +1,4 @@
-"""Tests for HOWL engine — metrics, round trip pairing, recommendations, reporter."""
+"""Tests for REFLECT engine — metrics, round trip pairing, recommendations, reporter."""
 import os
 import sys
 
@@ -8,7 +8,7 @@ _root = str(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from modules.howl_engine import HowlEngine, HowlMetrics, RoundTrip, TradeRecord
+from modules.reflect_engine import ReflectEngine, ReflectMetrics, RoundTrip, TradeRecord
 
 
 def _trade(side="buy", price=100.0, qty=1.0, ts=1000, fee=0.5,
@@ -99,7 +99,7 @@ class TestRoundTripPairing:
             _trade(side="buy", price=100, qty=1.0, ts=1000),
             _trade(side="sell", price=110, qty=1.0, ts=2000),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         rts = engine._pair_round_trips(trades)
         assert len(rts) == 1
         assert rts[0].direction == "long"
@@ -111,7 +111,7 @@ class TestRoundTripPairing:
             _trade(side="sell", price=110, qty=1.0, ts=1000),
             _trade(side="buy", price=100, qty=1.0, ts=2000),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         rts = engine._pair_round_trips(trades)
         assert len(rts) == 1
         assert rts[0].direction == "short"
@@ -124,7 +124,7 @@ class TestRoundTripPairing:
             _trade(side="sell", price=110, qty=1.0, ts=2000),
             _trade(side="sell", price=115, qty=1.0, ts=3000),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         rts = engine._pair_round_trips(trades)
         assert len(rts) == 2
         assert rts[0].quantity == 1.0
@@ -139,7 +139,7 @@ class TestRoundTripPairing:
             _trade(side="sell", price=110, qty=1.0, ts=2000, instrument="ETH-PERP"),
             _trade(side="sell", price=55, qty=1.0, ts=2001, instrument="SOL-PERP"),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         rts = engine._pair_round_trips(trades)
         assert len(rts) == 2
         instruments = {r.instrument for r in rts}
@@ -149,18 +149,18 @@ class TestRoundTripPairing:
         trades = [
             _trade(side="buy", price=100, qty=1.0, ts=1000),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         rts = engine._pair_round_trips(trades)
         assert len(rts) == 0
 
 
 # ---------------------------------------------------------------------------
-# Full HowlEngine.compute()
+# Full ReflectEngine.compute()
 # ---------------------------------------------------------------------------
 
-class TestHowlCompute:
+class TestReflectCompute:
     def test_empty_trades(self):
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute([])
         assert m.total_trades == 0
         assert m.total_round_trips == 0
@@ -170,7 +170,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0.5),
             _trade(side="sell", price=110, qty=1.0, ts=2000, fee=0.5),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert m.total_trades == 2
         assert m.total_round_trips == 1
@@ -186,7 +186,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=2.5),
             _trade(side="sell", price=110, qty=1.0, ts=2000, fee=2.5),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert m.fdr == 50.0
 
@@ -199,7 +199,7 @@ class TestHowlCompute:
             _trade(side="sell", price=200, qty=1.0, ts=3000, fee=0),
             _trade(side="buy", price=190, qty=1.0, ts=4000, fee=0),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert m.long_count == 1
         assert m.short_count == 1
@@ -212,7 +212,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0),
             _trade(side="sell", price=110, qty=1.0, ts=31000, fee=0),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert m.holding_buckets.get("<5m", 0) == 1
 
@@ -228,7 +228,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=5000, fee=0),
             _trade(side="sell", price=90, qty=1.0, ts=6000, fee=0),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert m.max_consecutive_wins == 2
         assert m.max_consecutive_losses == 1
@@ -242,7 +242,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=3000, fee=0),
             _trade(side="sell", price=95, qty=1.0, ts=4000, fee=0),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         # net_pnl = 45, best = 50, dependency = 50/45*100 = ~111%
         assert m.monster_dependency_pct > 100
@@ -254,7 +254,7 @@ class TestHowlCompute:
             _trade(side="buy", price=100, qty=1.0, ts=3000, fee=0, strategy="beta"),
             _trade(side="sell", price=90, qty=1.0, ts=4000, fee=0, strategy="beta"),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert "alpha" in m.strategy_stats
         assert "beta" in m.strategy_stats
@@ -272,7 +272,7 @@ class TestRecommendations:
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=5),
             _trade(side="sell", price=110, qty=1.0, ts=2000, fee=5),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         # FDR = 10/10*100 = 100%
         assert any("FDR" in r for r in m.recommendations)
@@ -284,7 +284,7 @@ class TestRecommendations:
             ts = i * 2000
             trades.append(_trade(side="buy", price=100, qty=1.0, ts=ts, fee=0))
             trades.append(_trade(side="sell", price=90, qty=1.0, ts=ts + 1000, fee=0))
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert any("Win rate" in r for r in m.recommendations)
 
@@ -295,7 +295,7 @@ class TestRecommendations:
             ts = i * 2000
             trades.append(_trade(side="buy", price=100, qty=1.0, ts=ts, fee=0.01))
             trades.append(_trade(side="sell", price=110, qty=1.0, ts=ts + 1000, fee=0.01))
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
         assert any("No major issues" in r for r in m.recommendations)
 
@@ -304,41 +304,41 @@ class TestRecommendations:
 # Reporter
 # ---------------------------------------------------------------------------
 
-class TestHowlReporter:
+class TestReflectReporter:
     def test_generate_report(self):
-        from modules.howl_reporter import HowlReporter
+        from modules.reflect_reporter import ReflectReporter
 
         trades = [
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0.5),
             _trade(side="sell", price=110, qty=1.0, ts=2000, fee=0.5),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
-        reporter = HowlReporter()
+        reporter = ReflectReporter()
         report = reporter.generate(m, date="2026-03-03")
-        assert "# HOWL Report — 2026-03-03" in report
+        assert "# REFLECT Report — 2026-03-03" in report
         assert "Net PnL" in report
         assert "Fee Analysis" in report
         assert "Recommendations" in report
 
     def test_distill_summary(self):
-        from modules.howl_reporter import HowlReporter
+        from modules.reflect_reporter import ReflectReporter
 
         trades = [
             _trade(side="buy", price=100, qty=1.0, ts=1000, fee=0.5),
             _trade(side="sell", price=110, qty=1.0, ts=2000, fee=0.5),
         ]
-        engine = HowlEngine()
+        engine = ReflectEngine()
         m = engine.compute(trades)
-        reporter = HowlReporter()
+        reporter = ReflectReporter()
         summary = reporter.distill(m)
-        assert "HOWL:" in summary
+        assert "REFLECT:" in summary
         assert "100%" in summary  # win rate
 
     def test_generate_empty(self):
-        from modules.howl_reporter import HowlReporter
+        from modules.reflect_reporter import ReflectReporter
 
-        m = HowlMetrics()
-        reporter = HowlReporter()
+        m = ReflectMetrics()
+        reporter = ReflectReporter()
         report = reporter.generate(m)
-        assert "HOWL Report" in report
+        assert "REFLECT Report" in report

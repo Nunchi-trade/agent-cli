@@ -184,11 +184,11 @@ app.get("/api/trades", (req, res) => {
   }
 });
 
-// API: HOWL reports
-app.get("/api/howl", (req, res) => {
+// API: REFLECT reports
+app.get("/api/reflect", (req, res) => {
   try {
     const output = execSync(
-      `python3 -m cli.api.status_reader howl --data-dir ${DATA_DIR}`,
+      `python3 -m cli.api.status_reader reflect --data-dir ${DATA_DIR}`,
       { timeout: 10000, encoding: "utf-8", cwd: AGENT_CLI_DIR, stdio: ["pipe", "pipe", "pipe"] }
     );
     res.json(JSON.parse(output.trim()));

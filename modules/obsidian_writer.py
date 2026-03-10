@@ -1,4 +1,4 @@
-"""Obsidian writer — syncs HOWL reports and journal entries to Obsidian vault.
+"""Obsidian writer — syncs REFLECT reports and journal entries to Obsidian vault.
 
 Writes trading reports as Obsidian-compatible markdown notes with YAML
 frontmatter for Dataview queries. Appends daily summaries to daily notes.
@@ -21,7 +21,7 @@ class ObsidianWriter:
     def available(self) -> bool:
         return self.vault_path.exists()
 
-    def write_howl_report(
+    def write_reflect_report(
         self,
         briefing_md: str,
         date: str,
@@ -30,15 +30,15 @@ class ObsidianWriter:
         fdr: float = 0.0,
         round_trips: int = 0,
     ) -> Optional[Path]:
-        """Save HOWL report as Obsidian note with frontmatter."""
+        """Save REFLECT report as Obsidian note with frontmatter."""
         if not self.available:
             return None
 
-        howl_dir = self._project_dir / "howl"
-        howl_dir.mkdir(parents=True, exist_ok=True)
+        reflect_dir = self._project_dir / "reflect"
+        reflect_dir.mkdir(parents=True, exist_ok=True)
 
         frontmatter = self._frontmatter(
-            tags=["howl", "wolf", "trading-review"],
+            tags=["reflect", "wolf", "trading-review"],
             extra={
                 "date": date,
                 "win_rate": round(win_rate, 1),
@@ -48,7 +48,7 @@ class ObsidianWriter:
             },
         )
 
-        path = howl_dir / f"{date}.md"
+        path = reflect_dir / f"{date}.md"
         path.write_text(frontmatter + "\n" + briefing_md)
         return path
 

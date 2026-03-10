@@ -117,7 +117,7 @@ RULES:
 |-------|-------|-----|
 | `No positions but slots show ACTIVE` | Stale state after restart | `hl wolf status`, manually reset via state file |
 | `Radar returned 0 candidates` | Low-vol period or API issue | Normal during weekends/low-vol — WOLF will idle safely |
-| `Daily loss limit reached` | Bad session | WOLF auto-closes all. Review with `hl howl run` tomorrow |
+| `Daily loss limit reached` | Bad session | WOLF auto-closes all. Review with `hl reflect run` tomorrow |
 | `Builder fee not approved` | Skipped onboarding step | `hl builder approve` then restart WOLF |
 | `Connection timeout` | HL API rate limit | WOLF auto-retries with backoff — no action needed |
 
@@ -131,6 +131,6 @@ WOLF is the top-level orchestrator. It composes Radar (opportunity finding), Pul
 # Start WOLF at market open, stop at EOD
 0 8 * * 1-5  cd ~/agent-cli && source .venv/bin/activate && hl wolf run --budget 5000 >> logs/wolf.log 2>&1
 0 20 * * 1-5 pkill -f "hl wolf run"
-# Nightly HOWL review
-55 23 * * * cd ~/agent-cli && source .venv/bin/activate && hl howl run >> logs/howl.log 2>&1
+# Nightly REFLECT review
+55 23 * * * cd ~/agent-cli && source .venv/bin/activate && hl reflect run >> logs/reflect.log 2>&1
 ```

@@ -804,12 +804,12 @@ Args: {
 
 Long-running. Timeout is computed as `max(120, max_ticks * 60 + 30)` seconds.
 
-#### `howl_run(since=null)`
+#### `reflect_run(since=null)`
 
-Run HOWL performance review — analyze trades, compute metrics, generate recommendations.
+Run REFLECT performance review — analyze trades, compute metrics, generate recommendations.
 
 ```
-Tool: howl_run
+Tool: reflect_run
 Args: { "since": "2026-03-01" }
 ```
 
@@ -832,7 +832,7 @@ Args: { "query_type": "playbook", "limit": 20 }
 |-----|--------|-------------|
 | `query_type` | `"recent"`, `"playbook"` | Recent events or accumulated knowledge |
 | `limit` | int | Max events (default 20) |
-| `event_type` | `"param_change"`, `"howl_review"`, `"notable_trade"`, `"judge_finding"`, `"session_start"`, `"session_end"` | Filter by type |
+| `event_type` | `"param_change"`, `"reflect_review"`, `"notable_trade"`, `"judge_finding"`, `"session_start"`, `"session_end"` | Filter by type |
 
 #### `trade_journal(date, limit)`
 
@@ -916,13 +916,13 @@ cat $DATA_DIR/radar/scan-history.json | python -m json.tool
 cat $DATA_DIR/movers/scan-history.json | python -m json.tool
 ```
 
-### HOWL Reports
+### REFLECT Reports
 
 ```bash
-ls $DATA_DIR/howl/
+ls $DATA_DIR/reflect/
 
 # Reports are saved as markdown files with timestamps
-cat $DATA_DIR/howl/report-latest.md
+cat $DATA_DIR/reflect/report-latest.md
 ```
 
 ### Journal Entries
@@ -1059,7 +1059,7 @@ else:
 | `radar_run` | Subprocess | 10-30s | None |
 | `wolf_status` | Subprocess | <1s | None |
 | `wolf_run` | Subprocess | Minutes+ | Runs WOLF loop |
-| `howl_run` | Subprocess | 5-15s | None |
+| `reflect_run` | Subprocess | 5-15s | None |
 | `agent_memory` | Fast | <100ms | None |
 | `trade_journal` | Fast | <100ms | None |
 | `judge_report` | Fast | <100ms | None |

@@ -39,14 +39,14 @@ class WolfConfig:
     radar_interval_ticks: int = 15
     watchdog_interval_ticks: int = 5
 
-    # HOWL self-improvement
-    howl_interval_ticks: int = 240        # Run HOWL every 4 hours (at 60s ticks)
-    howl_min_round_trips: int = 5         # Min trades before applying adjustments
-    howl_auto_adjust: bool = True         # Auto-adjust params from HOWL findings
+    # REFLECT self-improvement
+    reflect_interval_ticks: int = 240        # Run REFLECT every 4 hours (at 60s ticks)
+    reflect_min_round_trips: int = 5         # Min trades before applying adjustments
+    reflect_auto_adjust: bool = True         # Auto-adjust params from REFLECT findings
 
     # Scheduled tasks (UTC hours)
     daily_reset_hour: int = 0             # UTC hour for daily PnL reset
-    howl_report_hour: int = 4             # UTC hour for comprehensive HOWL report
+    reflect_report_hour: int = 4             # UTC hour for comprehensive REFLECT report
 
     # Nightly review
     nightly_review_hour: int = 2          # UTC hour for nightly review

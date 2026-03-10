@@ -5,7 +5,7 @@
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
 
 <p align="center">
-  14 strategies &bull; WOLF multi-slot orchestrator &bull; HOWL nightly review &bull; MCP server &bull; Agent Skills
+  14 strategies &bull; WOLF multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: DSL trailing stops, opportunity radar, emerging movers detector, WOLF orchestrator, HOWL performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: DSL trailing stops, opportunity radar, emerging movers detector, WOLF orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
 
 ---
 
@@ -153,7 +153,7 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 | **[Opportunity Radar](#radar--opportunity-radar)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/radar/SKILL.md) |
 | **[Emerging Movers](#movers--emerging-movers-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/movers/SKILL.md) |
 | **[DSL (Dynamic Stop Loss)](#dsl--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/dsl/SKILL.md) |
-| **[HOWL](#howl--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/howl/SKILL.md) |
+| **[REFLECT](#reflect--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/reflect/SKILL.md) |
 
 ### Install a skill (agents)
 
@@ -165,7 +165,7 @@ https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/wolf/SKILL.
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/movers/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/dsl/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/howl/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
 ```
 
 ### Install a skill (OpenClaw / ClawHub)
@@ -300,7 +300,7 @@ hl wolf run --preset conservative --mainnet # Live mainnet
 
 ---
 
-### HOWL — Performance Review
+### REFLECT — Performance Review
 
 Nightly self-improvement loop. Reads trade history, computes metrics, detects patterns, generates actionable recommendations.
 
@@ -313,16 +313,16 @@ Nightly self-improvement loop. Reads trade history, computes metrics, detects pa
 | Monster Dependency | % of net PnL from best single trade |
 
 ```bash
-hl howl run --since 2026-03-01
-hl howl report
-hl howl history -n 10
+hl reflect run --since 2026-03-01
+hl reflect report
+hl reflect history -n 10
 ```
 
-**[Download SKILL.md](skills/howl/SKILL.md)**
+**[Download SKILL.md](skills/reflect/SKILL.md)**
 
-### HOWL Self-Improvement Loop
+### REFLECT Self-Improvement Loop
 
-When running inside WOLF, HOWL executes automatically every 240 ticks (~4 hours) and at a configurable UTC hour (default 04:00). It reads the trade log, computes performance metrics, and **auto-adjusts WOLF parameters** based on findings:
+When running inside WOLF, REFLECT executes automatically every 240 ticks (~4 hours) and at a configurable UTC hour (default 04:00). It reads the trade log, computes performance metrics, and **auto-adjusts WOLF parameters** based on findings:
 
 | Finding | Automatic Adjustment |
 |---------|---------------------|
@@ -333,11 +333,11 @@ When running inside WOLF, HOWL executes automatically every 240 ticks (~4 hours)
 | Fees exceed gross PnL | **Emergency mode**: disable auto-entries, raise all thresholds |
 | Profitable + healthy | Slightly relax thresholds toward defaults |
 
-All adjustments have guardrail bounds — parameters can't swing wildly. Disable with `howl_auto_adjust: false` in WOLF config.
+All adjustments have guardrail bounds — parameters can't swing wildly. Disable with `reflect_auto_adjust: false` in WOLF config.
 
 **Scheduled tasks** (built into WOLF tick loop):
 - **Daily PnL reset** at UTC midnight — clears daily loss tracking
-- **HOWL comprehensive report** at UTC 04:00 — full performance review with markdown report saved to `data/wolf/howl/`
+- **REFLECT comprehensive report** at UTC 04:00 — full performance review with markdown report saved to `data/wolf/reflect/`
 
 ---
 
@@ -357,7 +357,7 @@ hl wolf run [options]             # WOLF multi-slot orchestrator
 hl radar run [options]            # Opportunity radar
 hl movers run [options]           # Emerging movers detector
 hl dsl run -i ETH-PERP [options] # DSL trailing stop
-hl howl run [--since DATE]        # Performance review
+hl reflect run [--since DATE]        # Performance review
 
 # Infrastructure
 hl builder approve [--mainnet]    # Approve builder fee
@@ -379,7 +379,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `wolf_status`, `wolf_run`, `howl_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
+**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `wolf_status`, `wolf_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
@@ -409,7 +409,7 @@ One-click deploy to run WOLF autonomously. No AI model needed — pure determini
 | `WOLF_PRESET` | No | `default` | `conservative`, `default`, or `aggressive` |
 
 **Run modes:**
-- **wolf** (default) — WOLF multi-slot orchestrator with autonomous entry, exit, DSL trailing stops, and HOWL self-improvement loop
+- **wolf** (default) — WOLF multi-slot orchestrator with autonomous entry, exit, DSL trailing stops, and REFLECT self-improvement loop
 - **strategy** — Single strategy loop (set `STRATEGY=engine_mm`, `avellaneda_mm`, etc.)
 - **mcp** — MCP server for AI agent integration (SSE transport)
 
@@ -434,16 +434,16 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 - Our 13 MCP trading tools as the agent's primary capabilities
 - Persistent state across redeploys via `/data` volume
 - Auto-onboard: bot sends "Agent ready" to Telegram on first deploy
-- HOWL self-improvement: the agent analyzes its own trades and adjusts strategy parameters
+- REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
 
 **How it works:**
 1. Deploy sets up OpenClaw + our `hl mcp serve` as the tool provider
 2. Bot auto-configures Telegram and sends you a ready message
 3. Tell it "start trading" → it runs WOLF with autonomous entry, exit, and risk management
-4. Ask "how did we do?" → it runs HOWL and reports performance metrics
+4. Ask "how did we do?" → it runs REFLECT and reports performance metrics
 5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
 
-Both options persist state via Railway volume at `/data` — WOLF state, HOWL reports, radar history, and agent memory survive redeploys.
+Both options persist state via Railway volume at `/data` — WOLF state, REFLECT reports, radar history, and agent memory survive redeploys.
 
 ---
 
@@ -469,7 +469,7 @@ hl run engine_mm -i BTCSWP-USDYP --tick 10
 
 ```
 cli/           CLI commands and trading engine
-  commands/    Subcommand modules (run, wolf, radar, movers, dsl, howl, house, ...)
+  commands/    Subcommand modules (run, wolf, radar, movers, dsl, reflect, house, ...)
   mcp_server.py  MCP server (16 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
@@ -481,14 +481,14 @@ modules/       Pure logic modules (zero I/O)
   radar_engine.py    Opportunity radar
   movers_engine.py   Emerging movers detector
   trailing_stop.py   DSL trailing stop
-  howl_engine.py     Performance analysis
+  reflect_engine.py     Performance analysis
 skills/        Agent Skills (SKILL.md + runners)
   onboard/     First-time setup guide
   wolf/        WOLF orchestrator
   radar/       Opportunity radar
   movers/      Emerging movers
   dsl/         Dynamic stop loss
-  howl/        Performance review
+  reflect/        Performance review
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management
 tests/         Test suite (263 tests)

@@ -12,7 +12,7 @@ The primary tool provider. Exposes 13 trading tools via Model Context Protocol:
 - `radar_run` — Run opportunity radar across all HL perps
 - `wolf_status` — Show WOLF orchestrator state
 - `wolf_run` — Start WOLF autonomous multi-slot trading
-- `howl_run` — Run HOWL performance review
+- `reflect_run` — Run REFLECT performance review
 - `setup_check` — Validate environment configuration
 - `builder_status` — Check builder fee approval status
 - `wallet_list` — List available wallets
@@ -27,7 +27,7 @@ hl wolf run [--preset default|conservative|aggressive] [--mainnet]
 hl radar once [--mock]
 hl movers once [--mock]
 hl dsl run -i ETH-PERP [--preset tight]
-hl howl run [--since DATE]
+hl reflect run [--since DATE]
 hl house join <strategy> [--url URL]
 ```
 
@@ -40,7 +40,7 @@ Not available: `jq` (use `python3 -c "import json; ..."` instead)
 
 WOLF has built-in scheduling:
 - Daily PnL reset at UTC midnight
-- HOWL performance review every 4 hours
-- Auto-parameter adjustment based on HOWL findings
+- REFLECT performance review every 4 hours
+- Auto-parameter adjustment based on REFLECT findings
 
 For custom schedules, use the gateway's cron system.
