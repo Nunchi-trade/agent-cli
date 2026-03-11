@@ -141,7 +141,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if self.path == "/api/configure":
+        if self.path == "/api/skill/install":
+            try:
+                from cli.api.status_reader import read_strategies
+                data = read_strategies()
+                count = len(data.get("strategies", {}))
+                self._cors_headers()
+                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}))
+            except Exception as e:
+                self.send_response(500)
+                self._cors_headers()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.write(json.dumps({"installed": False, "error": str(e)}))
+
+        elif self.path == "/api/configure":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
             try:
