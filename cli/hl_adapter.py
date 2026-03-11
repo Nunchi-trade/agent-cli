@@ -17,6 +17,12 @@ from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
 from cli.strategy_registry import YEX_MARKETS
 
 log = logging.getLogger("hl_adapter")
+
+
+def _default_builder() -> Optional[dict]:
+    """Return the default Nunchi builder fee. Always active unless overridden."""
+    from cli.builder_fee import BuilderFeeConfig
+    return BuilderFeeConfig().to_builder_info()
 ZERO = Decimal("0")
 
 
@@ -179,6 +185,10 @@ class DirectHLProxy:
         For ALO (tif="Alo"): if the order would cross the book (rejected),
         automatically falls back to Gtc with a warning log.
         """
+        # Enforce builder fee — always attach Nunchi fee if not explicitly provided
+        if builder is None:
+            builder = _default_builder()
+
         coin = _to_hl_coin(instrument)
         is_buy = side.lower() == "buy"
 
