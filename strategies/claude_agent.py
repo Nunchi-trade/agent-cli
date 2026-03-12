@@ -1,19 +1,26 @@
-"""LLM-powered trading agent — supports Claude and Gemini.
+"""LLM-powered trading agent — supports Gemini, Claude, OpenAI, and Venice.
 
 Uses structured tool/function calling to make trading decisions each tick.
 The LLM receives market data, position state, and risk context, then decides
 to place orders or hold.
 
 Usage:
-    # Gemini (default — fast, free tier available)
-    hl run claude_agent --mock --max-ticks 5 --tick 15
-    hl run claude_agent -i ETH-PERP --tick 15
+    # Gemini (default)
+    export GEMINI_API_KEY=...
+    hl run claude_agent -i ETH-PERP --tick 15 --model gemini-2.0-flash
 
     # Claude
-    hl run claude_agent -i ETH-PERP --tick 15 --model claude-haiku-4-5-20251001
+    export ANTHROPIC_API_KEY=...
+    hl run claude_agent -i ETH-PERP --tick 15 --model claude-sonnet-4-20250514
 
-    # Gemini Flash
-    hl run claude_agent -i ETH-PERP --tick 15 --model gemini-2.0-flash
+    # OpenAI
+    export OPENAI_API_KEY=...
+    hl run claude_agent -i ETH-PERP --tick 15 --model gpt-4o
+
+    # Venice
+    export VENICE_API_KEY=...
+    hl run claude_agent -i ETH-PERP --tick 15 --model claude-opus-4-6
+    hl run claude_agent -i ETH-PERP --tick 15 --model kimi-k2-5
 """
 from __future__ import annotations
 
@@ -102,15 +109,24 @@ TOOLS = [
 
 
 def _detect_provider(model: str) -> str:
-    """Detect LLM provider from model name."""
+    """Detect LLM provider from model name.
+    
+    Venice takes priority if VENICE_API_KEY is set — it's OpenAI-compatible
+    and routes any model name to the appropriate backend.
+    """
+    # Venice: if API key is set, use it (handles all models)
+    if os.environ.get("VENICE_API_KEY"):
+        return "venice"
+    
+    # Direct provider access (requires their own API keys)
     if model.startswith("gemini"):
         return "gemini"
     if model.startswith("claude"):
         return "claude"
     if model.startswith("gpt") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
         return "openai"
-    # Default to gemini
-    return "gemini"
+    
+    return "gemini"  # default
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +164,10 @@ class ClaudeStrategy(BaseStrategy):
         self._total_output_tokens = 0
         self._api_calls = 0
 
-        # Lazy-init clients
+        # Lazy-init clients (keyed by base_url for OpenAI-compatible APIs)
         self._anthropic_client = None
         self._gemini_client = None
-        self._openai_client = None
+        self._openai_clients = {}  # base_url -> client
 
     # ------------------------------------------------------------------
     # Client initialization
@@ -187,19 +203,36 @@ class ClaudeStrategy(BaseStrategy):
             self._gemini_client = genai.Client(api_key=api_key)
         return self._gemini_client
 
-    def _get_openai_client(self):
-        if self._openai_client is None:
+    def _get_openai_compatible_client(self, base_url: str = None, api_key_env: str = "OPENAI_API_KEY"):
+        """Get OpenAI-compatible client. Caches by base_url."""
+        cache_key = base_url or "openai"
+        if cache_key not in self._openai_clients:
             try:
                 import openai
             except ImportError:
                 raise ImportError(
                     "openai package required. Install: pip3 install openai"
                 )
-            api_key = os.environ.get("OPENAI_API_KEY")
+            api_key = os.environ.get(api_key_env)
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable required")
-            self._openai_client = openai.OpenAI(api_key=api_key)
-        return self._openai_client
+                raise ValueError(f"{api_key_env} environment variable required")
+            self._openai_clients[cache_key] = openai.OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+        return self._openai_clients[cache_key]
+
+    def _get_venice_client(self):
+        """Get Venice API client (OpenAI-compatible)."""
+        return self._get_openai_compatible_client(
+            base_url="https://api.venice.ai/api/v1",
+            api_key_env="VENICE_API_KEY"
+        )
+
+    def _get_openai_client(self):
+        """Get OpenAI client (supports custom base URL via OPENAI_BASE_URL)."""
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        return self._get_openai_compatible_client(base_url=base_url, api_key_env="OPENAI_API_KEY")
 
     # ------------------------------------------------------------------
     # Build prompt
@@ -398,10 +431,13 @@ class ClaudeStrategy(BaseStrategy):
             for t in TOOLS
         ]
 
-    def _call_openai(self, user_msg: str, snapshot: MarketSnapshot) -> List[StrategyDecision]:
+    def _call_openai_compatible(
+        self, user_msg: str, snapshot: MarketSnapshot, provider: str = "OpenAI"
+    ) -> List[StrategyDecision]:
+        """Unified handler for OpenAI-compatible APIs (OpenAI, Venice, etc.)."""
         import json as _json
 
-        client = self._get_openai_client()
+        client = self._get_venice_client() if provider == "Venice" else self._get_openai_client()
         t0 = time.time()
 
         response = client.chat.completions.create(
@@ -422,8 +458,8 @@ class ClaudeStrategy(BaseStrategy):
             self._total_input_tokens += usage.prompt_tokens or 0
             self._total_output_tokens += usage.completion_tokens or 0
             log.info(
-                "OpenAI: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
-                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                "%s: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
+                provider, elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
                 self._api_calls, self._total_input_tokens, self._total_output_tokens,
             )
 
@@ -434,6 +470,12 @@ class ClaudeStrategy(BaseStrategy):
                 args = _json.loads(tc.function.arguments) if tc.function.arguments else {}
                 decisions.extend(self._parse_tool_call(tc.function.name, args, snapshot))
         return decisions
+
+    def _call_openai(self, user_msg: str, snapshot: MarketSnapshot) -> List[StrategyDecision]:
+        return self._call_openai_compatible(user_msg, snapshot, provider="OpenAI")
+
+    def _call_venice(self, user_msg: str, snapshot: MarketSnapshot) -> List[StrategyDecision]:
+        return self._call_openai_compatible(user_msg, snapshot, provider="Venice")
 
     # ------------------------------------------------------------------
     # Shared tool call parsing
@@ -506,6 +548,8 @@ class ClaudeStrategy(BaseStrategy):
                 decisions = self._call_claude(user_msg, snapshot)
             elif provider == "openai":
                 decisions = self._call_openai(user_msg, snapshot)
+            elif provider == "venice":
+                decisions = self._call_venice(user_msg, snapshot)
             else:
                 decisions = self._call_gemini(user_msg, snapshot)
 

@@ -20,6 +20,7 @@ const PROVIDER_MAP = {
   gemini: { key: "gemini-api-key", provider: "google" },
   google: { key: "gemini-api-key", provider: "google" },
   openrouter: { key: "apiKey", provider: "openrouter" },
+  venice: { key: "openai-api-key", provider: "openai", baseUrl: "https://api.venice.ai/api/v1" },
 };
 
 export async function bootstrap() {
@@ -88,6 +89,8 @@ function buildConfig() {
     // AI provider
     provider: providerInfo.provider,
     [providerInfo.key]: aiKey,
+    // Venice uses OpenAI-compatible API with custom base URL
+    ...(providerInfo.baseUrl && { "openai-base-url": providerInfo.baseUrl }),
 
     // MCP servers — our trading CLI is the primary tool provider
     mcpServers: {
