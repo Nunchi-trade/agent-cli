@@ -139,6 +139,7 @@ Market Data -> Composite Fair Value -> Dynamic Spread -> Inventory Skew -> Multi
 | Google Gemini | `gemini-2.0-flash` (default), `gemini-2.5-pro` | `GEMINI_API_KEY` |
 | Anthropic Claude | `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini`, `o3-mini` | `OPENAI_API_KEY` |
+| Venice | `claude-opus-4-6`, `kimi-k2-5`, `openai-gpt-54-pro`, `zai-org-glm-5` | `VENICE_API_KEY` |
 
 ---
 
@@ -524,7 +525,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
-| `AI_PROVIDER` | Yes | — | `anthropic`, `openai`, `gemini`, or `openrouter` |
+| `AI_PROVIDER` | Yes | — | `anthropic`, `openai`, `gemini`, `openrouter`, or `venice` |
 | `AI_API_KEY` | Yes | — | API key for the chosen AI provider |
 | `TELEGRAM_BOT_TOKEN` | Yes | — | Telegram bot token (from @BotFather) |
 | `TELEGRAM_USERNAME` | Yes | — | Your Telegram @username |
@@ -651,6 +652,7 @@ hl run my_strategies.my_strategy:MyStrategy -i ETH-PERP --tick 10
 | `ANTHROPIC_API_KEY` | No | For `claude_agent` with Claude |
 | `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
 | `OPENAI_API_KEY` | No | For `claude_agent` with OpenAI |
+| `VENICE_API_KEY` | No | For `claude_agent` with Venice |
 
 \* Either `HL_PRIVATE_KEY` or a keystore with `HL_KEYSTORE_PASSWORD` is required.
 
