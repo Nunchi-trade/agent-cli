@@ -141,16 +141,34 @@ class DirectHLProxy:
             log.error("Failed to get account state: %s", e)
             return {}
 
-    def _get_tick_size(self, coin: str) -> float:
-        """Get the tick size for an asset from HL metadata."""
-        try:
-            meta = self._info.meta()
-            for asset in meta.get("universe", []):
-                if asset.get("name") == coin:
-                    return float(asset.get("szDecimals", 1))
-            return 0.1  # default
-        except Exception:
+    def _get_price_tick(self, coin: str, price: float) -> float:
+        """Get the price tick size for an asset.
+
+        Hyperliquid uses 5 significant figures for prices. The tick size
+        depends on the price magnitude:
+          BTC @ $60000 → tick = 1.0     (6e4, 5 sig figs → 1)
+          ETH @ $3000  → tick = 0.1     (3e3, 5 sig figs → 0.1)
+          SOL @ $150   → tick = 0.01    (1.5e2, 5 sig figs → 0.01)
+          kPEPE @ 0.003 → tick = 0.0000001
+        """
+        if not hasattr(self, "_price_tick_cache"):
+            self._price_tick_cache: Dict[str, float] = {}
+
+        # Use cached value if price hasn't changed order of magnitude
+        if coin in self._price_tick_cache:
+            cached = self._price_tick_cache[coin]
+            if cached > 0 and 0.1 <= price / (cached * 1e4) <= 10:
+                return cached
+
+        # Compute tick from significant figures (HL uses 5 sig figs for prices)
+        sig_figs = 5
+        if price <= 0:
             return 0.1
+        import math
+        magnitude = math.floor(math.log10(abs(price)))
+        tick = 10.0 ** (magnitude - sig_figs + 1)
+        self._price_tick_cache[coin] = tick
+        return tick
 
     def _get_sz_decimals(self, coin: str) -> int:
         """Get szDecimals for an asset — number of decimal places for order sizes."""
@@ -166,9 +184,9 @@ class DirectHLProxy:
                 pass
         return self._sz_decimals_cache.get(coin, 1)
 
-    @staticmethod
-    def _round_price(price: float, tick: float = 0.1) -> float:
-        """Round price to HL tick size."""
+    def _round_price(self, price: float, coin: str = "") -> float:
+        """Round price to HL tick size (5 sig figs, price-dependent)."""
+        tick = self._get_price_tick(coin, price) if coin and price > 0 else 0.1
         return round(round(price / tick) * tick, 8)
 
     def place_order(
@@ -195,8 +213,8 @@ class DirectHLProxy:
         sz_dec = self._get_sz_decimals(coin)
         size = round(size, sz_dec)
 
-        # Round price to HL tick size (0.1 for most assets)
-        price = self._round_price(price)
+        # Round price to HL tick size (price-dependent, 5 sig figs)
+        price = self._round_price(price, coin)
 
         # For IOC orders, apply slippage to cross the spread and guarantee fill.
         # Strategy prices are often at fair value (inside the spread) which won't
@@ -205,9 +223,9 @@ class DirectHLProxy:
             try:
                 snap = self._hl.get_snapshot(instrument)
                 if is_buy and snap.ask > 0:
-                    price = max(price, self._round_price(snap.ask * 1.005))
+                    price = max(price, self._round_price(snap.ask * 1.005, coin))
                 elif not is_buy and snap.bid > 0:
-                    price = min(price, self._round_price(snap.bid * 0.995))
+                    price = min(price, self._round_price(snap.bid * 0.995, coin))
             except Exception:
                 pass  # use original price if snapshot fails
 

@@ -97,6 +97,14 @@ class ApexRunner:
         self.radar_guard = RadarGuard()
         self.radar_guard.history.path = f"{data_dir}/radar-history.json"
 
+        # Clear radar scan history on --fresh so stale signals don't persist
+        if not resume:
+            radar_hist = Path(f"{data_dir}/radar-history.json")
+            if radar_hist.exists():
+                radar_hist.unlink()
+                log.info("Cleared radar scan history (--fresh)")
+
+
         # Guard bridges per slot (created on entry, removed on exit)
         self.guard_bridges: Dict[int, GuardBridge] = {}
         self._restore_guard_bridges()
@@ -175,12 +183,8 @@ class ApexRunner:
         """Verify account has funds before starting. Warns loudly if not."""
         try:
             account = self.hl.get_account_state()
-            # Check for balance in withdrawable or crossMarginSummary
-            balance = 0.0
-            if "crossMarginSummary" in account:
-                balance = float(account["crossMarginSummary"].get("accountValue", 0))
-            elif "marginSummary" in account:
-                balance = float(account["marginSummary"].get("accountValue", 0))
+            # get_account_state() returns processed dict with "account_value" key
+            balance = float(account.get("account_value", 0))
 
             if balance <= 0:
                 is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
@@ -435,6 +439,10 @@ class ApexRunner:
                         except Exception:
                             pass
 
+            # Post-scan delay: if we fetched candles, pause to let rate limits reset
+            if asset_candles:
+                time.sleep(1.0)
+
             result = self.pulse_guard.scan(all_markets=all_markets, asset_candles=asset_candles)
             return [
                 {
@@ -634,8 +642,10 @@ class ApexRunner:
             size = (self.config.margin_per_slot * self.config.leverage) / mid
             side = "buy" if action.direction == "long" else "sell"
 
-            # Use configured entry order type (default ALO for maker rebates)
-            entry_tif = getattr(self.config, "entry_order_type", "Alo")
+            # Entry order type: directional strategies use IOC (need immediate fills
+            # on fast-moving assets), pulse/radar use configured default (ALO for rebates)
+            is_directional = action.source not in ("pulse_immediate", "pulse_signal", "radar")
+            entry_tif = "Ioc" if is_directional else getattr(self.config, "entry_order_type", "Alo")
             fill = self.hl.place_order(
                 instrument=action.instrument,
                 side=side,

@@ -17,6 +17,7 @@ def apex_run(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate orders without real HL connection (alias for --mock)"),
     resume: bool = typer.Option(True, "--resume/--fresh", help="Resume from saved state or start fresh"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
@@ -27,7 +28,7 @@ def apex_run(
     data_dir: str = typer.Option("data/apex", "--data-dir"),
 ):
     """Start APEX autonomous multi-slot strategy."""
-    _run_apex(tick=tick, preset=preset, config=config, mock=mock,
+    _run_apex(tick=tick, preset=preset, config=config, mock=mock or dry_run,
               resume=resume, mainnet=mainnet, json_output=json_output,
               max_ticks=max_ticks, budget=budget, slots=slots,
               leverage=leverage, data_dir=data_dir)
