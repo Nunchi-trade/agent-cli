@@ -333,6 +333,11 @@ def main():
         datefmt="%H:%M:%S",
     )
 
+    # Competition mode: force testnet regardless of other config
+    if os.environ.get("COMPETITION_MODE", "").lower() == "true":
+        os.environ["HL_TESTNET"] = "true"
+        log.info("COMPETITION_MODE active — forcing testnet")
+
     port = int(os.environ.get("PORT", "8080"))
 
     # Start health check server in background

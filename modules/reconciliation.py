@@ -5,7 +5,8 @@ No I/O — all data passed in, results returned.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -137,3 +138,25 @@ class ReconciliationEngine:
         discrepancies.sort(key=lambda d: (severity_order.get(d.severity, 2), d.type))
 
         return discrepancies
+
+
+@dataclass
+class ReconciliationDebouncer:
+    """Prevents reconciliation from running mid-order by tracking recent order timestamps.
+
+    If an order was placed within `debounce_ms` of the reconciliation call,
+    the reconcile is skipped (exchange state may show partial fills).
+    """
+    debounce_ms: int = 5_000  # 5 second default
+    _last_order_ts: int = 0
+
+    def record_order(self, now_ms: Optional[int] = None) -> None:
+        """Record that an order was placed."""
+        self._last_order_ts = now_ms or int(time.time() * 1000)
+
+    def should_skip(self, now_ms: Optional[int] = None) -> bool:
+        """Return True if reconciliation should be skipped (too close to last order)."""
+        if self._last_order_ts == 0:
+            return False
+        now = now_ms or int(time.time() * 1000)
+        return (now - self._last_order_ts) < self.debounce_ms

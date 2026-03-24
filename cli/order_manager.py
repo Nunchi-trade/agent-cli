@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from common.models import MarketSnapshot, StrategyDecision
 from execution.parent_order import ParentOrder
+from execution.routing import OrderRouter
 from execution.twap import TWAPExecutor, ChildSlice
 from parent.hl_proxy import HLFill
 
 if TYPE_CHECKING:
     from cli.hl_adapter import DirectHLProxy, DirectMockProxy
+    from common.venue_adapter import VenueAdapter
 
 log = logging.getLogger("order_manager")
 
@@ -29,15 +31,17 @@ class OrderManager:
 
     def __init__(
         self,
-        hl,  # DirectHLProxy | DirectMockProxy
+        hl,  # VenueAdapter (or DirectHLProxy | DirectMockProxy for backwards compat)
         instrument: str = "ETH-PERP",
         dry_run: bool = False,
         builder: dict = None,
+        router: Optional[OrderRouter] = None,
     ):
         self.hl = hl
         self.instrument = instrument
         self.dry_run = dry_run
         self._builder = builder
+        self._router = router
         self._total_placed = 0
         self._total_filled = 0
         self._twap = TWAPExecutor()
@@ -87,10 +91,16 @@ class OrderManager:
                 self._total_placed += 1
                 continue
 
+            # Determine TIF via router (if available) or use decision's order_type
+            tif = d.order_type
+            if self._router is not None:
+                urgency = d.meta.get("urgency", 0.5)
+                tif = self._router.route(d, snapshot, urgency=urgency)
+
             if self.dry_run:
-                log.info("[DRY RUN] %s %s %.6f @ %.4f",
+                log.info("[DRY RUN] %s %s %.6f @ %.4f (tif=%s)",
                          d.side.upper(), d.instrument or self.instrument,
-                         d.size, d.limit_price)
+                         d.size, d.limit_price, tif)
                 self._total_placed += 1
                 continue
 
@@ -99,10 +109,21 @@ class OrderManager:
                 side=d.side,
                 size=d.size,
                 price=d.limit_price,
-                tif=d.order_type,
+                tif=tif,
                 builder=self._builder,
             )
             self._total_placed += 1
+
+            # Record routing stats
+            if self._router is not None:
+                if tif == "Alo":
+                    size_usd = d.size * d.limit_price
+                    self._router.stats.record_alo_attempt(
+                        success=fill is not None, size_usd=size_usd,
+                    )
+                else:
+                    self._router.stats.record_order(tif)
+
             if fill is not None:
                 fills.append(fill)
                 self._total_filled += 1

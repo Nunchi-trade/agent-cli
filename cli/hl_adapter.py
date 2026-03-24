@@ -146,45 +146,89 @@ class DirectHLProxy:
     def get_account_state(self) -> Dict:
         """Fetch account state directly from HL Info API.
 
-        Handles SDK IndexError when spot metadata is present in the response.
+        Fetches both perps (clearinghouseState) and spot (spotClearinghouseState)
+        balances so `hl account` shows the full unified balance.
         """
         try:
             state = self._info.user_state(self._address)
             margin_summary = state.get("marginSummary", {})
-            return {
+            result = {
                 "account_value": float(margin_summary.get("accountValue", 0)),
                 "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
                 "withdrawable": float(state.get("withdrawable", 0)),
                 "address": self._address,
                 "positions": state.get("assetPositions", []),
+                "spot_balances": [],
             }
         except IndexError:
             # SDK bug: spot metadata parsing can trigger IndexError.
-            # Fall back to clearinghouse state endpoint which skips spot parsing.
             log.warning("SDK IndexError in user_state (spot metadata); trying clearinghouse fallback")
             try:
-                import requests
-                base_url = self._hl._info.base_url
-                resp = requests.post(
-                    f"{base_url}/info",
-                    json={"type": "clearinghouseState", "user": self._address},
-                    timeout=10,
-                )
-                data = resp.json()
-                margin_summary = data.get("marginSummary", {})
-                return {
-                    "account_value": float(margin_summary.get("accountValue", 0)),
-                    "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
-                    "withdrawable": float(data.get("withdrawable", 0)),
-                    "address": self._address,
-                    "positions": data.get("assetPositions", []),
-                }
+                result = self._fetch_perps_via_http()
             except Exception as e2:
                 log.error("Clearinghouse fallback also failed: %s", e2)
                 return {}
         except Exception as e:
             log.error("Failed to get account state: %s", e)
             return {}
+
+        # Fetch spot balances (separate endpoint).
+        spot_balances = self._fetch_spot_balances()
+        if spot_balances:
+            result["spot_balances"] = spot_balances
+            # Add spot total to account_value so the headline number is accurate.
+            spot_total = sum(
+                float(b.get("total", 0)) for b in spot_balances
+                if b.get("coin") == "USDC"
+            )
+            result["spot_usdc"] = spot_total
+        return result
+
+    def _fetch_perps_via_http(self) -> Dict:
+        """Fallback: fetch perps state via direct HTTP POST."""
+        import requests
+        base_url = self._hl._info.base_url
+        resp = requests.post(
+            f"{base_url}/info",
+            json={"type": "clearinghouseState", "user": self._address},
+            timeout=10,
+        )
+        data = resp.json()
+        margin_summary = data.get("marginSummary", {})
+        return {
+            "account_value": float(margin_summary.get("accountValue", 0)),
+            "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
+            "withdrawable": float(data.get("withdrawable", 0)),
+            "address": self._address,
+            "positions": data.get("assetPositions", []),
+            "spot_balances": [],
+        }
+
+    def _fetch_spot_balances(self) -> List[Dict]:
+        """Fetch spot/unified balances from HL spotClearinghouseState."""
+        try:
+            import requests
+            base_url = self._hl._info.base_url
+            resp = requests.post(
+                f"{base_url}/info",
+                json={"type": "spotClearinghouseState", "user": self._address},
+                timeout=10,
+            )
+            data = resp.json()
+            balances = data.get("balances", [])
+            # Each balance: {"coin": "USDC", "hold": "0.0", "total": "1000.0", "token": 0}
+            return [
+                {
+                    "coin": b.get("coin", ""),
+                    "total": b.get("total", "0"),
+                    "hold": b.get("hold", "0"),
+                }
+                for b in balances
+                if float(b.get("total", 0)) != 0
+            ]
+        except Exception as e:
+            log.warning("Failed to fetch spot balances: %s", e)
+            return []
 
     def _get_price_tick(self, coin: str, price: float) -> float:
         """Get the price tick size for an asset.

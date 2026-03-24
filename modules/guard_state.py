@@ -106,7 +106,11 @@ class GuardStateStore:
         if config_dict:
             payload["config"] = config_dict
         path = self.data_dir / f"{state.position_id}.json"
-        path.write_text(json.dumps(payload, indent=2, default=str))
+        content = json.dumps(payload, indent=2, default=str)
+        # Atomic write: write to temp file, then rename (prevents corruption on crash)
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(content)
+        tmp_path.replace(path)
 
     def load(self, position_id: str) -> Optional[Dict[str, Any]]:
         path = self.data_dir / f"{position_id}.json"

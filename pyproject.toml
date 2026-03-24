@@ -44,6 +44,9 @@ hl = "cli.main:main"
 Homepage = "https://github.com/Nunchi-trade/agent-cli"
 Repository = "https://github.com/Nunchi-trade/agent-cli"
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
@@ -52,4 +55,4 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
-include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*"]
+include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*"]

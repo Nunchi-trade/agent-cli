@@ -69,8 +69,11 @@ class GuardBridge:
     def is_active(self) -> bool:
         return not self.state.closed
 
-    def sync_exchange_sl(self, hl, instrument: str) -> None:
-        """Place or update exchange-level SL to match current GUARD floor."""
+    def sync_exchange_sl(self, hl, instrument: str, max_retries: int = 3) -> None:
+        """Place or update exchange-level SL to match current GUARD floor.
+
+        Retries with exponential backoff if trigger order placement fails.
+        """
         if not self.is_active:
             return
 
@@ -85,10 +88,29 @@ class GuardBridge:
         if old_oid:
             hl.cancel_trigger_order(instrument, old_oid)
 
-        new_oid = hl.place_trigger_order(
-            instrument=instrument, side=close_side,
-            size=self.state.position_size, trigger_price=floor_price,
-        )
+        # Place new trigger order with retry
+        new_oid = None
+        for attempt in range(max_retries):
+            new_oid = hl.place_trigger_order(
+                instrument=instrument, side=close_side,
+                size=self.state.position_size, trigger_price=floor_price,
+            )
+            if new_oid:
+                break
+            delay = 2 ** attempt  # 1s, 2s, 4s
+            log.warning(
+                "Exchange SL placement failed for [%s] (attempt %d/%d), retrying in %ds",
+                self.state.position_id, attempt + 1, max_retries, delay,
+            )
+            time.sleep(delay)
+
+        if not new_oid:
+            log.error(
+                "Exchange SL placement FAILED after %d retries for [%s] — "
+                "position has no exchange-side stop loss! Local Guard still active.",
+                max_retries, self.state.position_id,
+            )
+
         self.state.exchange_sl_oid = new_oid or ""
         self._persist()
 

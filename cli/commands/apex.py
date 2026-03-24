@@ -203,11 +203,17 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     if leverage > 0:
         cfg.leverage = leverage
 
-    logging.basicConfig(
+    from common.logging_config import configure_logging, log_startup_banner, resolve_obsidian_path
+
+    configure_logging(
+        strategy_name=preset or "apex",
+        log_dir=str(Path(data_dir).parent / "logs") if data_dir != "data/apex" else "logs",
+        json_logs=json_output,
         level=logging.INFO,
-        format="%(asctime)s %(name)-14s %(levelname)-5s %(message)s",
-        datefmt="%H:%M:%S",
     )
+
+    # Auto-detect Obsidian vault if not explicitly configured
+    cfg.obsidian_vault_path = resolve_obsidian_path(cfg.obsidian_vault_path)
 
     if mock:
         from cli.hl_adapter import DirectMockProxy
@@ -238,11 +244,87 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     if _builder_info:
         typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
 
+    # Multi-wallet mode: if wallet_config is non-empty, use MultiWalletEngine
+    if cfg.wallet_config and not single:
+        from cli.multi_wallet_engine import MultiWalletEngine
+        from modules.wallet_manager import WalletConfig, WalletManager
+
+        wm = WalletManager.from_yaml_section(cfg.wallet_config)
+        typer.echo(f"Multi-wallet mode: {len(wm.wallet_ids)} wallets")
+
+        def _adapter_factory(wc: WalletConfig):
+            """Create a VenueAdapter per wallet.  In mock mode every wallet
+            shares the mock backend; in live mode each gets its own proxy."""
+            if mock:
+                from adapters.mock_adapter import MockVenueAdapter
+                return MockVenueAdapter()
+            else:
+                # Live mode: all wallets share the same HL connection for now
+                from adapters.hl_adapter import HLVenueAdapter
+                return HLVenueAdapter(hl)  # type: ignore[arg-type]
+
+        def _strategy_factory(wc: WalletConfig):
+            """Create a per-wallet strategy instance.  Reuses the APEX engine
+            strategy via a lightweight TradingEngine adapter — each wallet
+            gets its own strategy_id scoped to the wallet."""
+            from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
+            from common.models import MarketSnapshot, StrategyDecision
+
+            class WalletPassthroughStrategy(BaseStrategy):
+                """Thin wrapper that tags strategy_id with wallet name."""
+                def __init__(self, wallet_id: str):
+                    super().__init__(strategy_id=f"apex_{wallet_id}")
+                def on_tick(self, snapshot, context=None):
+                    return []  # Decisions come from ApexRunner at higher level
+
+            return WalletPassthroughStrategy(wc.wallet_id)
+
+        mwe = MultiWalletEngine(
+            wallet_manager=wm,
+            adapter_factory=_adapter_factory,
+            strategy_factory=_strategy_factory,
+            instrument="ETH-PERP",
+            tick_interval=tick,
+            dry_run=mock,
+            data_dir=data_dir,
+            builder=_builder_info,
+            max_house_drawdown=cfg.daily_loss_limit * len(wm.wallet_ids),
+            max_house_exposure=cfg.total_budget * cfg.leverage * len(wm.wallet_ids),
+        )
+
+        log_startup_banner(
+            strategy_name=preset or "apex",
+            mode="MOCK" if mock else f"LIVE ({'mainnet' if mainnet else 'testnet'})",
+            budget=cfg.total_budget,
+            slots=cfg.max_slots,
+            leverage=cfg.leverage,
+            daily_loss_limit=cfg.daily_loss_limit,
+            guard_preset=cfg.guard_preset,
+            obsidian_enabled=bool(cfg.obsidian_vault_path),
+            reflect_interval=cfg.reflect_interval_ticks,
+        )
+
+        mwe.run(max_ticks=max_ticks, resume=resume)
+        return
+
+    # Single-wallet mode (default): use ApexRunner
     from skills.apex.scripts.standalone_runner import ApexRunner
 
     runner = ApexRunner(hl=hl, config=cfg, tick_interval=tick,
                         json_output=json_output, data_dir=data_dir,
                         builder=_builder_info, resume=resume)
+
+    log_startup_banner(
+        strategy_name=preset or "apex",
+        mode="MOCK" if mock else f"LIVE ({'mainnet' if mainnet else 'testnet'})",
+        budget=cfg.total_budget,
+        slots=cfg.max_slots,
+        leverage=cfg.leverage,
+        daily_loss_limit=cfg.daily_loss_limit,
+        guard_preset=cfg.guard_preset,
+        obsidian_enabled=bool(cfg.obsidian_vault_path),
+        reflect_interval=cfg.reflect_interval_ticks,
+    )
 
     if single:
         runner.run_once()

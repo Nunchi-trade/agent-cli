@@ -227,8 +227,13 @@ class HLProxy:
     """
 
     def __init__(self, private_key: Optional[str] = None, testnet: bool = True):
-        import os
-        self.private_key = private_key or os.environ.get("HL_PRIVATE_KEY", "")
+        if private_key is None:
+            try:
+                from common.credentials import resolve_private_key
+                private_key = resolve_private_key(venue="hl")
+            except RuntimeError:
+                private_key = ""
+        self.private_key = private_key
         self.testnet = testnet
         self._info = None
         self._exchange = None

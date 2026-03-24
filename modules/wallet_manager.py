@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("wallet_manager")
@@ -35,6 +36,23 @@ class WalletConfig:
             "max_slots": self.max_slots,
             "daily_loss_limit": self.daily_loss_limit,
         }
+
+    def to_risk_limits(self) -> "RiskLimits":
+        """Create per-wallet RiskLimits from this wallet config.
+
+        Imports RiskLimits locally to avoid circular dependency.
+        """
+        from parent.risk_manager import RiskLimits
+
+        return RiskLimits(
+            max_notional_usd=Decimal(str(self.budget)),
+            max_daily_drawdown_pct=Decimal("2.5"),
+            max_leverage=Decimal(str(self.leverage)),
+            max_position_qty=Decimal(str(self.budget / max(self.leverage, 1.0))),
+            max_order_size=Decimal(str(self.budget / max(self.leverage, 1.0) / 2)),
+            tvl=Decimal(str(self.budget)),
+            reserve_factor_pct=Decimal("10"),
+        )
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "WalletConfig":

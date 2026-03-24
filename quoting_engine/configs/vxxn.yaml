@@ -1,0 +1,95 @@
+market_name: vxxn
+instrument: VXXN-PERP
+tick_size: 0.01
+round_duration_s: 20.0
+
+fv_weights:
+  w_oracle: 0.70
+  w_external: 0.00
+  w_microprice: 0.30
+  w_inventory: 0.00  # inventory adjustment via InventorySkewer.price_skew(), not FV blend
+
+spread:
+  h_fee_bps: 2.0
+  vol_scale: 1.5
+  rebate_credit_bps: 0.0
+  min_spread_bps: 5.0
+  max_spread_bps: 80.0
+
+ladder:
+  num_levels: 2
+  delta_bps: 2.5
+  s0: 0.5
+  lam: 0.7
+  min_size_ratio: 0.1
+
+skew:
+  k_inv: 0.7
+  inv_limit: 10.0
+  mode: both
+  size_skew_factor: 0.4
+  soft_cap: 8.0
+  hard_cap: 12.0
+  micro_clip_size: 0.3
+  micro_clip_interval: 5
+
+vol_window: 20
+funding_dampening: 120  # VXXN: funding signal dampened by 1/120
+
+fv_band:
+  enabled: true
+  band_min_bps: 3.0
+  k_sigma: 2.5
+  k_disagree: 0.3
+
+disagreement:
+  enabled: true
+  threshold_bps: 15.0
+  spread_mult: 2.0
+  size_mult: 0.5
+
+funding_boundary:
+  enabled: false       # VXXN: not a funding product
+
+session_regime:
+  enabled: true
+  in_session_start_utc: "14:30"
+  in_session_end_utc: "21:00"
+  off_session_spread_mult: 3.0
+  weekend_days: [5, 6]
+  reopen_window_minutes: 30
+  regimes:
+    OPEN:
+      spread_mult: 1.0
+      size_mult: 1.0
+    CLOSE:
+      spread_mult: 3.0
+      size_mult: 0.7
+    WEEKEND:
+      spread_mult: 5.0
+      size_mult: 0.3
+      reduce_only: true
+    REOPEN_WINDOW:
+      spread_mult: 2.0
+      size_mult: 0.5
+
+liquidation_detector:
+  enabled: true
+  oi_drop_threshold_pct: 5.0
+  spread_mult: 2.5
+  size_mult: 0.4
+  cooldown_ticks: 15
+  mid_burst_bps: 80.0
+  mid_burst_window: 3
+  liq_catcher_levels: 0
+  liq_catcher_size_mult: 0.3
+  escalation_ticks: 10
+
+feeds:
+  oracle_monitor:
+    warning_ms: 3000
+    stale_ms: 10000
+    kill_ms: 45000
+    enabled: true
+  event_calendar_path: ""
+  microprice_depth: 3

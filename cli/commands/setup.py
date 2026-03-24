@@ -181,9 +181,14 @@ def setup_claim_usdyp():
         typer.echo(f"ERROR: HTTP {e.code}: {body}", err=True)
         if "not eligible" in body.lower() or "verify" in body.lower():
             typer.echo("")
-            typer.echo("This usually means the wallet hasn't connected to Hyperliquid yet.")
-            typer.echo("Fix: Visit https://app.hyperliquid-testnet.xyz and connect this wallet first,")
-            typer.echo("     then re-run 'hl setup claim-usdyp'.")
+            typer.echo("This wallet hasn't been seen by Hyperliquid yet.")
+            typer.echo("")
+            typer.echo("  One-time fix (takes 30 seconds):")
+            typer.echo("  1. Visit https://app.hyperliquid-testnet.xyz")
+            typer.echo("  2. Connect wallet: " + address)
+            typer.echo("  3. Re-run: hl setup claim-usdyp")
+            typer.echo("")
+            typer.echo("This is a Hyperliquid requirement for fresh wallets — only needed once.")
         raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"ERROR: {e}", err=True)

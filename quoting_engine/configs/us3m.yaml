@@ -1,0 +1,77 @@
+market_name: us3m
+instrument: US3M-PERP
+tick_size: 0.0001
+round_duration_s: 20.0
+
+fv_weights:
+  w_oracle: 0.70
+  w_external: 0.05
+  w_microprice: 0.25
+  w_inventory: 0.00  # inventory adjustment via InventorySkewer.price_skew(), not FV blend
+
+spread:
+  h_fee_bps: 1.0
+  vol_scale: 1.2
+  rebate_credit_bps: 0.1
+  min_spread_bps: 3.0
+  max_spread_bps: 25.0
+
+ladder:
+  num_levels: 4
+  delta_bps: 0.5
+  s0: 0.5
+  lam: 0.3
+  min_size_ratio: 0.1
+
+skew:
+  k_inv: 0.7
+  inv_limit: 5.0
+  mode: both
+  size_skew_factor: 0.3
+  soft_cap: 4.0
+  hard_cap: 6.0
+  micro_clip_size: 0.1
+  micro_clip_interval: 5
+
+vol_window: 50
+funding_dampening: 300  # US3M: funding signal dampened by 1/300
+
+fv_band:
+  enabled: true
+  band_min_bps: 1.5
+  k_sigma: 2.0
+  k_disagree: 0.3
+
+disagreement:
+  enabled: true
+  threshold_bps: 8.0
+  spread_mult: 1.5
+  size_mult: 0.7
+
+funding_boundary:
+  enabled: true
+  pre_window_s: 30
+  post_window_s: 30
+  size_mult: 0.3
+  pin_fv_to_oracle: true
+
+liquidation_detector:
+  enabled: true
+  oi_drop_threshold_pct: 5.0
+  spread_mult: 2.0
+  size_mult: 0.5
+  cooldown_ticks: 10
+  mid_burst_bps: 30.0
+  mid_burst_window: 3
+  liq_catcher_levels: 2
+  liq_catcher_size_mult: 0.3
+  escalation_ticks: 7
+
+feeds:
+  oracle_monitor:
+    warning_ms: 5000
+    stale_ms: 20000
+    kill_ms: 90000
+    enabled: true
+  event_calendar_path: ""
+  microprice_depth: 5

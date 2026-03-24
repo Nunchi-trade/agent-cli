@@ -148,6 +148,16 @@ class ReflectMetrics:
     # Round trips (for report detail)
     round_trips: List[RoundTrip] = field(default_factory=list)
 
+    # Orphan trades (entries without matched exits — open positions)
+    orphan_trade_count: int = 0
+
+    # ALO routing stats (populated from OrderRouter.stats)
+    alo_attempts: int = 0
+    alo_successes: int = 0
+    alo_fallbacks: int = 0
+    alo_success_rate: float = 0.0
+    estimated_maker_rebate_usd: float = 0.0
+
     # Recommendations
     recommendations: List[str] = field(default_factory=list)
 
@@ -170,6 +180,8 @@ class ReflectEngine:
         rts = self._pair_round_trips(trades)
         m.round_trips = rts
         m.total_round_trips = len(rts)
+        # Orphan trades = total trades minus those consumed by round trips (2 per RT)
+        m.orphan_trade_count = m.total_trades - (m.total_round_trips * 2)
 
         if not rts:
             m.total_fees = sum(t.fee for t in trades)

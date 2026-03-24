@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+log = logging.getLogger("archiver")
 
 
 class StateArchiver:
@@ -59,7 +62,8 @@ class StateArchiver:
                 if not dry_run:
                     self.archive_guard_state(str(guard_path), f.stem)
                 counts["guard"] += 1
-            except (json.JSONDecodeError, IOError):
+            except (json.JSONDecodeError, IOError) as e:
+                log.warning("Skipping corrupted state file %s: %s", f.name, e)
                 counts["skipped"] += 1
 
         return counts

@@ -6,8 +6,6 @@ and provides deeper liquidity on the contra side to capture cascade spread.
 """
 from __future__ import annotations
 
-import strategies._engine_base  # noqa: F401
-
 from typing import Any, Dict, List, Optional
 
 from common.models import MarketSnapshot, StrategyDecision

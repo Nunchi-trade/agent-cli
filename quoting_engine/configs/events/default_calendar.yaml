@@ -1,0 +1,24 @@
+# Default event calendar for quoting engine spread widening.
+# Events widen half-spread by h_event_bps around scheduled times.
+
+events:
+  # Funding settlements — every hour on the hour
+  - type: funding_settlement
+    time_pattern: "HH:00"
+    pre_window_ms: 30000        # 30 seconds before (aligned with FundingBoundaryConfig)
+    post_window_ms: 30000       # 30 seconds after
+    h_event_bps: 3.0
+
+  # US equity market open (09:30 ET = 14:30 UTC)
+  - type: session_us_open
+    time_utc: "14:30"
+    pre_window_ms: 300000       # 5 minutes before
+    post_window_ms: 300000      # 5 minutes after
+    h_event_bps: 2.0
+
+  # US equity market close (16:00 ET = 21:00 UTC)
+  - type: session_us_close
+    time_utc: "21:00"
+    pre_window_ms: 300000       # 5 minutes before
+    post_window_ms: 300000      # 5 minutes after
+    h_event_bps: 2.0
