@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -226,7 +228,8 @@ class HLProxy:
     Use TradingConfig.get_private_key() to resolve credentials.
     """
 
-    def __init__(self, private_key: Optional[str] = None, testnet: bool = True):
+    def __init__(self, private_key: Optional[str] = None, testnet: bool = True,
+                 account_address: Optional[str] = None):
         if private_key is None:
             try:
                 from common.credentials import resolve_private_key
@@ -235,11 +238,20 @@ class HLProxy:
                 private_key = ""
         self.private_key = private_key
         self.testnet = testnet
+        self._account_address = self._resolve_account_address(account_address)
         self._info = None
         self._exchange = None
         self._address = None
         self.placed_orders: List[Dict] = []
         self.fills: List[HLFill] = []
+
+    def _resolve_account_address(self, address: Optional[str] = None) -> str:
+        """Resolve delegated wallet from arg or HL_WALLET_ADDRESS env var."""
+        addr = address or os.environ.get("HL_WALLET_ADDRESS", "")
+        if addr and not re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
+            log.warning("HL_WALLET_ADDRESS invalid, ignoring: %s", addr)
+            return ""
+        return addr
 
     def _ensure_client(self):
         if self._info is not None:
@@ -255,9 +267,16 @@ class HLProxy:
         self._info = Info(base_url, skip_ws=True, timeout=10)
 
         account = Account.from_key(self.private_key)
-        self._address = account.address
-        self._exchange = Exchange(account, base_url)
-        log.info("HL client initialized: %s (testnet=%s)", self._address, self.testnet)
+        delegated = self._account_address
+        if delegated and delegated.lower() != account.address.lower():
+            self._address = delegated
+            self._exchange = Exchange(account, base_url, account_address=delegated)
+            log.info("HL client: agent=%s trading for %s (testnet=%s)",
+                     account.address, delegated, self.testnet)
+        else:
+            self._address = account.address
+            self._exchange = Exchange(account, base_url)
+            log.info("HL client initialized: %s (testnet=%s)", self._address, self.testnet)
 
     def set_leverage(self, leverage: int, coin: str = "ETH", is_cross: bool = True):
         """Set leverage for a coin. Call explicitly instead of hardcoding on init."""

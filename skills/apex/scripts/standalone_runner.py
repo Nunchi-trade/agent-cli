@@ -327,6 +327,16 @@ class ApexRunner:
                     if old != value:
                         setattr(self.config, key, value)
                         changed.append(f"{key}: {old} -> {value}")
+                elif hasattr(self.radar_guard.config, key):
+                    old = getattr(self.radar_guard.config, key)
+                    if old != value:
+                        setattr(self.radar_guard.config, key, value)
+                        self.radar_guard.engine = type(self.radar_guard.engine)(self.radar_guard.config)
+                        changed.append(f"radar.{key}: {old} -> {value}")
+            # Sync radar_score_threshold to RadarConfig.score_threshold
+            if "radar_score_threshold" in params:
+                self.radar_guard.config.score_threshold = params["radar_score_threshold"]
+                self.radar_guard.engine = type(self.radar_guard.engine)(self.radar_guard.config)
             if override.get("preset"):
                 self.state.preset = override["preset"]
             if changed:
@@ -590,17 +600,44 @@ class ApexRunner:
     def _run_radar(self) -> List[Dict[str, Any]]:
         """Run radar and return opportunity dicts for the engine."""
         try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
             all_markets = self.hl.get_all_markets()
 
-            # Fetch BTC candles
-            btc_4h = self.hl.get_candles("BTC", "4h", 7 * 24 * 3600 * 1000)
-            btc_1h = self.hl.get_candles("BTC", "1h", 48 * 3600 * 1000)
+            # Pre-screen to find which assets need candle data
+            assets = self.radar_guard.engine._bulk_screen(all_markets)
+            top_assets = self.radar_guard.engine._select_top(assets)
+            asset_names = [a.name for a in top_assets]
+
+            rcfg = self.radar_guard.config
+            btc_4h, btc_1h = [], []
+            asset_candles = {}
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = {}
+                futures[pool.submit(self.hl.get_candles, "BTC", "4h", rcfg.lookback_4h_ms)] = ("_btc", "4h")
+                futures[pool.submit(self.hl.get_candles, "BTC", "1h", rcfg.lookback_1h_ms)] = ("_btc", "1h")
+                for name in asset_names:
+                    for interval, lookback in [("4h", rcfg.lookback_4h_ms), ("1h", rcfg.lookback_1h_ms), ("15m", rcfg.lookback_15m_ms)]:
+                        futures[pool.submit(self.hl.get_candles, name, interval, lookback)] = (name, interval)
+
+                for future in as_completed(futures):
+                    key = futures[future]
+                    try:
+                        data = future.result()
+                        if key[0] == "_btc":
+                            if key[1] == "4h": btc_4h = data
+                            else: btc_1h = data
+                        else:
+                            asset_candles.setdefault(key[0], {})[key[1]] = data
+                    except Exception as e:
+                        log.warning("Failed to fetch candles for %s %s: %s", key[0], key[1], e)
 
             result = self.radar_guard.scan(
                 all_markets=all_markets,
                 btc_candles_4h=btc_4h,
                 btc_candles_1h=btc_1h,
-                asset_candles={},
+                asset_candles=asset_candles,
             )
 
             return [
@@ -619,7 +656,7 @@ class ApexRunner:
         """Run reconciliation at startup to detect orphans from crashes."""
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             slot_dicts = [s.to_dict() for s in self.state.slots]
             discrepancies = self.recon_engine.reconcile(slot_dicts, positions)
 
@@ -658,7 +695,7 @@ class ApexRunner:
         # but we need the signed szi. Fetch account again for this position.
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             szi = 0.0
             entry_px = 0.0
             for pos in positions:
@@ -683,18 +720,18 @@ class ApexRunner:
 
             # Create a GUARD bridge for the adopted position
             guard_cfg = GUARD_PRESETS.get(self.config.guard_preset, GUARD_PRESETS["tight"])
-            if self.config.guard_leverage_override:
-                guard_cfg = GuardConfig(
-                    **{**guard_cfg.__dict__, "leverage": self.config.guard_leverage_override}
-                )
-            guard = GuardBridge.create(
-                position_id=f"apex-slot-{empty.slot_id}",
+            guard_cfg = GuardConfig.from_dict(guard_cfg.to_dict())  # copy
+            guard_cfg.direction = direction
+            guard_cfg.leverage = self.config.guard_leverage_override or self.config.leverage
+            guard_state = GuardState.new(
+                instrument=discrepancy.instrument,
                 entry_price=entry_px,
                 position_size=size,
                 direction=direction,
-                config=guard_cfg,
-                data_dir=f"{self.data_dir}/guard",
+                position_id=f"apex-slot-{empty.slot_id}",
             )
+            guard_store = GuardStateStore(data_dir=f"{self.data_dir}/guard")
+            guard = GuardBridge(config=guard_cfg, state=guard_state, store=guard_store)
             self.guard_bridges[empty.slot_id] = guard
 
             log.info("ADOPTED orphan %s into slot %d: %s %.4f @ %.2f",
@@ -706,7 +743,7 @@ class ApexRunner:
         """Health check — reconcile positions against exchange state."""
         try:
             account = self.hl.get_account_state()
-            positions = account.get("assetPositions", [])
+            positions = account.get("positions", [])
             slot_dicts = [s.to_dict() for s in self.state.slots]
             discrepancies = self.recon_engine.reconcile(slot_dicts, positions)
 
@@ -850,19 +887,22 @@ class ApexRunner:
                 builder=self.builder,
             )
 
-            exit_price = fill.price if fill else mid
+            exit_price = float(fill.price) if fill else mid
             pnl = 0.0
-            if slot.entry_price > 0 and exit_price > 0:
-                if slot.direction == "long":
-                    pnl = (exit_price - slot.entry_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
-                else:
-                    pnl = (slot.entry_price - exit_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+            try:
+                if slot.entry_price > 0 and exit_price > 0:
+                    if slot.direction == "long":
+                        pnl = (exit_price - slot.entry_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+                    else:
+                        pnl = (slot.entry_price - exit_price) / slot.entry_price * slot.margin_allocated * self.config.leverage
+            except Exception as e:
+                log.warning("PnL calculation failed for slot %d: %s (closing with pnl=0)", slot.slot_id, e)
 
             self._close_slot(slot, reason=action.reason, pnl=pnl)
             self._log_trade(
                 tick=self.state.tick_count, instrument=action.instrument,
                 side=side, price=float(exit_price),
-                quantity=slot.entry_size, fee=float(getattr(fill, "fee", 0)) if fill else 0,
+                quantity=float(slot.entry_size), fee=float(getattr(fill, "fee", 0)) if fill else 0,
                 meta=action.reason,
             )
             log.info("EXITED slot %d: %s %s @ %.4f PnL=$%.2f (%s)",

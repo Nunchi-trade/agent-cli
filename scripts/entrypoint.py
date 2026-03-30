@@ -12,8 +12,8 @@ import signal
 import subprocess
 import sys
 import time
-from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from pathlib import Path
 from threading import Thread
 
@@ -65,8 +65,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_status(data_dir))
             except Exception as e:
                 body = json.dumps({"status": "error", "error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/strategies":
             try:
@@ -74,15 +73,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_strategies())
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/feed":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self._cors_headers(headers_only=True)
+            self._send_cors_headers()
             self.end_headers()
             data_dir = os.environ.get("DATA_DIR", "/data")
             try:
@@ -109,8 +107,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_trades(data_dir, limit=limit))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/reflect":
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -119,8 +116,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_reflect(data_dir))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/metrics":
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -142,8 +138,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_radar(data_dir))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path.startswith("/api/journal"):
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -155,8 +150,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_journal(data_dir, limit=limit))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         else:
             self.send_response(404)
@@ -192,11 +186,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 from cli.api.status_reader import read_strategies
                 data = read_strategies()
                 count = len(data.get("strategies", {}))
-                self._cors_headers()
-                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}))
+                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}), cors=True)
             except Exception as e:
                 self.send_response(500)
-                self._cors_headers()
+                self._send_cors_headers()
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.write(json.dumps({"installed": False, "error": str(e)}))
@@ -212,11 +205,10 @@ class HealthHandler(BaseHTTPRequestHandler):
                 data_dir = os.environ.get("DATA_DIR", "/data")
                 from cli.api.status_reader import write_config_override
                 write_config_override(data_dir, config)
-                self._cors_headers()
-                self._json_response(json.dumps({"status": "ok", "applied_at": "next_tick"}))
+                self._json_response(json.dumps({"status": "ok", "applied_at": "next_tick"}), cors=True)
             except Exception as e:
                 self.send_response(400)
-                self._cors_headers()
+                self._send_cors_headers()
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.write(json.dumps({"error": str(e)}))
@@ -226,16 +218,14 @@ class HealthHandler(BaseHTTPRequestHandler):
                 return
             if CHILD_PROC and CHILD_PROC.poll() is None:
                 os.kill(CHILD_PROC.pid, signal.SIGSTOP)
-            self._cors_headers()
-            self._json_response(json.dumps({"status": "paused"}))
+            self._json_response(json.dumps({"status": "paused"}), cors=True)
 
         elif self.path == "/api/resume":
             if not self._check_auth():
                 return
             if CHILD_PROC and CHILD_PROC.poll() is None:
                 os.kill(CHILD_PROC.pid, signal.SIGCONT)
-            self._cors_headers()
-            self._json_response(json.dumps({"status": "resumed"}))
+            self._json_response(json.dumps({"status": "resumed"}), cors=True)
 
         else:
             self.send_response(404)
@@ -244,19 +234,21 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         """Handle CORS preflight."""
         self.send_response(204)
-        self._cors_headers()
+        self._send_cors_headers()
         self.end_headers()
 
     def write(self, body: str):
         self.wfile.write(body.encode())
 
-    def _json_response(self, body: str):
+    def _json_response(self, body: str, cors: bool = False):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        if cors:
+            self._send_cors_headers()
         self.end_headers()
         self.write(body)
 
-    def _cors_headers(self, headers_only: bool = False):
+    def _send_cors_headers(self):
         origin = os.environ.get("CORS_ORIGIN", "*")
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -288,8 +280,8 @@ def build_command() -> list[str]:
         tick = os.environ.get("TICK_INTERVAL")
         if tick:
             cmd += ["--tick", tick]
-        data_dir = os.environ.get("DATA_DIR", "/data/apex")
-        cmd += ["--data-dir", data_dir]
+        base_dir = os.environ.get("DATA_DIR", "/data")
+        cmd += ["--data-dir", f"{base_dir}/apex"]
         if os.environ.get("HL_TESTNET", "true").lower() == "false":
             cmd.append("--mainnet")
         return cmd
@@ -340,8 +332,11 @@ def main():
 
     port = int(os.environ.get("PORT", "8080"))
 
-    # Start health check server in background
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    # Start health check server in background (threaded to handle SSE + concurrent requests)
+    class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+    server = ThreadedHTTPServer(("0.0.0.0", port), HealthHandler)
     health_thread = Thread(target=server.serve_forever, daemon=True)
     health_thread.start()
     log.info("Health server listening on :%d", port)
