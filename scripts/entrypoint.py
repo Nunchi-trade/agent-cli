@@ -265,8 +265,11 @@ def build_command() -> list[str]:
 
     if mode in ("apex", "wolf"):
         cmd = py + ["apex", "run"]
+        config = os.environ.get("APEX_CONFIG")
+        if config:
+            cmd += ["--config", config]
         preset = os.environ.get("APEX_PRESET")
-        if preset:
+        if preset and not config:
             cmd += ["--preset", preset]
         budget = os.environ.get("APEX_BUDGET")
         if budget:

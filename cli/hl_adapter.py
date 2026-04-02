@@ -168,8 +168,8 @@ class DirectHLProxy:
             log.error("Failed to get account state: %s", e)
             return {}
 
-        # Merge HIP-3 DEX positions (e.g. YEX) so watchdog/reconciliation sees them.
-        for dex_id in HIP3_DEXS:
+        # Merge HIP-3 DEX positions (e.g. YEX) — testnet only, not available on mainnet.
+        for dex_id in (HIP3_DEXS if self._hl.testnet else {}):
             try:
                 dex_state = self._info.post("/info", {
                     "type": "clearinghouseState", "user": self._address, "dex": dex_id,
