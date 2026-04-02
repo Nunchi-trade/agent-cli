@@ -37,7 +37,7 @@ ATR_LOOKBACK = 24
 ATR_STOP_MULT = 5.5
 BASE_POSITION_PCT = 0.08
 MIN_VOTES = 4
-COOLDOWN_BARS = 2
+COOLDOWN_BARS = 120  # 2 hours at 60s ticks — prevents fee churn on re-entry
 # Minimum ticks needed before signals are valid
 MIN_HISTORY = max(MACD_SLOW + MACD_SIGNAL + 5, EMA_SLOW + 10, VOL_LOOKBACK, ATR_LOOKBACK, BB_PERIOD * 3) + 1
 

@@ -14,3 +14,4 @@ max_slots: 1
 leverage: 5.0
 daily_loss_limit: 10.0
 guard_preset: tight
+slot_cooldown_ms: 7200000  # 2 hours — prevents fee churn on re-entry
