@@ -21,7 +21,6 @@ const app = express();
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST || "127.0.0.1";
 const GATEWAY_PORT = parseInt(process.env.INTERNAL_GATEWAY_PORT || "18789", 10);
-const MCP_PORT = parseInt(process.env.MCP_PORT || "18790", 10);
 const START_TIME = Date.now();
 const AGENT_CLI_DIR = "/agent-cli";
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -36,14 +35,13 @@ function startMCPServer() {
 
   console.log("[mcp] Starting MCP server...");
 
-  mcpProcess = spawn("python3", ["-m", "cli.main", "mcp", "serve", "--transport", "sse", "--port", String(MCP_PORT)], {
+  mcpProcess = spawn("python3", ["-m", "cli.main", "mcp", "serve", "--transport", "stdio"], {
     cwd: AGENT_CLI_DIR,
     env: {
       ...process.env,
-      MCP_PORT: String(MCP_PORT),
       PYTHONPATH: AGENT_CLI_DIR,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   mcpProcess.stdout.on("data", (data) => {
@@ -285,14 +283,15 @@ const server = app.listen(PORT, async () => {
       // file may not exist yet
     }
 
-    // Step 1: Auto-onboard first (it may overwrite config)
+    // Step 1: Start MCP server first (so it's available when OpenClaw starts)
+    startMCPServer();
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for MCP server to start
+
+    // Step 2: Auto-onboard first (it may overwrite config)
     await autoOnboard();
 
-    // Step 2: Bootstrap after onboard so our config is the final one
+    // Step 3: Bootstrap after onboard so our config is the final one
     await bootstrap();
-
-    // Step 3: Start MCP server
-    startMCPServer();
 
     // Step 4: Run doctor fix to clean up any invalid config keys
     try {

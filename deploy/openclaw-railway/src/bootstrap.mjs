@@ -118,7 +118,13 @@ function buildConfig() {
       mcp: {
         servers: {
           "nunchi-trading": {
-            url: `http://127.0.0.1:${process.env.MCP_PORT || "18790"}/sse`,
+            command: "python3",
+            args: ["-m", "cli.main", "mcp", "serve", "--transport", "stdio"],
+            cwd: "/agent-cli",
+            env: {
+              ...process.env,
+              PYTHONPATH: "/agent-cli",
+            },
           },
         },
       },

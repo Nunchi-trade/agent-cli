@@ -14,7 +14,7 @@ def mcp_serve(
     transport: str = typer.Option("stdio", "--transport", "-t",
                                    help="Transport mode: stdio or sse"),
     port: int = typer.Option(18790, "--port", "-p",
-                             help="Port for SSE transport"),
+                             help="Port for SSE transport (ignored for stdio)"),
 ):
     """Start MCP server exposing trading tools for AI agents."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -28,8 +28,5 @@ def mcp_serve(
         raise typer.Exit(1)
 
     server = create_mcp_server()
-    typer.echo(f"Starting MCP server (transport={transport}, port={port}) ...")
-    if transport == "sse":
-        server.run(transport=transport, port=port)
-    else:
-        server.run(transport=transport)
+    typer.echo(f"Starting MCP server (transport={transport}) ...")
+    server.run(transport=transport)
