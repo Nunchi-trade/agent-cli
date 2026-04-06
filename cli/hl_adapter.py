@@ -508,6 +508,7 @@ class DirectHLProxy:
         coin = self._to_coin(instrument)
         is_buy = side.lower() == "buy"
         sz = self._round_size(coin, size)
+        trigger_price = self._round_price(trigger_price, coin)
         try:
             result = self._exchange.order(
                 coin, is_buy, sz, trigger_price,
