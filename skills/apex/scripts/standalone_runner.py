@@ -888,6 +888,10 @@ class ApexRunner:
             size = (self.config.margin_per_slot * self.config.leverage) / mid
             side = "buy" if action.direction == "long" else "sell"
 
+            # Set exchange-level leverage to match config before entry
+            if hasattr(self.hl, "set_leverage"):
+                self.hl.set_leverage(int(self.config.leverage), coin)
+
             # Entry order type: directional strategies use IOC (need immediate fills
             # on fast-moving assets), pulse/radar use configured default (ALO for rebates)
             is_directional = action.source not in ("pulse_immediate", "pulse_signal", "radar")

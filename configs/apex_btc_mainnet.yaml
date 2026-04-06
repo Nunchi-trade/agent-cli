@@ -6,7 +6,7 @@ allowed_instruments:
   - BTC-PERP
 
 # Entry threshold — the single parameter to tune
-radar_score_threshold: 170
+radar_score_threshold: 160
 
 # Scaled for $50 account
 total_budget: 50.0
