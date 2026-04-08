@@ -167,5 +167,10 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         min_hold_ms=600_000,              # 10 min instead of 45 — faster rotation
         slot_cooldown_ms=60_000,          # 1 min instead of 5
         daily_loss_limit=2000.0,
+        # Force IOC orders so entries cross the spread and fill immediately.
+        # The default ALO posts limit orders that almost never fill on the
+        # low-liquidity yex markets and the runner cancels them after one
+        # tick. IOC trades the maker rebate for guaranteed fills.
+        entry_order_type="Ioc",
     ),
 }

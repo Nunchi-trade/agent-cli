@@ -961,10 +961,27 @@ class ApexRunner:
             size = (self.config.margin_per_slot * self.config.leverage) / mid
             side = "buy" if action.direction == "long" else "sell"
 
-            # Entry order type: directional strategies use IOC (need immediate fills
-            # on fast-moving assets), pulse/radar use configured default (ALO for rebates)
+            # Entry order type. Original logic was:
+            #   directional sources -> IOC (taker, immediate fill)
+            #   pulse/radar         -> ALO (maker, post-only)
+            # This silently broke the testnet competition because ALO orders
+            # on the 3 yex markets almost never cross the spread — they sit
+            # resting at the mid for one tick, get cancelled by the runner,
+            # and the agent reports "Entry fill failed" forever. Switching
+            # to IOC across the board for low-liquidity / competition mode
+            # makes pulse/radar entries cross the spread and actually fill.
+            # The maker rebate is meaningless on $1000 positions.
+            #
+            # Honour cfg.entry_order_type when set (lets the competition
+            # preset force "Ioc" for everything).
+            cfg_tif = getattr(self.config, "entry_order_type", "Alo")
             is_directional = action.source not in ("pulse_immediate", "pulse_signal", "radar")
-            entry_tif = "Ioc" if is_directional else getattr(self.config, "entry_order_type", "Alo")
+            if cfg_tif and cfg_tif.lower() == "ioc":
+                entry_tif = "Ioc"
+            elif is_directional:
+                entry_tif = "Ioc"
+            else:
+                entry_tif = cfg_tif
             fill = self.hl.place_order(
                 instrument=action.instrument,
                 side=side,
