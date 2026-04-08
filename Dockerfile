@@ -6,7 +6,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY . .
-RUN pip install --no-cache-dir -e ".[mcp]"
+RUN pip install --no-cache-dir -e ".[mcp,telegram]"
 
 # Persistent state volume (Railway mounts here)
 RUN mkdir -p /data
