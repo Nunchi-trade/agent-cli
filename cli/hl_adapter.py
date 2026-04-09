@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from decimal import Decimal
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from common.models import HIP3_DEXS, instrument_to_coin
 from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
@@ -25,6 +28,48 @@ CIRCUIT_BREAKER_THRESHOLD = 5  # consecutive API failures before circuit opens
 MAX_RATE_LIMIT_RETRIES = 3
 BACKOFF_BASE_S = 2.0
 BACKOFF_MAX_S = 8.0
+
+# Shared file-system cache for HIP-3 dex data. Without this, every agent in
+# the fleet hits HL's /info endpoint independently every tick to fetch yex
+# markets/mids, and CloudFront 429s the bursts. With 14 agents on a 60s tick
+# that's 28+ yex requests/minute from one IP — well over the limit. The
+# cache lives in /tmp (or DEX_CACHE_DIR) and is keyed by (kind, dex). TTL
+# is intentionally short so live data stays fresh; the win is that within
+# any TTL window, only one agent actually hits HL.
+DEX_CACHE_DIR = os.environ.get("DEX_CACHE_DIR", os.path.join(tempfile.gettempdir(), "nunchi_dex_cache"))
+DEX_CACHE_TTL_S = float(os.environ.get("DEX_CACHE_TTL_S", "30"))
+
+
+def _dex_cache_path(kind: str, dex: str) -> Path:
+    Path(DEX_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    return Path(DEX_CACHE_DIR) / f"{kind}_{dex}.json"
+
+
+def _dex_cache_read(kind: str, dex: str) -> Optional[Any]:
+    """Return cached payload if fresh, else None. Best-effort, never raises."""
+    p = _dex_cache_path(kind, dex)
+    try:
+        st = p.stat()
+    except FileNotFoundError:
+        return None
+    age = time.time() - st.st_mtime
+    if age > DEX_CACHE_TTL_S:
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return None
+
+
+def _dex_cache_write(kind: str, dex: str, payload: Any) -> None:
+    """Atomic write so concurrent readers never see a partial file."""
+    p = _dex_cache_path(kind, dex)
+    try:
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.replace(p)
+    except Exception as e:
+        log.debug("dex cache write failed for %s/%s: %s", kind, dex, e)
 
 
 class APICircuitBreakerOpen(Exception):
@@ -500,12 +545,50 @@ class DirectHLProxy:
         return self._hl.get_all_mids()
 
     def get_dex_markets(self, dex: str) -> list:
-        """Fetch HIP-3 DEX metaAndAssetCtxs."""
-        return self._hl.get_dex_markets(dex)
+        """Fetch HIP-3 DEX metaAndAssetCtxs (file-cached, see DEX_CACHE_TTL_S).
+
+        Without the cache, 14+ fleet agents independently hit HL's /info
+        endpoint every tick and CloudFront 429s the bursts, which silently
+        breaks pulse/radar's view of the yex universe (see _merge_hip3_markets
+        in standalone_runner.py). The cache makes the second-through-Nth
+        caller within the TTL window read from disk instead of HL.
+        """
+        cached = _dex_cache_read("markets", dex)
+        if cached is not None:
+            return cached
+        try:
+            data = self._hl.get_dex_markets(dex)
+            _dex_cache_write("markets", dex, data)
+            return data
+        except Exception as e:
+            # On failure, serve stale cache if any (better than empty universe).
+            stale_path = _dex_cache_path("markets", dex)
+            if stale_path.exists():
+                try:
+                    log.warning("get_dex_markets(%s) failed (%s) — serving stale cache", dex, e)
+                    return json.loads(stale_path.read_text())
+                except Exception:
+                    pass
+            raise
 
     def get_dex_mids(self, dex: str) -> Dict[str, str]:
-        """Fetch HIP-3 DEX mid prices."""
-        return self._hl.get_dex_mids(dex)
+        """Fetch HIP-3 DEX mid prices (file-cached, see DEX_CACHE_TTL_S)."""
+        cached = _dex_cache_read("mids", dex)
+        if cached is not None:
+            return cached
+        try:
+            data = self._hl.get_dex_mids(dex)
+            _dex_cache_write("mids", dex, data)
+            return data
+        except Exception as e:
+            stale_path = _dex_cache_path("mids", dex)
+            if stale_path.exists():
+                try:
+                    log.warning("get_dex_mids(%s) failed (%s) — serving stale cache", dex, e)
+                    return json.loads(stale_path.read_text())
+                except Exception:
+                    pass
+            raise
 
     def _to_coin(self, instrument: str) -> str:
         """Map instrument to HL coin symbol."""
