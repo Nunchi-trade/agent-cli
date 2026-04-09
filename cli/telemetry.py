@@ -99,6 +99,23 @@ class TelemetryClient:
         }
         self._post("heartbeat", payload)
 
+    def trade(self, journal_payload: dict) -> None:
+        """Post a closed-trade journal row to the central attribution sink.
+
+        Phase 1.1 of the profitability roadmap. Fire-and-forget — never
+        blocks the trading loop. The caller is responsible for computing
+        gross_pnl, fees_estimate, and net_pnl before calling this; we don't
+        re-derive them server-side because the agent has access to the
+        actual entry size that the leaderboard cannot see.
+        """
+        if not self.enabled:
+            return
+        # Stamp identity onto every row so the central DB can group by agent
+        payload = dict(journal_payload)
+        payload.setdefault("instance_id", self.instance_id)
+        payload.setdefault("wallet_address", self.wallet_address)
+        self._post("trade", payload)
+
     def should_heartbeat(self, tick_count: int) -> bool:
         return tick_count > 0 and tick_count % HEARTBEAT_INTERVAL_TICKS == 0
 

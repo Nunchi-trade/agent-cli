@@ -1138,6 +1138,45 @@ class ApexRunner:
             )
             self.journal_guard.log_entry(journal_entry)
 
+            # Phase 1.1 + 1.2: emit per-trade telemetry to the central
+            # attribution sink with builder-fee-adjusted net PnL. Without
+            # this every preset change is blind. The journal engine itself
+            # only knows gross PnL — we subtract fees here using the actual
+            # entry notional we have on hand.
+            if self.telemetry:
+                try:
+                    notional_usd = float(slot.entry_size or 0.0) * float(slot.entry_price or 0.0)
+                    # 10 bps builder fee per side (entry + exit) = 20 bps
+                    # round-trip. Source of truth: BuilderFeeConfig.fee_bps
+                    # in cli/builder_fee.py. Hardcoding here so the emitter
+                    # has zero coupling to order construction.
+                    fee_bps_round_trip = 20.0
+                    fees_estimate = notional_usd * fee_bps_round_trip / 10_000.0
+                    net_pnl = pnl - fees_estimate
+                    self.telemetry.trade({
+                        "instrument": slot.instrument,
+                        "direction": slot.direction,
+                        "entry_source": slot.entry_source or "unknown",
+                        "entry_signal_score": slot.entry_signal_score,
+                        "signal_quality": journal_entry.signal_quality,
+                        "close_reason": reason,
+                        "entry_price": slot.entry_price,
+                        "exit_price": slot.current_price,
+                        "entry_size": slot.entry_size,
+                        "notional_usd": round(notional_usd, 2),
+                        "gross_pnl": round(pnl, 4),
+                        "fees_estimate": round(fees_estimate, 4),
+                        "net_pnl": round(net_pnl, 4),
+                        "roe_pct": slot.current_roe,
+                        "holding_ms": close_ts - slot.entry_ts,
+                        "entry_ts": slot.entry_ts,
+                        "close_ts": close_ts,
+                        "preset_name": getattr(self.config, "preset_name", "") or "",
+                        "leverage": self.config.leverage,
+                    })
+                except Exception as te:
+                    log.debug("trade telemetry emit failed (non-fatal): %s", te)
+
             # Notable trade -> memory + obsidian
             if abs(pnl) > self.config.margin_per_slot * 0.1:
                 mem_event = self.memory_engine.create_notable_trade_event(
