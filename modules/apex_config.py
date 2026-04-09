@@ -181,8 +181,8 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         max_slots=3,
         leverage=3.0,                     # v3: 5.0 → 3.0 (more headroom per stop)
         max_negative_roe=-10.0,           # v3: -5.0 → -10.0 (~3.3% price at 3x lev)
-        radar_score_threshold=140,        # v2: was 110 — only stronger signals
-        pulse_confidence_threshold=60.0,  # v2: was 45.0 — same logic for pulse
+        radar_score_threshold=120,        # v3: 140 → 120 (single-asset scans need a lower bar)
+        pulse_confidence_threshold=45.0,  # v3: 60 → 45 (observed FUNDING_FLIP on BTCSWP at conf=50, so 60 was too high to ever fire)
         radar_interval_ticks=5,           # was 15 — scan 3x more often
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5
