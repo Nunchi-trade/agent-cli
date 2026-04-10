@@ -194,7 +194,7 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         # ~once every 9 min and every entry is wrong-way. Score threshold
         # doesn't help — the fundamental signal has no edge on BTCSWP.
         # Set threshold impossibly high so no radar entry ever qualifies.
-        radar_score_threshold=170,        # v4.1: re-enabled with direction flip for more trade data
+        radar_score_threshold=130,        # v4.2: lowered from 170, market too quiet at 170
         pulse_confidence_threshold=45.0,  # v3: 60 → 45 (observed FUNDING_FLIP on BTCSWP at conf=50)
         radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
