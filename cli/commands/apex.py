@@ -33,12 +33,18 @@ def apex_run(
              "is funded on a HIP-3 dex (e.g. yex) and should not scan universal HL perps.",
     ),
     data_dir: str = typer.Option("data/apex", "--data-dir"),
+    strategy_names: Optional[str] = typer.Option(
+        None, "--strategy-names",
+        help="Comma-separated strategy names to run (e.g. regime_mm,funding_momentum). "
+             "Overrides MARKET_STRATEGY_MAP auto-routing.",
+    ),
 ):
     """Start APEX autonomous multi-slot strategy."""
     _run_apex(tick=tick, preset=preset, config=config, mock=mock or dry_run,
               resume=resume, mainnet=mainnet, json_output=json_output,
               max_ticks=max_ticks, budget=budget, slots=slots,
-              leverage=leverage, markets=markets, data_dir=data_dir)
+              leverage=leverage, markets=markets, data_dir=data_dir,
+              strategy_names=strategy_names)
 
 
 @apex_app.command("once")
@@ -186,7 +192,7 @@ def apex_presets():
 
 def _run_apex(tick, preset, config, mock, mainnet, json_output,
               max_ticks, budget, slots, leverage, data_dir, single=False,
-              resume=True, markets=None):
+              resume=True, markets=None, strategy_names=None):
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -216,6 +222,9 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
         cfg.leverage = leverage
     if markets:
         cfg.allowed_instruments = [m.strip() for m in markets.split(",") if m.strip()]
+    if strategy_names:
+        cfg.strategy_enabled = True
+        cfg.strategy_names = [s.strip() for s in strategy_names.split(",") if s.strip()]
 
     from common.logging_config import configure_logging, log_startup_banner, resolve_obsidian_path
 

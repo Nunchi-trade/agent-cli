@@ -188,13 +188,13 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         max_slots=3,
         leverage=3.0,                     # v3: 5.0 → 3.0 (more headroom per stop)
         max_negative_roe=-10.0,           # v3: -5.0 → -10.0 (~3.3% price at 3x lev)
-        flip_signal_direction=False,       # v5: reverted — 40 flipped trades still 0% WR, signals are noise
-        # v5: ALL ENTRIES DISABLED. 100+ trades across flip/no-flip, 0% WR.
-        # Pulse/radar signals have no directional edge on YEX markets.
-        # Pausing entries while we research and build new strategies.
-        radar_score_threshold=9999,       # v5: disabled
-        pulse_confidence_threshold=95.0,  # v5: effectively disabled
-        reflect_auto_adjust=False,        # v4.5: disable — REFLECT overrides our thresholds
+        flip_signal_direction=False,       # v5: reverted — signals are noise, not inverted
+        # v6: Pulse/radar have no directional edge on YEX (100+ trades, 0% WR).
+        # Strategy system takes over: per-agent strategies via STRATEGY_NAMES env.
+        radar_score_threshold=9999,       # disabled — no edge
+        pulse_confidence_threshold=95.0,  # disabled — no edge
+        strategy_enabled=True,            # v6: enable strategy system
+        reflect_auto_adjust=False,        # disable — fights manual tuning
         radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5

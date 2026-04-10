@@ -289,6 +289,9 @@ def build_command() -> list[str]:
         allowed = os.environ.get("ALLOWED_INSTRUMENTS")
         if allowed:
             cmd += ["--markets", allowed]
+        strategy_names = os.environ.get("STRATEGY_NAMES")
+        if strategy_names:
+            cmd += ["--strategy-names", strategy_names]
         base_dir = os.environ.get("DATA_DIR", "/data")
         cmd += ["--data-dir", f"{base_dir}/apex"]
         if os.environ.get("HL_TESTNET", "true").lower() == "false":
