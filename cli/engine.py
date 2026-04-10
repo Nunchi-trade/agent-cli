@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from cli.hl_adapter import APICircuitBreakerOpen
+from common.exceptions import VenueCircuitBreakerOpen
 from common.models import MarketSnapshot, instrument_to_coin
 from common.venue_adapter import VenueAdapter
 from parent.position_tracker import Position, PositionTracker
@@ -120,7 +120,7 @@ class TradingEngine:
                     log.critical("Engine entering safe mode: %d consecutive tick timeouts",
                                  self._consecutive_timeouts)
                     self.risk_manager.state.safe_mode = True
-            except APICircuitBreakerOpen as e:
+            except VenueCircuitBreakerOpen as e:
                 log.critical("API circuit breaker open — entering safe mode: %s", e)
                 self.risk_manager.state.safe_mode = True
             except Exception as e:

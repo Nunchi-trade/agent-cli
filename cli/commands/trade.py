@@ -7,6 +7,8 @@ from pathlib import Path
 
 import typer
 
+from cli.venue_factory import build_venue_adapter, normalize_venue
+
 
 def trade_cmd(
     instrument: str = typer.Argument(
@@ -29,12 +31,16 @@ def trade_cmd(
         False, "--mainnet",
         help="Use mainnet (default: testnet)",
     ),
+    venue: str = typer.Option(
+        "hl", "--venue", "-v",
+        help="Trading venue (hl, paradex)",
+    ),
     tif: str = typer.Option(
         "Ioc", "--tif",
         help="Time in force: Ioc, Gtc, or Alo",
     ),
 ):
-    """Place a single order on Hyperliquid."""
+    """Place a single order on the selected venue."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -46,20 +52,19 @@ def trade_cmd(
     )
 
     from cli.config import TradingConfig
-    from cli.hl_adapter import DirectHLProxy
     from cli.strategy_registry import resolve_instrument
-    from parent.hl_proxy import HLProxy
 
     instrument = resolve_instrument(instrument)
-    cfg = TradingConfig()
-    private_key = cfg.get_private_key()
-
-    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-    hl = DirectHLProxy(raw_hl)
+    try:
+        cfg = TradingConfig(venue=normalize_venue(venue), mainnet=mainnet)
+        execution_venue, _ = build_venue_adapter(venue=cfg.venue, mainnet=mainnet, mock=False)
+    except (RuntimeError, ValueError, NotImplementedError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
     # If no price given, use mid from snapshot
     if price <= 0:
-        snap = hl.get_snapshot(instrument)
+        snap = execution_venue.get_snapshot(instrument)
         if snap.mid_price <= 0:
             typer.echo("Error: could not fetch market data for price", err=True)
             raise typer.Exit(1)
@@ -71,13 +76,13 @@ def trade_cmd(
         typer.echo(f"Using market price: {price}")
 
     network = "mainnet" if mainnet else "testnet"
-    typer.echo(f"Placing {side.upper()} {size} {instrument} @ {price} ({tif}) on {network}")
+    typer.echo(f"Placing {side.upper()} {size} {instrument} @ {price} ({tif}) on {cfg.venue}/{network}")
 
     confirm = typer.confirm("Confirm?")
     if not confirm:
         raise typer.Exit(0)
 
-    fill = hl.place_order(
+    fill = execution_venue.place_order(
         instrument=instrument,
         side=side.lower(),
         size=size,

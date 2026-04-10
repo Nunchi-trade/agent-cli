@@ -8,6 +8,9 @@ from typing import Optional
 
 import typer
 
+from cli.config import TradingConfig
+from cli.venue_factory import build_venue_adapter, normalize_venue
+
 apex_app = typer.Typer(no_args_is_help=True)
 
 
@@ -20,6 +23,7 @@ def apex_run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate orders without real HL connection (alias for --mock)"),
     resume: bool = typer.Option(True, "--resume/--fresh", help="Resume from saved state or start fresh"),
     mainnet: bool = typer.Option(False, "--mainnet"),
+    venue: str = typer.Option("hl", "--venue", "-v", help="Trading venue (hl, paradex)"),
     json_output: bool = typer.Option(False, "--json"),
     max_ticks: int = typer.Option(0, "--max-ticks"),
     budget: float = typer.Option(0, "--budget", help="Override total budget ($)"),
@@ -29,7 +33,7 @@ def apex_run(
 ):
     """Start APEX autonomous multi-slot strategy."""
     _run_apex(tick=tick, preset=preset, config=config, mock=mock or dry_run,
-              resume=resume, mainnet=mainnet, json_output=json_output,
+              resume=resume, mainnet=mainnet, venue=venue, json_output=json_output,
               max_ticks=max_ticks, budget=budget, slots=slots,
               leverage=leverage, data_dir=data_dir)
 
@@ -40,12 +44,13 @@ def apex_once(
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
     mainnet: bool = typer.Option(False, "--mainnet"),
+    venue: str = typer.Option("hl", "--venue", "-v", help="Trading venue (hl, paradex)"),
     json_output: bool = typer.Option(False, "--json"),
     data_dir: str = typer.Option("data/apex", "--data-dir"),
 ):
     """Run a single APEX tick and exit."""
     _run_apex(tick=0, preset=preset, config=config, mock=mock,
-              mainnet=mainnet, json_output=json_output, max_ticks=1,
+              mainnet=mainnet, venue=venue, json_output=json_output, max_ticks=1,
               budget=0, slots=0, leverage=0, data_dir=data_dir, single=True)
 
 
@@ -90,6 +95,7 @@ def apex_reconcile(
     data_dir: str = typer.Option("data/apex", "--data-dir"),
     mock: bool = typer.Option(False, "--mock"),
     mainnet: bool = typer.Option(False, "--mainnet"),
+    venue: str = typer.Option("hl", "--venue", "-v", help="Trading venue (hl, paradex)"),
 ):
     """Reconcile APEX state against exchange positions."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -105,21 +111,14 @@ def apex_reconcile(
         typer.echo("No APEX state found. Run 'hl apex run' first.")
         raise typer.Exit()
 
-    if mock:
-        from cli.hl_adapter import DirectMockProxy
-        hl = DirectMockProxy()
-    else:
-        from cli.hl_adapter import DirectHLProxy
-        from cli.config import TradingConfig
-        from parent.hl_proxy import HLProxy
-        try:
-            private_key = TradingConfig().get_private_key()
-        except RuntimeError as e:
-            typer.echo(f"Error: {e}", err=True)
-            raise typer.Exit(1)
-        hl = DirectHLProxy(HLProxy(private_key=private_key, testnet=not mainnet))
+    try:
+        cfg = TradingConfig(venue=normalize_venue(venue), mainnet=mainnet)
+        execution_venue, _ = build_venue_adapter(venue=cfg.venue, mainnet=mainnet, mock=mock)
+    except (RuntimeError, ValueError, NotImplementedError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
-    account = hl.get_account_state()
+    account = execution_venue.get_account_state()
     positions = account.get("assetPositions", [])
     slot_dicts = [s.to_dict() for s in state.slots]
 
@@ -177,7 +176,7 @@ def apex_presets():
         typer.echo(f"  daily_loss_limit: ${cfg.daily_loss_limit:,.0f}")
 
 
-def _run_apex(tick, preset, config, mock, mainnet, json_output,
+def _run_apex(tick, preset, config, mock, mainnet, venue, json_output,
               max_ticks, budget, slots, leverage, data_dir, single=False,
               resume=True):
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -215,31 +214,24 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     # Auto-detect Obsidian vault if not explicitly configured
     cfg.obsidian_vault_path = resolve_obsidian_path(cfg.obsidian_vault_path)
 
-    if mock:
-        from cli.hl_adapter import DirectMockProxy
-        hl = DirectMockProxy()
-        typer.echo("Mode: MOCK")
-    else:
-        from cli.hl_adapter import DirectHLProxy
-        from cli.config import TradingConfig
-        from parent.hl_proxy import HLProxy
-
-        try:
-            private_key = TradingConfig().get_private_key()
-        except RuntimeError as e:
-            typer.echo(f"Error: {e}", err=True)
-            raise typer.Exit(1)
-        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-        hl = DirectHLProxy(raw_hl)
-        typer.echo(f"Mode: LIVE ({'mainnet' if mainnet else 'testnet'})")
+    trading_cfg = TradingConfig(venue=normalize_venue(venue), mainnet=mainnet)
+    try:
+        execution_venue, mode_label = build_venue_adapter(
+            venue=trading_cfg.venue,
+            mainnet=mainnet,
+            mock=mock,
+        )
+    except (RuntimeError, ValueError, NotImplementedError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Mode: {mode_label}")
+    typer.echo(f"Venue: {trading_cfg.venue}")
 
     typer.echo(f"Budget: ${cfg.total_budget:,.0f}  |  Slots: {cfg.max_slots}  |  "
                f"Leverage: {cfg.leverage}x  |  Margin/slot: ${cfg.margin_per_slot:,.0f}")
 
     # Builder fee
-    from cli.config import TradingConfig as _TC
-    _tcfg = _TC()
-    _bcfg = _tcfg.get_builder_config()
+    _bcfg = trading_cfg.get_builder_config()
     _builder_info = _bcfg.to_builder_info()
     if _builder_info:
         typer.echo(f"Builder fee: {_bcfg.fee_bps} bps -> {_bcfg.builder_address[:10]}...")
@@ -253,15 +245,18 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
         typer.echo(f"Multi-wallet mode: {len(wm.wallet_ids)} wallets")
 
         def _adapter_factory(wc: WalletConfig):
-            """Create a VenueAdapter per wallet.  In mock mode every wallet
-            shares the mock backend; in live mode each gets its own proxy."""
+            """Create a VenueAdapter per wallet.
+
+            In mock mode each wallet gets its own mock adapter. In live mode the
+            current command-level execution adapter is reused until per-wallet
+            venue wiring is added.
+            """
             if mock:
                 from adapters.mock_adapter import MockVenueAdapter
                 return MockVenueAdapter()
             else:
                 # Live mode: all wallets share the same HL connection for now
-                from adapters.hl_adapter import HLVenueAdapter
-                return HLVenueAdapter(hl)  # type: ignore[arg-type]
+                return execution_venue
 
         def _strategy_factory(wc: WalletConfig):
             """Create a per-wallet strategy instance.  Reuses the APEX engine
@@ -294,7 +289,7 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
 
         log_startup_banner(
             strategy_name=preset or "apex",
-            mode="MOCK" if mock else f"LIVE ({'mainnet' if mainnet else 'testnet'})",
+            mode=f"{trading_cfg.venue}:{mode_label}",
             budget=cfg.total_budget,
             slots=cfg.max_slots,
             leverage=cfg.leverage,
@@ -310,13 +305,13 @@ def _run_apex(tick, preset, config, mock, mainnet, json_output,
     # Single-wallet mode (default): use ApexRunner
     from skills.apex.scripts.standalone_runner import ApexRunner
 
-    runner = ApexRunner(hl=hl, config=cfg, tick_interval=tick,
+    runner = ApexRunner(hl=execution_venue, config=cfg, tick_interval=tick,
                         json_output=json_output, data_dir=data_dir,
                         builder=_builder_info, resume=resume)
 
     log_startup_banner(
         strategy_name=preset or "apex",
-        mode="MOCK" if mock else f"LIVE ({'mainnet' if mainnet else 'testnet'})",
+        mode=f"{trading_cfg.venue}:{mode_label}",
         budget=cfg.total_budget,
         slots=cfg.max_slots,
         leverage=cfg.leverage,

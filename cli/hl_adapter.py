@@ -27,7 +27,10 @@ BACKOFF_BASE_S = 2.0
 BACKOFF_MAX_S = 8.0
 
 
-class APICircuitBreakerOpen(Exception):
+from common.exceptions import VenueCircuitBreakerOpen
+
+
+class APICircuitBreakerOpen(VenueCircuitBreakerOpen):
     """Raised when the API circuit breaker is open due to persistent failures."""
     pass
 

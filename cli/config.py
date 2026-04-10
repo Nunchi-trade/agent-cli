@@ -23,6 +23,9 @@ class TradingConfig:
     # Instrument
     instrument: str = "ETH-PERP"
 
+    # Venue
+    venue: str = "hl"
+
     # Network
     mainnet: bool = False
 
@@ -91,4 +94,4 @@ class TradingConfig:
 
     def get_private_key(self) -> str:
         from common.credentials import resolve_private_key
-        return resolve_private_key(venue="hl")
+        return resolve_private_key(venue=self.venue)

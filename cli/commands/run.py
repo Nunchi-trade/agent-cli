@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from cli.venue_factory import build_venue_adapter, normalize_venue
+
 import typer
 
 
@@ -18,6 +20,10 @@ def run_cmd(
     instrument: str = typer.Option(
         "ETH-PERP", "--instrument", "-i",
         help="Trading instrument (ETH-PERP, VXX-USDYP, US3M-USDYP)",
+    ),
+    venue: str = typer.Option(
+        "hl", "--venue", "-v",
+        help="Trading venue (hl, paradex)",
     ),
     tick_interval: float = typer.Option(
         10.0, "--tick", "-t",
@@ -73,6 +79,7 @@ def run_cmd(
 
     cfg.strategy = strategy
     cfg.instrument = resolve_instrument(instrument)
+    cfg.venue = normalize_venue(venue)
     cfg.tick_interval = tick_interval
     cfg.mainnet = mainnet
     cfg.dry_run = dry_run
@@ -191,41 +198,41 @@ def run_cmd(
     )
 
     # ── Network guard: prevent wrong-chain accidents ──
-    if cfg.mainnet:
-        env_testnet = os.environ.get("HL_TESTNET", "true").lower()
-        if env_testnet == "true":
-            typer.echo(
-                "FATAL: --mainnet flag set but HL_TESTNET=true in environment. "
-                "Refusing to start. Set HL_TESTNET=false or source .env.mainnet.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-    else:
-        env_testnet = os.environ.get("HL_TESTNET", "true").lower()
-        if env_testnet == "false":
-            typer.echo(
-                "FATAL: running in testnet mode but HL_TESTNET=false in environment. "
-                "Pass --mainnet or fix your environment.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+    if cfg.venue == "hl":
+        if cfg.mainnet:
+            env_testnet = os.environ.get("HL_TESTNET", "true").lower()
+            if env_testnet == "true":
+                typer.echo(
+                    "FATAL: --mainnet flag set but HL_TESTNET=true in environment. "
+                    "Refusing to start. Set HL_TESTNET=false or source .env.mainnet.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+        else:
+            env_testnet = os.environ.get("HL_TESTNET", "true").lower()
+            if env_testnet == "false":
+                typer.echo(
+                    "FATAL: running in testnet mode but HL_TESTNET=false in environment. "
+                    "Pass --mainnet or fix your environment.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
 
-    # Build HL adapter
-    if mock or dry_run:
-        from cli.hl_adapter import DirectMockProxy
-        hl = DirectMockProxy()
-        typer.echo(f"Mode: {'DRY RUN' if dry_run else 'MOCK'}")
-    else:
-        from cli.hl_adapter import DirectHLProxy
-        from parent.hl_proxy import HLProxy
-
-        private_key = cfg.get_private_key()
-        raw_hl = HLProxy(private_key=private_key, testnet=not cfg.mainnet)
-        hl = DirectHLProxy(raw_hl)
-        network = "mainnet" if cfg.mainnet else "testnet"
-        typer.echo(f"Mode: LIVE ({network})")
+    try:
+        execution_venue, mode_label = build_venue_adapter(
+            venue=cfg.venue,
+            mainnet=cfg.mainnet,
+            mock=(mock or dry_run),
+        )
+    except (RuntimeError, ValueError, NotImplementedError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+    if dry_run:
+        mode_label = "DRY RUN"
+    typer.echo(f"Mode: {mode_label}")
 
     typer.echo(f"Strategy: {cfg.strategy} -> {strategy_path}")
+    typer.echo(f"Venue: {cfg.venue}")
     typer.echo(f"Instrument: {cfg.instrument}")
     typer.echo(f"Tick interval: {cfg.tick_interval}s")
     if cfg.max_ticks > 0:
@@ -244,7 +251,7 @@ def run_cmd(
     from cli.engine import TradingEngine
 
     engine = TradingEngine(
-        hl=hl,
+        hl=execution_venue,
         strategy=strategy_instance,
         instrument=cfg.instrument,
         tick_interval=cfg.tick_interval,
