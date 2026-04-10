@@ -184,7 +184,11 @@ class ApexRunner:
 
         # Telemetry (fire-and-forget, never blocks trading)
         try:
-            wallet_addr = self.hl.wallet.address if hasattr(self.hl, 'wallet') else os.environ.get("HL_WALLET_ADDRESS", "unknown")
+            if hasattr(self.hl, 'wallet'):
+                wallet_addr = self.hl.wallet.address
+            else:
+                from common.credentials import resolve_wallet_address
+                wallet_addr = resolve_wallet_address("hl") or "unknown"
             self.telemetry = create_telemetry(wallet_address=wallet_addr, strategy_name="apex")
         except Exception:
             self.telemetry = None

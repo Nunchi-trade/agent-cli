@@ -28,22 +28,27 @@ def setup_check():
         issues.append("hyperliquid-python-sdk not installed (pip install hyperliquid-python-sdk)")
 
     # 2. Private key
-    has_env_key = bool(os.environ.get("HL_PRIVATE_KEY"))
-    from cli.keystore import list_keystores
-    has_keystore = len(list_keystores()) > 0
+    from cli.keystore import _load_env_password, list_keystores
+    from common.app_paths import env_file as default_env_file
+    from common.credentials import private_key_env_vars_for_venue
+
+    env_key_vars = private_key_env_vars_for_venue("hl")
+    has_env_key = any(os.environ.get(var) for var in env_key_vars)
+    keystore_count = len(list_keystores())
     if has_env_key:
-        ok_items.append("HL_PRIVATE_KEY set")
-    elif has_keystore:
-        ok_items.append(f"Keystore found ({len(list_keystores())} keys)")
-        from cli.keystore import _load_env_password
-        if os.environ.get("HL_KEYSTORE_PASSWORD"):
-            ok_items.append("HL_KEYSTORE_PASSWORD set via environment")
+        ok_items.append(f"Private key env set ({', '.join(env_key_vars)})")
+    elif keystore_count > 0:
+        ok_items.append(f"Keystore found ({keystore_count} keys)")
+        if os.environ.get("AGENT_CLI_KEYSTORE_PASSWORD") or os.environ.get("KEYSTORE_PASSWORD"):
+            ok_items.append("Generic keystore password env set")
+        elif os.environ.get("HL_KEYSTORE_PASSWORD"):
+            ok_items.append("Legacy HL_KEYSTORE_PASSWORD set via environment")
         elif _load_env_password():
-            ok_items.append("HL_KEYSTORE_PASSWORD found in ~/.hl-agent/env")
+            ok_items.append(f"Keystore password found in {default_env_file()}")
         else:
-            issues.append("HL_KEYSTORE_PASSWORD not set (needed for auto-unlock)")
+            issues.append("Keystore password not set (prefer AGENT_CLI_KEYSTORE_PASSWORD for auto-unlock)")
     else:
-        issues.append("No private key: set HL_PRIVATE_KEY or run 'hl wallet import'")
+        issues.append("No private key: set a venue-specific env var or run 'hl wallet import'")
 
     # 3. Network
     testnet = os.environ.get("HL_TESTNET", "true").lower()
@@ -130,7 +135,7 @@ def setup_bootstrap():
     typer.echo("")
     setup_check()
 
-    typer.echo("\nBootstrap complete. Next: hl wallet auto")
+    typer.echo("\nBootstrap complete. Next: hl wallet auto --save-env")
 
 
 @setup_app.command("claim-usdyp")

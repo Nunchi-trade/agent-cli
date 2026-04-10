@@ -346,10 +346,17 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
 
     # Auto-approve builder fee (idempotent, best-effort)
-    # Check both HL_PRIVATE_KEY (direct) and keystore auth paths
-    has_key = bool(os.environ.get("HL_PRIVATE_KEY"))
-    has_keystore = bool(os.environ.get("HL_KEYSTORE_PASSWORD")) or Path(
-        os.path.expanduser("~/.hl-agent/env")).exists()
+    # Check venue-specific/generic key env vars and keystore auth paths.
+    from common.app_paths import env_file as default_env_file
+    from common.credentials import private_key_env_vars_for_venue
+
+    has_key = any(os.environ.get(var) for var in private_key_env_vars_for_venue("hl"))
+    has_keystore = (
+        bool(os.environ.get("AGENT_CLI_KEYSTORE_PASSWORD"))
+        or bool(os.environ.get("KEYSTORE_PASSWORD"))
+        or bool(os.environ.get("HL_KEYSTORE_PASSWORD"))
+        or default_env_file().exists()
+    )
     if (has_key or has_keystore) and os.environ.get("BUILDER_ADDRESS"):
         try:
             mainnet_flag = ["--mainnet"] if os.environ.get("HL_TESTNET", "true").lower() == "false" else []

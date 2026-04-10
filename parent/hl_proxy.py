@@ -254,12 +254,10 @@ class HLProxy:
         self.fills: List[HLFill] = []
 
     def _resolve_account_address(self, address: Optional[str] = None) -> str:
-        """Resolve delegated wallet from arg or HL_WALLET_ADDRESS env var."""
-        addr = address or os.environ.get("HL_WALLET_ADDRESS", "")
-        if addr and not re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
-            log.warning("HL_WALLET_ADDRESS invalid, ignoring: %s", addr)
-            return ""
-        return addr
+        """Resolve delegated wallet from arg or venue-aware env vars."""
+        from common.credentials import resolve_wallet_address
+
+        return resolve_wallet_address("hl", address=address)
 
     def _ensure_client(self):
         if self._info is not None:

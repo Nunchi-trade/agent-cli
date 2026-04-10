@@ -1,17 +1,27 @@
 """Encrypted keystore — geth-compatible Web3 Secret Storage.
 
 Uses eth_account.Account.encrypt()/decrypt() with scrypt KDF.
-Keystore files live at ~/.hl-agent/keystore/<address>.json.
+Keystore files live at ~/.agent-cli/keystore/<address>.json by default.
+Legacy installs under ~/.hl-agent remain supported automatically.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import List, Optional
 
+from common.app_paths import env_file as default_env_file
+from common.app_paths import keystore_dir as default_keystore_dir
 
-KEYSTORE_DIR = Path.home() / ".hl-agent" / "keystore"
-ENV_FILE = Path.home() / ".hl-agent" / "env"
+KEYSTORE_DIR = default_keystore_dir()
+ENV_FILE = default_env_file()
+PASSWORD_ENV_VARS = (
+    "AGENT_CLI_KEYSTORE_PASSWORD",
+    "KEYSTORE_PASSWORD",
+    "HL_KEYSTORE_PASSWORD",  # legacy compatibility
+)
+PASSWORD_FILE_KEYS = PASSWORD_ENV_VARS
 
 
 def _ensure_dir() -> Path:
@@ -29,7 +39,6 @@ def create_keystore(private_key: str, password: str) -> Path:
     ks_dir = _ensure_dir()
     ks_path = ks_dir / f"{address}.json"
     ks_path.write_text(json.dumps(encrypted, indent=2))
-
     return ks_path
 
 
@@ -64,25 +73,30 @@ def list_keystores() -> List[dict]:
 
 
 def _load_env_password() -> str:
-    """Load HL_KEYSTORE_PASSWORD from ~/.hl-agent/env if it exists."""
+    """Load keystore password from the persisted env file if it exists."""
     if not ENV_FILE.exists():
         return ""
+
     for line in ENV_FILE.read_text().splitlines():
         line = line.strip()
-        if line.startswith("HL_KEYSTORE_PASSWORD="):
-            return line.split("=", 1)[1]
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() in PASSWORD_FILE_KEYS:
+            return value.strip()
     return ""
 
 
 def _resolve_password(password: Optional[str] = None) -> str:
     """Resolve keystore password from argument, env var, or env file."""
-    import os
+    if password:
+        return password
 
-    if password:
-        return password
-    password = os.environ.get("HL_KEYSTORE_PASSWORD", "")
-    if password:
-        return password
+    for env_var in PASSWORD_ENV_VARS:
+        value = os.environ.get(env_var, "")
+        if value:
+            return value
+
     return _load_env_password()
 
 
@@ -90,8 +104,7 @@ def get_keystore_key(address: Optional[str] = None, password: Optional[str] = No
     """Try to load a private key from keystore.
 
     If address is None, uses first available keystore.
-    If password is None, checks HL_KEYSTORE_PASSWORD env var.
-    Returns None if no keystore available or password not provided.
+    Returns None if no keystore is available or password is not provided.
     """
     keystores = list_keystores()
     if not keystores:
@@ -116,7 +129,7 @@ def get_keystore_key_for_address(address: str, password: Optional[str] = None) -
     """Load private key for a specific wallet address.
 
     Used by multi-wallet mode to get keys for per-strategy wallets.
-    Returns None if address not found or password unavailable.
+    Returns None if address is not found or password is unavailable.
     """
     if not address:
         return None

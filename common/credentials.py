@@ -2,12 +2,12 @@
 
 Backends:
   1. MacOSKeychainBackend  — macOS Keychain via `security` CLI
-  2. EncryptedKeystoreBackend — geth-compatible Web3 Secret Storage (existing)
+  2. EncryptedKeystoreBackend — geth-compatible Web3 Secret Storage
   3. RailwayEnvBackend — Railway-injected environment variables
-  4. FlatFileBackend — plaintext files at ~/.hl-agent/keys/ (dev only)
+  4. FlatFileBackend — plaintext files under the app home keys/ directory
 
-Resolution order for resolve_private_key():
-  macOS Keychain -> encrypted keystore -> Railway env -> flat file -> env var -> error
+Storage paths default to ~/.agent-cli for new installs, with transparent
+fallback to the legacy ~/.hl-agent path for existing installs.
 """
 from __future__ import annotations
 
@@ -20,9 +20,72 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional
 
+from common.app_paths import keys_dir as default_keys_dir
+from common.app_paths import resolve_app_home
+
 log = logging.getLogger("credentials")
 
-KEYS_DIR = Path.home() / ".hl-agent" / "keys"
+KEYS_DIR = default_keys_dir()
+APP_HOME = resolve_app_home()
+
+VENUE_PRIVATE_KEY_ENV_VARS = {
+    "hl": ["HL_PRIVATE_KEY", "HYPERLIQUID_PRIVATE_KEY"],
+    "hyperliquid": ["HL_PRIVATE_KEY", "HYPERLIQUID_PRIVATE_KEY"],
+    "paradex": ["PARADEX_PRIVATE_KEY", "PARADEX_L2_PRIVATE_KEY"],
+}
+GENERIC_PRIVATE_KEY_ENV_VARS = ["AGENT_PRIVATE_KEY"]
+
+VENUE_ADDRESS_ENV_VARS = {
+    "hl": ["HL_WALLET_ADDRESS", "HYPERLIQUID_WALLET_ADDRESS"],
+    "hyperliquid": ["HL_WALLET_ADDRESS", "HYPERLIQUID_WALLET_ADDRESS"],
+    "paradex": ["PARADEX_ADDRESS", "PARADEX_L2_ADDRESS"],
+}
+GENERIC_ADDRESS_ENV_VARS = ["AGENT_WALLET_ADDRESS"]
+
+
+def normalize_venue_name(venue: str | None) -> str:
+    normalized = (venue or "hl").strip().lower()
+    aliases = {
+        "hyperliquid": "hl",
+        "hyper-liquid": "hl",
+        "pdx": "paradex",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def private_key_env_vars_for_venue(venue: str = "hl") -> List[str]:
+    normalized = normalize_venue_name(venue)
+    specific = VENUE_PRIVATE_KEY_ENV_VARS.get(normalized, [f"{normalized.upper()}_PRIVATE_KEY"])
+    env_vars: List[str] = []
+    for env_var in [*specific, *GENERIC_PRIVATE_KEY_ENV_VARS]:
+        if env_var not in env_vars:
+            env_vars.append(env_var)
+    return env_vars
+
+
+def address_env_vars_for_venue(venue: str = "hl") -> List[str]:
+    normalized = normalize_venue_name(venue)
+    specific = VENUE_ADDRESS_ENV_VARS.get(normalized, [f"{normalized.upper()}_ADDRESS"])
+    env_vars: List[str] = []
+    for env_var in [*specific, *GENERIC_ADDRESS_ENV_VARS]:
+        if env_var not in env_vars:
+            env_vars.append(env_var)
+    return env_vars
+
+
+def resolve_wallet_address(venue: str = "hl", address: Optional[str] = None) -> str:
+    """Resolve a wallet/account address from arg or venue-specific env vars."""
+    candidates = [address] if address else []
+    candidates.extend(os.environ.get(env_var, "") for env_var in address_env_vars_for_venue(venue))
+
+    for candidate in candidates:
+        addr = (candidate or "").strip()
+        if not addr:
+            continue
+        if re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
+            return addr
+        log.warning("Ignoring invalid %s address candidate: %s", normalize_venue_name(venue), addr)
+    return ""
 
 
 class KeystoreBackend(ABC):
@@ -30,37 +93,32 @@ class KeystoreBackend(ABC):
 
     @abstractmethod
     def name(self) -> str:
-        """Human-readable backend name."""
         ...
 
     @abstractmethod
-    def get_key(self, address: Optional[str] = None) -> Optional[str]:
-        """Retrieve a private key. Returns None if not found."""
+    def get_key(self, address: Optional[str] = None, venue: str = "hl") -> Optional[str]:
         ...
 
     @abstractmethod
     def store_key(self, address: str, private_key: str) -> None:
-        """Store a private key for the given address."""
         ...
 
     @abstractmethod
     def list_keys(self) -> List[str]:
-        """Return list of addresses stored in this backend."""
         ...
 
     @abstractmethod
     def available(self) -> bool:
-        """Return True if this backend can be used on the current system."""
         ...
 
 
 class EncryptedKeystoreBackend(KeystoreBackend):
-    """Wraps existing cli/keystore.py — geth-compatible Web3 Secret Storage."""
+    """Wraps cli/keystore.py — geth-compatible Web3 Secret Storage."""
 
     def name(self) -> str:
         return "keystore"
 
-    def get_key(self, address: Optional[str] = None) -> Optional[str]:
+    def get_key(self, address: Optional[str] = None, venue: str = "hl") -> Optional[str]:
         from cli.keystore import get_keystore_key, get_keystore_key_for_address
 
         if address:
@@ -73,8 +131,8 @@ class EncryptedKeystoreBackend(KeystoreBackend):
         password = _resolve_password()
         if not password:
             raise RuntimeError(
-                "No keystore password available. Set HL_KEYSTORE_PASSWORD or "
-                "add it to ~/.hl-agent/env"
+                "No keystore password available. Set AGENT_CLI_KEYSTORE_PASSWORD "
+                "(legacy HL_KEYSTORE_PASSWORD still works) or add it to the app env file."
             )
         create_keystore(private_key, password)
 
@@ -95,12 +153,11 @@ class MacOSKeychainBackend(KeystoreBackend):
     def name(self) -> str:
         return "keychain"
 
-    def get_key(self, address: Optional[str] = None) -> Optional[str]:
+    def get_key(self, address: Optional[str] = None, venue: str = "hl") -> Optional[str]:
         if not self.available():
             return None
 
         if address is None:
-            # Use first available address
             addresses = self.list_keys()
             if not addresses:
                 return None
@@ -109,9 +166,10 @@ class MacOSKeychainBackend(KeystoreBackend):
         address = self._normalize(address)
         try:
             result = subprocess.run(
-                ["security", "find-generic-password",
-                 "-s", self.SERVICE, "-a", address, "-w"],
-                capture_output=True, text=True, timeout=10,
+                ["security", "find-generic-password", "-s", self.SERVICE, "-a", address, "-w"],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode == 0:
                 key = result.stdout.strip()
@@ -127,9 +185,10 @@ class MacOSKeychainBackend(KeystoreBackend):
 
         address = self._normalize(address)
         result = subprocess.run(
-            ["security", "add-generic-password",
-             "-s", self.SERVICE, "-a", address, "-w", private_key, "-U"],
-            capture_output=True, text=True, timeout=10,
+            ["security", "add-generic-password", "-s", self.SERVICE, "-a", address, "-w", private_key, "-U"],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if result.returncode != 0:
             raise RuntimeError(f"Keychain store failed: {result.stderr.strip()}")
@@ -139,10 +198,7 @@ class MacOSKeychainBackend(KeystoreBackend):
             return []
 
         try:
-            result = subprocess.run(
-                ["security", "dump-keychain"],
-                capture_output=True, text=True, timeout=10,
-            )
+            result = subprocess.run(["security", "dump-keychain"], capture_output=True, text=True, timeout=10)
             if result.returncode != 0:
                 return []
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -154,11 +210,9 @@ class MacOSKeychainBackend(KeystoreBackend):
 
         for line in lines:
             stripped = line.strip()
-            # Detect service matching our service name
             if '"svce"' in stripped and self.SERVICE in stripped:
                 in_agent_cli_entry = True
             elif '"acct"' in stripped and in_agent_cli_entry:
-                # Extract account value — format: "acct"<blob>="0xaddress..."
                 match = re.search(r'"acct".*?="(0x[0-9a-fA-F]+)"', stripped)
                 if match:
                     addresses.append(match.group(1).lower())
@@ -172,17 +226,13 @@ class MacOSKeychainBackend(KeystoreBackend):
         if sys.platform != "darwin":
             return False
         try:
-            result = subprocess.run(
-                ["which", "security"],
-                capture_output=True, timeout=5,
-            )
+            result = subprocess.run(["which", "security"], capture_output=True, timeout=5)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
     @staticmethod
     def _normalize(address: str) -> str:
-        """Normalize address to lowercase with 0x prefix."""
         addr = address.lower()
         if not addr.startswith("0x"):
             addr = "0x" + addr
@@ -190,27 +240,22 @@ class MacOSKeychainBackend(KeystoreBackend):
 
 
 class RailwayEnvBackend(KeystoreBackend):
-    """Reads private keys from Railway-injected environment variables.
-
-    Looks for HL_PRIVATE_KEY and {VENUE}_PRIVATE_KEY patterns.
-    Cannot store keys — those must be set via the Railway dashboard.
-    """
+    """Reads private keys from Railway-injected environment variables."""
 
     _KEY_PATTERN = re.compile(r"^([A-Z_]+)_PRIVATE_KEY$")
 
     def name(self) -> str:
         return "railway"
 
-    def get_key(self, address: Optional[str] = None) -> Optional[str]:
+    def get_key(self, address: Optional[str] = None, venue: str = "hl") -> Optional[str]:
         if not self.available():
             return None
 
-        # Try HL_PRIVATE_KEY first
-        key = os.environ.get("HL_PRIVATE_KEY")
-        if key:
-            return key
+        for env_var in private_key_env_vars_for_venue(venue):
+            key = os.environ.get(env_var)
+            if key:
+                return key
 
-        # Try any {VENUE}_PRIVATE_KEY
         for var, val in os.environ.items():
             if self._KEY_PATTERN.match(var) and val:
                 return val
@@ -218,9 +263,7 @@ class RailwayEnvBackend(KeystoreBackend):
         return None
 
     def store_key(self, address: str, private_key: str) -> None:
-        raise NotImplementedError(
-            "Cannot store keys in Railway env — set via Railway dashboard"
-        )
+        raise NotImplementedError("Cannot store keys in Railway env — set via Railway dashboard")
 
     def list_keys(self) -> List[str]:
         if not self.available():
@@ -231,6 +274,7 @@ class RailwayEnvBackend(KeystoreBackend):
             if self._KEY_PATTERN.match(var) and val:
                 try:
                     from eth_account import Account
+
                     acct = Account.from_key(val)
                     addresses.append(acct.address.lower())
                 except Exception:
@@ -242,7 +286,7 @@ class RailwayEnvBackend(KeystoreBackend):
 
 
 class FlatFileBackend(KeystoreBackend):
-    """Plaintext key files at ~/.hl-agent/keys/{address}.txt.
+    """Plaintext key files under the resolved app home.
 
     WARNING: Keys are stored in plaintext. Use only for development.
     Prefer macOS Keychain or encrypted keystore for production.
@@ -251,7 +295,7 @@ class FlatFileBackend(KeystoreBackend):
     def name(self) -> str:
         return "file"
 
-    def get_key(self, address: Optional[str] = None) -> Optional[str]:
+    def get_key(self, address: Optional[str] = None, venue: str = "hl") -> Optional[str]:
         if address is None:
             addresses = self.list_keys()
             if not addresses:
@@ -264,9 +308,7 @@ class FlatFileBackend(KeystoreBackend):
         if not path.exists():
             return None
 
-        log.warning(
-            "Plaintext key storage -- consider migrating to keychain or encrypted keystore"
-        )
+        log.warning("Plaintext key storage -- consider migrating to keychain or encrypted keystore")
         return path.read_text().strip()
 
     def store_key(self, address: str, private_key: str) -> None:
@@ -279,10 +321,7 @@ class FlatFileBackend(KeystoreBackend):
     def list_keys(self) -> List[str]:
         if not KEYS_DIR.exists():
             return []
-        addresses = []
-        for f in sorted(KEYS_DIR.glob("*.txt")):
-            addresses.append(f.stem)
-        return addresses
+        return [f.stem for f in sorted(KEYS_DIR.glob("*.txt"))]
 
     def available(self) -> bool:
         return True
@@ -295,11 +334,6 @@ class FlatFileBackend(KeystoreBackend):
         return addr
 
 
-# ---------------------------------------------------------------------------
-# Backend registry & unified resolver
-# ---------------------------------------------------------------------------
-
-# Resolution order: keychain -> keystore -> railway -> flat file -> env var
 _BACKENDS: List[KeystoreBackend] = [
     MacOSKeychainBackend(),
     EncryptedKeystoreBackend(),
@@ -309,15 +343,13 @@ _BACKENDS: List[KeystoreBackend] = [
 
 
 def get_all_backends() -> List[KeystoreBackend]:
-    """Return all registered backends."""
     return list(_BACKENDS)
 
 
 def get_backend(name: str) -> Optional[KeystoreBackend]:
-    """Look up a backend by name."""
-    for b in _BACKENDS:
-        if b.name() == name:
-            return b
+    for backend in _BACKENDS:
+        if backend.name() == name:
+            return backend
     return None
 
 
@@ -326,35 +358,35 @@ def resolve_private_key(venue: str = "hl", address: Optional[str] = None) -> str
 
     Resolution order:
       1. macOS Keychain
-      2. Encrypted keystore (geth-compatible)
+      2. Encrypted keystore
       3. Railway environment
-      4. Flat .txt file
-      5. {VENUE}_PRIVATE_KEY env var (direct)
-
-    Raises RuntimeError if no key is found.
+      4. Flat file
+      5. Venue-specific and generic env vars
     """
+    normalized_venue = normalize_venue_name(venue)
+
     for backend in _BACKENDS:
         if not backend.available():
             continue
         try:
-            key = backend.get_key(address)
+            key = backend.get_key(address=address, venue=normalized_venue)
             if key:
                 log.info("Private key resolved via %s backend", backend.name())
                 return key
         except Exception as exc:
             log.debug("Backend %s failed: %s", backend.name(), exc)
 
-    # Final fallback: direct env var
-    env_var = f"{venue.upper()}_PRIVATE_KEY"
-    key = os.environ.get(env_var, "")
-    if key:
-        log.info("Private key resolved via %s env var", env_var)
-        return key
+    for env_var in private_key_env_vars_for_venue(normalized_venue):
+        key = os.environ.get(env_var, "")
+        if key:
+            log.info("Private key resolved via %s env var", env_var)
+            return key
 
+    env_hint = " or ".join(private_key_env_vars_for_venue(normalized_venue))
     raise RuntimeError(
         "No private key available. Options:\n"
         "  1. Import a key:  hl keys import --backend keychain\n"
         "  2. Use keystore:  hl wallet import\n"
-        "  3. Set env var:   export HL_PRIVATE_KEY=0x...\n"
-        "  4. On Railway:    set HL_PRIVATE_KEY in dashboard"
+        f"  3. Set env var:   export {env_hint}=0x...\n"
+        "  4. On Railway:    set one of those env vars in the dashboard"
     )

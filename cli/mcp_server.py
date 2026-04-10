@@ -78,12 +78,12 @@ def create_mcp_server():
         """Create a new wallet non-interactively (agent-friendly).
 
         Args:
-            save_env: Save credentials to ~/.hl-agent/env for auto-detection (default: True)
+            save_env: Save credentials to the resolved app env file for auto-detection (default: True)
         """
         import secrets
-        from pathlib import Path
         from eth_account import Account
         from cli.keystore import create_keystore
+        from common.app_paths import env_file as default_env_file
 
         password = secrets.token_urlsafe(32)
         account = Account.create()
@@ -96,9 +96,9 @@ def create_mcp_server():
         }
 
         if save_env:
-            env_path = Path.home() / ".hl-agent" / "env"
+            env_path = default_env_file()
             env_path.parent.mkdir(parents=True, exist_ok=True)
-            env_path.write_text(f"HL_KEYSTORE_PASSWORD={password}\n")
+            env_path.write_text(f"AGENT_CLI_KEYSTORE_PASSWORD={password}\n")
             env_path.chmod(0o600)
             result["env_file"] = str(env_path)
 
@@ -122,14 +122,17 @@ def create_mcp_server():
             issues.append("hyperliquid-python-sdk not installed")
 
         # Key
-        has_env_key = bool(os.environ.get("HL_PRIVATE_KEY"))
+        from common.credentials import private_key_env_vars_for_venue
+
+        env_key_vars = private_key_env_vars_for_venue("hl")
+        has_env_key = any(os.environ.get(var) for var in env_key_vars)
         keystores = list_keystores()
         if has_env_key:
-            ok_items.append("HL_PRIVATE_KEY set")
+            ok_items.append(f"Private key env set ({', '.join(env_key_vars)})")
         elif keystores:
             ok_items.append(f"Keystore found ({len(keystores)} keys)")
         else:
-            issues.append("No private key: set HL_PRIVATE_KEY or run wallet_auto")
+            issues.append("No private key: set a supported env var or run wallet_auto")
 
         # Network
         testnet = os.environ.get("HL_TESTNET", "true").lower()
