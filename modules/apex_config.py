@@ -196,6 +196,7 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         # Set threshold impossibly high so no radar entry ever qualifies.
         radar_score_threshold=130,        # v4.4: back to 130, fee problem solved by $11k budget
         pulse_confidence_threshold=45.0,  # v4.4: back to 45, need signal volume at correct position size
+        reflect_auto_adjust=False,        # v4.5: disable — REFLECT was overriding our thresholds to 140/55
         radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5
