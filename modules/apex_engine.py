@@ -274,6 +274,11 @@ class ApexEngine:
                         "priority": 3,
                     })
 
+        # Flip signal direction if configured (mean-reversion on exhaustion signals)
+        if cfg.flip_signal_direction:
+            for c in candidates:
+                c["direction"] = "short" if c["direction"] == "long" else "long"
+
         # Deduplicate by instrument (keep highest priority)
         seen = set()
         unique = []
