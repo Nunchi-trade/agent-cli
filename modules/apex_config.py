@@ -194,8 +194,8 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         # ~once every 9 min and every entry is wrong-way. Score threshold
         # doesn't help — the fundamental signal has no edge on BTCSWP.
         # Set threshold impossibly high so no radar entry ever qualifies.
-        radar_score_threshold=150,        # v4.3: 130→150, weak radar signals lose to fees
-        pulse_confidence_threshold=60.0,  # v4.3: 45→60, weak pulse signals lose to fees
+        radar_score_threshold=130,        # v4.4: back to 130, fee problem solved by $11k budget
+        pulse_confidence_threshold=45.0,  # v4.4: back to 45, need signal volume at correct position size
         radar_interval_ticks=5,           # still scanning for attribution data
         min_hold_ms=1_800_000,            # v2: was 600_000 (10min) -> 30 min
         slot_cooldown_ms=60_000,          # 1 min instead of 5
