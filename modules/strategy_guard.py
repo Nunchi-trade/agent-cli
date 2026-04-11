@@ -83,15 +83,23 @@ class StrategyGuard:
 
         effective_targets = target_markets or self.target_markets
 
+        # When strategies were explicitly assigned (via STRATEGY_NAMES env),
+        # run them directly against target markets.  Skip MARKET_STRATEGY_MAP
+        # routing which would ignore the assigned strategies.
+        if self.strategies:
+            target_assets = (
+                {instrument_to_asset(m) for m in effective_targets}
+                if effective_targets else None
+            )
+            snapshots = self._build_snapshots(all_markets, only_assets=target_assets)
+            if not snapshots:
+                return []
+            return self._run_strategies_on_snapshots(self.strategies, snapshots)
+
         if effective_targets:
             return self._scan_routed(all_markets, effective_targets)
 
-        if not self.strategies:
-            return []
-        snapshots = self._build_snapshots(all_markets)
-        if not snapshots:
-            return []
-        return self._run_strategies_on_snapshots(self.strategies, snapshots)
+        return []
 
     def _scan_routed(
         self,
