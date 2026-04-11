@@ -19,6 +19,27 @@ log = logging.getLogger("hl_proxy")
 
 ZERO = Decimal("0")
 
+
+def _retry_on_429(fn, *args, max_retries: int = 3, base_delay: float = 2.0, **kwargs):
+    """Call fn with exponential backoff on 429 rate-limit errors.
+
+    The HL SDK raises ClientError(429) when CloudFront throttles us.
+    Without retry, a single 429 crashes the entire agent process —
+    14 agents starting simultaneously guarantees some hit the limit.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            status = getattr(e, "status_code", None) or (e.args[0] if e.args and isinstance(e.args[0], int) else 0)
+            if status == 429 and attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                log.warning("HL 429 rate limit (attempt %d/%d), retrying in %.1fs",
+                            attempt + 1, max_retries, delay)
+                time.sleep(delay)
+                continue
+            raise
+
 from parent.sdk_patches import patch_spot_meta_indexing as _patch_spot_meta_indexing
 
 
@@ -273,7 +294,11 @@ class HLProxy:
 
         base_url = constants.TESTNET_API_URL if self.testnet else constants.MAINNET_API_URL
         perp_dexs = [""] + list(HIP3_DEXS.keys())
-        self._info = Info(base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs)
+        # Info() constructor calls perp_dexs() which hits HL API —
+        # wrap with retry so startup 429s don't crash the agent.
+        self._info = _retry_on_429(
+            Info, base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs,
+        )
 
         account = Account.from_key(self.private_key)
         delegated = self._account_address
@@ -314,7 +339,7 @@ class HLProxy:
         self._ensure_client()
         try:
             coin = self._hl_coin(instrument)
-            book = self._info.l2_snapshot(coin)
+            book = _retry_on_429(self._info.l2_snapshot, coin)
             bids = book.get("levels", [[]])[0] if book.get("levels") else []
             asks = book.get("levels", [[], []])[1] if len(book.get("levels", [])) > 1 else []
 
@@ -443,33 +468,33 @@ class HLProxy:
         self._ensure_client()
         end = int(time.time() * 1000)
         start = end - lookback_ms
-        return self._info.candles_snapshot(coin, interval, start, end)
+        return _retry_on_429(self._info.candles_snapshot, coin, interval, start, end)
 
     def get_meta_and_asset_ctxs(self) -> Any:
         """Fetch metadata and asset contexts for all perps."""
         self._ensure_client()
-        return self._info.meta_and_asset_ctxs()
+        return _retry_on_429(self._info.meta_and_asset_ctxs)
 
     def get_all_mids(self) -> Dict[str, str]:
         """Fetch mid prices for all assets."""
         self._ensure_client()
-        return self._info.all_mids()
+        return _retry_on_429(self._info.all_mids)
 
     def get_dex_markets(self, dex: str) -> list:
         """Fetch HIP-3 DEX metaAndAssetCtxs."""
         self._ensure_client()
-        return self._info.post("/info", {"type": "metaAndAssetCtxs", "dex": dex})
+        return _retry_on_429(self._info.post, "/info", {"type": "metaAndAssetCtxs", "dex": dex})
 
     def get_dex_mids(self, dex: str) -> Dict[str, str]:
         """Fetch HIP-3 DEX mid prices."""
         self._ensure_client()
-        return self._info.post("/info", {"type": "allMids", "dex": dex}) or {}
+        return _retry_on_429(self._info.post, "/info", {"type": "allMids", "dex": dex}) or {}
 
     def get_fills(self, since_ms: int = 0) -> List[HLFill]:
         """Get fills from HL user state."""
         if self._info and self._address:
             try:
-                user_fills = self._info.user_fills(self._address)
+                user_fills = _retry_on_429(self._info.user_fills, self._address)
                 for uf in user_fills:
                     ts = int(uf.get("time", 0))
                     if ts >= since_ms:
