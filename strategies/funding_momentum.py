@@ -18,8 +18,8 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 FUNDING_LOOKBACK = 48       # ticks for rolling funding stats
 EMA_FAST = 12
 EMA_SLOW = 26
-ZSCORE_ENTRY = 2.0          # z-score threshold to enter
-ZSCORE_EXIT = 1.0           # z-score threshold to exit
+ZSCORE_ENTRY = 1.5          # lowered from 2.0 for thin YEX markets
+ZSCORE_EXIT = 0.8           # lowered from 1.0 for thin YEX markets
 ATR_LOOKBACK = 24
 ATR_STOP_MULT = 4.0
 MIN_HISTORY = max(FUNDING_LOOKBACK, EMA_SLOW + 10, ATR_LOOKBACK) + 1

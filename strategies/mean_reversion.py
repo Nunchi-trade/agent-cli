@@ -13,7 +13,7 @@ class MeanReversionStrategy(BaseStrategy):
         self,
         strategy_id: str = "mean_reversion",
         window: int = 20,
-        threshold_bps: float = 30.0,
+        threshold_bps: float = 15.0,           # lowered from 30 for thin YEX markets
         size: float = 1.0,
     ):
         super().__init__(strategy_id=strategy_id)

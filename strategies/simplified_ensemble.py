@@ -36,7 +36,7 @@ TARGET_VOL = 0.015
 ATR_LOOKBACK = 24
 ATR_STOP_MULT = 5.5
 BASE_POSITION_PCT = 0.08
-MIN_VOTES = 4
+MIN_VOTES = 3              # lowered from 4 for thin YEX markets
 COOLDOWN_BARS = 2
 # Minimum ticks needed before signals are valid
 MIN_HISTORY = max(MACD_SLOW + MACD_SIGNAL + 5, EMA_SLOW + 10, VOL_LOOKBACK, ATR_LOOKBACK, BB_PERIOD * 3) + 1

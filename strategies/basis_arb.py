@@ -12,7 +12,7 @@ class BasisArbStrategy(BaseStrategy):
     def __init__(
         self,
         strategy_id: str = "basis_arb",
-        basis_threshold_bps: float = 5.0,
+        basis_threshold_bps: float = 3.0,        # lowered from 5 for thin YEX markets
         size: float = 1.0,
         funding_window: int = 10,
     ):

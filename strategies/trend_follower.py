@@ -19,8 +19,8 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 EMA_FAST = 7
 EMA_SLOW = 26
 ADX_PERIOD = 14
-ADX_ENTRY_THRESHOLD = 25    # only enter when trend is strong
-ADX_EXIT_THRESHOLD = 20     # exit when trend is dying
+ADX_ENTRY_THRESHOLD = 15    # lowered from 25 for thin YEX markets
+ADX_EXIT_THRESHOLD = 12     # lowered from 20 for thin YEX markets
 ATR_LOOKBACK = 24
 ATR_STOP_MULT = 4.5
 # Need enough history for ADX (2 * ADX_PERIOD + some buffer) and EMA

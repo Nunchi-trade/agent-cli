@@ -13,8 +13,8 @@ class MomentumBreakoutStrategy(BaseStrategy):
         self,
         strategy_id: str = "momentum_breakout",
         lookback: int = 20,
-        breakout_threshold_bps: float = 50.0,
-        volume_surge_mult: float = 2.0,
+        breakout_threshold_bps: float = 20.0,   # lowered from 50 for thin YEX markets
+        volume_surge_mult: float = 1.5,        # lowered from 2.0 for thin YEX markets
         trailing_stop_bps: float = 30.0,
         size: float = 1.0,
     ):
