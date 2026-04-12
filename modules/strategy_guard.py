@@ -93,8 +93,13 @@ class StrategyGuard:
             )
             snapshots = self._build_snapshots(all_markets, only_assets=target_assets)
             if not snapshots:
+                log.warning("Strategy scan: 0 snapshots built (targets=%s, all_markets has %d items)",
+                            target_assets, len(all_markets) if all_markets else 0)
                 return []
-            return self._run_strategies_on_snapshots(self.strategies, snapshots)
+            signals = self._run_strategies_on_snapshots(self.strategies, snapshots)
+            log.info("Strategy scan: %d snapshots, %d signals from %s",
+                     len(snapshots), len(signals), [s.strategy_id for s in self.strategies])
+            return signals
 
         if effective_targets:
             return self._scan_routed(all_markets, effective_targets)
