@@ -48,6 +48,23 @@ class TestVenueAwarePrivateKeyResolution:
              patch.dict(os.environ, {"PARADEX_L2_PRIVATE_KEY": "0xparadexkey"}, clear=True):
             assert resolve_private_key(venue="paradex") == "0xparadexkey"
 
+    def test_resolve_private_key_prefers_explicit_env_over_keystore(self):
+        from common.credentials import (
+            resolve_private_key,
+            MacOSKeychainBackend,
+            EncryptedKeystoreBackend,
+            RailwayEnvBackend,
+            FlatFileBackend,
+        )
+
+        with patch.object(MacOSKeychainBackend, "available", return_value=False), \
+             patch.object(EncryptedKeystoreBackend, "available", return_value=True), \
+             patch.object(EncryptedKeystoreBackend, "get_key", return_value="0xkeystore"), \
+             patch.object(RailwayEnvBackend, "available", return_value=False), \
+             patch.object(FlatFileBackend, "available", return_value=False), \
+             patch.dict(os.environ, {"PARADEX_L2_PRIVATE_KEY": "0xparadexkey"}, clear=True):
+            assert resolve_private_key(venue="paradex") == "0xparadexkey"
+
     def test_resolve_private_key_uses_generic_agent_env_last(self):
         from common.credentials import (
             resolve_private_key,

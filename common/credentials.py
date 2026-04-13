@@ -357,16 +357,19 @@ def get_backend(name: str) -> Optional[KeystoreBackend]:
 
 
 def resolve_private_key(venue: str = "hl", address: Optional[str] = None) -> str:
-    """Resolve a private key by trying backends in priority order.
+    """Resolve a private key for the selected venue.
 
-    Resolution order:
-      1. macOS Keychain
-      2. Encrypted keystore
-      3. Railway environment
-      4. Flat file
-      5. Venue-specific and generic env vars
+    Explicit venue-specific env vars win over passive local storage so callers can
+    override a stale key for the current session. If no env override is present,
+    fall back to the configured backends in their usual priority order.
     """
     normalized_venue = normalize_venue_name(venue)
+
+    for env_var in private_key_env_vars_for_venue(normalized_venue):
+        key = os.environ.get(env_var, "")
+        if key:
+            log.info("Private key resolved via %s env var", env_var)
+            return key
 
     for backend in _BACKENDS:
         if not backend.available():
@@ -378,12 +381,6 @@ def resolve_private_key(venue: str = "hl", address: Optional[str] = None) -> str
                 return key
         except Exception as exc:
             log.debug("Backend %s failed: %s", backend.name(), exc)
-
-    for env_var in private_key_env_vars_for_venue(normalized_venue):
-        key = os.environ.get(env_var, "")
-        if key:
-            log.info("Private key resolved via %s env var", env_var)
-            return key
 
     env_hint = " or ".join(private_key_env_vars_for_venue(normalized_venue))
     raise RuntimeError(
