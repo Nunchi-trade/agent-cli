@@ -17,3 +17,10 @@ def test_get_private_key_passes_selected_venue(monkeypatch):
     cfg = TradingConfig(venue="paradex")
     assert cfg.get_private_key() == "secret"
     assert captured["venue"] == "paradex"
+
+
+def test_paradex_wallet_address_accepts_l2_length(monkeypatch):
+    monkeypatch.setenv("PARADEX_L2_ADDRESS", "0x64ee52a0aefc5317d0d9d34fa3ac620a8f40fa70497a49c7e959be1f1a8f6a")
+    from common.credentials import resolve_wallet_address
+
+    assert resolve_wallet_address("paradex") == "0x64ee52a0aefc5317d0d9d34fa3ac620a8f40fa70497a49c7e959be1f1a8f6a"

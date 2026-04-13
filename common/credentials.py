@@ -78,13 +78,16 @@ def resolve_wallet_address(venue: str = "hl", address: Optional[str] = None) -> 
     candidates = [address] if address else []
     candidates.extend(os.environ.get(env_var, "") for env_var in address_env_vars_for_venue(venue))
 
+    normalized_venue = normalize_venue_name(venue)
+    pattern = r"0x[0-9a-fA-F]{40,64}" if normalized_venue == "paradex" else r"0x[0-9a-fA-F]{40}"
+
     for candidate in candidates:
         addr = (candidate or "").strip()
         if not addr:
             continue
-        if re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
+        if re.fullmatch(pattern, addr):
             return addr
-        log.warning("Ignoring invalid %s address candidate: %s", normalize_venue_name(venue), addr)
+        log.warning("Ignoring invalid %s address candidate: %s", normalized_venue, addr)
     return ""
 
 
