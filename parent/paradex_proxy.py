@@ -54,6 +54,7 @@ class ParadexProxy:
     ):
         self.testnet = testnet
         self.l1_private_key = l1_private_key
+        self._validate_l1_signer_alignment(l1_address, l1_private_key)
         self.l1_address = self._resolve_l1_address(l1_address, l1_private_key)
         self.l2_private_key = l2_private_key or resolve_private_key("paradex")
         self.l2_address = self._resolve_l2_address(l2_address)
@@ -479,6 +480,28 @@ class ParadexProxy:
             if re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
                 return addr
         return ""
+
+    @staticmethod
+    def _validate_l1_signer_alignment(explicit_address: Optional[str], l1_private_key: Optional[str]) -> None:
+        derived = ParadexProxy._derive_evm_address_from_private_key(l1_private_key)
+        if not derived:
+            return
+
+        intended_candidates = [
+            explicit_address,
+            os.environ.get("PARADEX_L1_ADDRESS", ""),
+            os.environ.get("PARADEX_EVM_ADDRESS", ""),
+            os.environ.get("AGENT_WALLET_ADDRESS", ""),
+        ]
+        for candidate in intended_candidates:
+            addr = (candidate or "").strip()
+            if not re.fullmatch(r"0x[0-9a-fA-F]{40}", addr):
+                continue
+            if addr.lower() != derived.lower():
+                raise ValueError(
+                    "Paradex L1 signer mismatch: private key derives to "
+                    f"{derived} but intended L1 address is {addr}."
+                )
 
     @staticmethod
     def _resolve_l2_address(explicit_address: Optional[str]) -> str:
