@@ -1,10 +1,13 @@
-"""hl radar — opportunity screening commands."""
+"""Venue-aware RADAR opportunity screening commands."""
 from __future__ import annotations
 
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
+
+from cli.radar_market_source import build_radar_market_source
+from cli.venue_factory import normalize_venue
 
 import typer
 
@@ -39,7 +42,11 @@ def radar_run(
     ),
     mock: bool = typer.Option(
         False, "--mock",
-        help="Use mock data (no HL connection needed)",
+        help="Use mock data (no live venue connection needed)",
+    ),
+    venue: str = typer.Option(
+        "hl", "--venue", "-v",
+        help="Venue to scan (hl, paradex)",
     ),
     mainnet: bool = typer.Option(
         False, "--mainnet",
@@ -62,7 +69,7 @@ def radar_run(
     _run_radar(
         tick=tick, top_n=top_n, min_volume=min_volume,
         score_threshold=score_threshold, preset=preset,
-        config=config, mock=mock, mainnet=mainnet,
+        config=config, mock=mock, venue=venue, mainnet=mainnet,
         json_output=json_output, max_scans=max_scans,
         data_dir=data_dir,
     )
@@ -76,6 +83,7 @@ def radar_once(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    venue: str = typer.Option("hl", "--venue", "-v"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
     data_dir: str = typer.Option("data/radar", "--data-dir"),
@@ -84,7 +92,7 @@ def radar_once(
     _run_radar(
         tick=0, top_n=top_n, min_volume=min_volume,
         score_threshold=score_threshold, preset=preset,
-        config=config, mock=mock, mainnet=mainnet,
+        config=config, mock=mock, venue=venue, mainnet=mainnet,
         json_output=json_output, max_scans=1,
         data_dir=data_dir, single=True,
     )
@@ -145,7 +153,7 @@ def radar_presets():
 
 def _run_radar(
     tick, top_n, min_volume, score_threshold, preset, config,
-    mock, mainnet, json_output, max_scans, data_dir, single=False,
+    mock, venue, mainnet, json_output, max_scans, data_dir, single=False,
 ):
     """Shared setup for run and once commands."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -166,6 +174,8 @@ def _run_radar(
     cfg.min_volume_24h = min_volume
     cfg.score_threshold = score_threshold
 
+    normalized_venue = normalize_venue(venue)
+
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
@@ -173,33 +183,25 @@ def _run_radar(
         datefmt="%H:%M:%S",
     )
 
-    # Build HL adapter
-    if mock:
-        from cli.hl_adapter import DirectMockProxy
-        hl = DirectMockProxy()
-        typer.echo("Mode: MOCK")
-    else:
-        from cli.hl_adapter import DirectHLProxy
-        from cli.config import TradingConfig
-        from parent.hl_proxy import HLProxy
+    try:
+        market_source, mode_label = build_radar_market_source(
+            venue=normalized_venue,
+            mainnet=mainnet,
+            mock=mock,
+        )
+    except RuntimeError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
-        try:
-            private_key = TradingConfig().get_private_key()
-        except RuntimeError as e:
-            typer.echo(f"Error: {e}", err=True)
-            raise typer.Exit(1)
-        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-        hl = DirectHLProxy(raw_hl)
-        network = "mainnet" if mainnet else "testnet"
-        typer.echo(f"Mode: LIVE ({network})")
-
+    typer.echo(f"Venue: {normalized_venue}")
+    typer.echo(f"Mode: {mode_label}")
     typer.echo(f"Top N: {cfg.top_n_deep}  |  Min Vol: ${cfg.min_volume_24h:,.0f}  |  "
                f"Threshold: {cfg.score_threshold}")
 
     from skills.radar.scripts.standalone_runner import RadarRunner
 
     runner = RadarRunner(
-        hl=hl,
+        hl=market_source,
         config=cfg,
         tick_interval=tick,
         json_output=json_output,

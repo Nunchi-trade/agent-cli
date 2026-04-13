@@ -13,7 +13,7 @@ if _root not in sys.path:
 
 app = typer.Typer(
     name="hl",
-    help="Autonomous Hyperliquid trader — direct HL API execution.",
+    help="Autonomous multi-venue trading CLI — direct venue API execution.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -42,8 +42,8 @@ app.command("trade", help="Place a single manual order")(trade_cmd)
 app.command("account", help="Show HL account state")(account_cmd)
 app.command("strategies", help="List available strategies")(strategies_cmd)
 app.add_typer(guard_app, name="guard", help="Guard trailing stop system")
-app.add_typer(radar_app, name="radar", help="Radar — screen HL perps for setups")
-app.add_typer(pulse_app, name="pulse", help="Pulse — detect assets with capital inflow")
+app.add_typer(radar_app, name="radar", help="Radar — screen venue perps for setups")
+app.add_typer(pulse_app, name="pulse", help="Pulse — detect venue assets with capital inflow")
 app.add_typer(apex_app, name="apex", help="APEX — autonomous multi-slot trading")
 app.add_typer(builder_app, name="builder", help="Builder fee — revenue collection on trades")
 app.add_typer(reflect_app, name="reflect", help="Reflect — performance review and self-improvement")

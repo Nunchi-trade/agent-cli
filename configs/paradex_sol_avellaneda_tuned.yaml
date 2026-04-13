@@ -1,0 +1,29 @@
+strategy: avellaneda_mm
+strategy_params:
+  gamma: 0.03
+  k: 16.0
+  base_size: 0.15
+  max_inventory: 1.5
+  min_spread_bps: 8.0
+  max_spread_bps: 60.0
+  vol_window: 48
+
+instrument: SOL-USD-PERP
+venue: paradex
+mainnet: true
+tick_interval: 2.0
+dry_run: false
+
+data_dir: data/paradex-sol-avellaneda
+log_level: INFO
+
+max_position_qty: 1.5
+max_notional_usd: 1000
+max_order_size: 0.5
+max_daily_drawdown_pct: 2.5
+max_leverage: 2.0
+tvl: 5000
+
+builder:
+  builder_address: ""
+  fee_rate_tenths_bps: 0

@@ -158,7 +158,13 @@ class OrderManager:
         open_orders = self.hl.get_open_orders(self.instrument)
         cancelled = 0
         for order in open_orders:
-            oid = order.get("oid", "")
+            oid = (
+                order.get("oid")
+                or order.get("id")
+                or order.get("order_id")
+                or order.get("client_id")
+                or ""
+            )
             if oid and self.hl.cancel_order(self.instrument, oid):
                 cancelled += 1
         if cancelled:

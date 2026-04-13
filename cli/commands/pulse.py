@@ -1,10 +1,13 @@
-"""hl pulse — Pulse capital inflow detection commands."""
+"""Venue-aware Pulse capital inflow detection commands."""
 from __future__ import annotations
 
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
+
+from cli.radar_market_source import build_radar_market_source
+from cli.venue_factory import normalize_venue
 
 import typer
 
@@ -18,6 +21,7 @@ def pulse_run(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    venue: str = typer.Option("hl", "--venue", "-v", help="Venue to scan (hl, paradex)"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
     max_scans: int = typer.Option(0, "--max-scans"),
@@ -25,7 +29,7 @@ def pulse_run(
 ):
     """Start continuous Pulse capital inflow detection."""
     _run_pulse(tick=tick, min_volume=min_volume, preset=preset, config=config,
-               mock=mock, mainnet=mainnet, json_output=json_output,
+               mock=mock, venue=venue, mainnet=mainnet, json_output=json_output,
                max_scans=max_scans, data_dir=data_dir)
 
 
@@ -35,13 +39,14 @@ def pulse_once(
     preset: Optional[str] = typer.Option(None, "--preset", "-p"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     mock: bool = typer.Option(False, "--mock"),
+    venue: str = typer.Option("hl", "--venue", "-v", help="Venue to scan (hl, paradex)"),
     mainnet: bool = typer.Option(False, "--mainnet"),
     json_output: bool = typer.Option(False, "--json"),
     data_dir: str = typer.Option("data/pulse", "--data-dir"),
 ):
     """Run a single Pulse scan and exit."""
     _run_pulse(tick=0, min_volume=min_volume, preset=preset, config=config,
-               mock=mock, mainnet=mainnet, json_output=json_output,
+               mock=mock, venue=venue, mainnet=mainnet, json_output=json_output,
                max_scans=1, data_dir=data_dir, single=True)
 
 
@@ -91,7 +96,7 @@ def pulse_presets():
         typer.echo(f"  volume_surge_ratio: {cfg.volume_surge_ratio}x")
 
 
-def _run_pulse(tick, min_volume, preset, config, mock, mainnet,
+def _run_pulse(tick, min_volume, preset, config, mock, venue, mainnet,
                json_output, max_scans, data_dir, single=False):
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
@@ -108,36 +113,32 @@ def _run_pulse(tick, min_volume, preset, config, mock, mainnet,
 
     cfg.volume_min_24h = min_volume
 
+    normalized_venue = normalize_venue(venue)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)-14s %(levelname)-5s %(message)s",
         datefmt="%H:%M:%S",
     )
 
-    if mock:
-        from cli.hl_adapter import DirectMockProxy
-        hl = DirectMockProxy()
-        typer.echo("Mode: MOCK")
-    else:
-        from cli.hl_adapter import DirectHLProxy
-        from cli.config import TradingConfig
-        from parent.hl_proxy import HLProxy
+    try:
+        market_source, mode_label = build_radar_market_source(
+            venue=normalized_venue,
+            mainnet=mainnet,
+            mock=mock,
+        )
+    except RuntimeError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
-        try:
-            private_key = TradingConfig().get_private_key()
-        except RuntimeError as e:
-            typer.echo(f"Error: {e}", err=True)
-            raise typer.Exit(1)
-        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-        hl = DirectHLProxy(raw_hl)
-        typer.echo(f"Mode: LIVE ({'mainnet' if mainnet else 'testnet'})")
-
+    typer.echo(f"Venue: {normalized_venue}")
+    typer.echo(f"Mode: {mode_label}")
     typer.echo(f"Min Vol: ${cfg.volume_min_24h:,.0f}  |  "
                f"OI threshold: {cfg.oi_delta_breakout_pct}%")
 
     from skills.pulse.scripts.standalone_runner import PulseRunner
 
-    runner = PulseRunner(hl=hl, config=cfg, tick_interval=tick,
+    runner = PulseRunner(hl=market_source, config=cfg, tick_interval=tick,
                          json_output=json_output, data_dir=data_dir)
 
     if single:

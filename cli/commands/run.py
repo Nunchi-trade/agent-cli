@@ -39,7 +39,7 @@ def run_cmd(
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run",
-        help="Run strategy but don't place real orders",
+        help="Run strategy against the selected venue's live market data but don't place real orders",
     ),
     max_ticks: int = typer.Option(
         0, "--max-ticks",
@@ -55,7 +55,7 @@ def run_cmd(
     ),
     mock: bool = typer.Option(
         False, "--mock",
-        help="Use mock market data (no HL connection needed)",
+        help="Use mock market data instead of the selected live venue",
     ),
     model: Optional[str] = typer.Option(
         None, "--model",
@@ -222,7 +222,7 @@ def run_cmd(
         execution_venue, mode_label = build_venue_adapter(
             venue=cfg.venue,
             mainnet=cfg.mainnet,
-            mock=(mock or dry_run),
+            mock=mock,
         )
     except (RuntimeError, ValueError, NotImplementedError) as e:
         typer.echo(f"Error: {e}", err=True)
