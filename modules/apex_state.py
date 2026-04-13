@@ -63,6 +63,8 @@ class ApexState:
     daily_loss_triggered: bool = False
     total_trades: int = 0
     total_pnl: float = 0.0
+    consecutive_losses: int = 0
+    cooldown_until_ms: int = 0
     entry_queue: List[Dict[str, Any]] = field(default_factory=list)
 
     def get_empty_slot(self, now_ms: int = 0, cooldown_ms: int = 0) -> Optional[ApexSlot]:
@@ -93,6 +95,8 @@ class ApexState:
             "daily_loss_triggered": self.daily_loss_triggered,
             "total_trades": self.total_trades,
             "total_pnl": self.total_pnl,
+            "consecutive_losses": self.consecutive_losses,
+            "cooldown_until_ms": self.cooldown_until_ms,
             "entry_queue": self.entry_queue,
         }
 
@@ -105,6 +109,8 @@ class ApexState:
             daily_loss_triggered=d.get("daily_loss_triggered", False),
             total_trades=d.get("total_trades", 0),
             total_pnl=d.get("total_pnl", 0.0),
+            consecutive_losses=d.get("consecutive_losses", 0),
+            cooldown_until_ms=d.get("cooldown_until_ms", 0),
             entry_queue=d.get("entry_queue", []),
         )
         state.slots = [ApexSlot.from_dict(s) for s in d.get("slots", [])]

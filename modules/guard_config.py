@@ -143,9 +143,10 @@ def _register_presets() -> None:
         phase2_max_breaches=2,
         breach_decay_mode="hard",
         tiers=[
-            Tier(trigger_pct=10.0, lock_pct=5.0, max_breaches=3),
-            Tier(trigger_pct=20.0, lock_pct=13.0, retrace=0.012, max_breaches=2),
-            Tier(trigger_pct=40.0, lock_pct=30.0, retrace=0.010, max_breaches=2),
+            Tier(trigger_pct=5.0, lock_pct=2.0, max_breaches=3),
+            Tier(trigger_pct=10.0, lock_pct=7.0, max_breaches=2),
+            Tier(trigger_pct=20.0, lock_pct=15.0, retrace=0.012, max_breaches=2),
+            Tier(trigger_pct=40.0, lock_pct=32.0, retrace=0.010, max_breaches=2),
             Tier(trigger_pct=75.0, lock_pct=64.0, retrace=0.006, max_breaches=1),
         ],
         stagnation_enabled=True,

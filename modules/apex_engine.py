@@ -87,7 +87,11 @@ class ApexEngine:
             if exit_action:
                 actions.append(exit_action)
 
-        # 3. Entry evaluation
+        # 3. Consecutive loss cooldown gate
+        if state.cooldown_until_ms > 0 and now_ms < state.cooldown_until_ms:
+            return actions  # skip entries, only exits above
+
+        # 4. Entry evaluation
         entry_actions = self._evaluate_entries(
             state, pulse_signals, radar_opps, now_ms,
             smart_money_signals=smart_money_signals or [],

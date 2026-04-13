@@ -532,9 +532,9 @@ class TestPresets:
 
     def test_tight_preset_exists(self):
         cfg = PRESETS["tight"]
-        assert len(cfg.tiers) == 4
+        assert len(cfg.tiers) == 5
         assert cfg.stagnation_enabled is True
-        assert cfg.tiers[3].max_breaches == 1
+        assert cfg.tiers[4].max_breaches == 1
 
 
 # ---------------------------------------------------------------------------

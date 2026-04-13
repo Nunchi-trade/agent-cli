@@ -251,6 +251,30 @@ class ApexRunner:
         except Exception as e:
             log.warning("Preflight balance check failed: %s (continuing anyway)", e)
 
+    def _approve_builder_fee(self) -> None:
+        """Auto-approve builder fee on HL so orders with fees aren't rejected."""
+        if not self.builder:
+            return
+        try:
+            from cli.builder_fee import BuilderFeeConfig
+            cfg = BuilderFeeConfig()
+            if not cfg.enabled:
+                return
+            exchange = getattr(self.hl, "_exchange", None)
+            if exchange is None:
+                exchange = getattr(
+                    getattr(self.hl, "_hl", None), "_exchange", None)
+            if exchange is None:
+                return
+            result = exchange.approve_builder_fee(
+                cfg.builder_address, cfg.max_fee_rate_str)
+            log.info(
+                "Builder fee approved: %s (%s)",
+                cfg.builder_address, result)
+        except Exception as e:
+            log.warning(
+                "Builder fee approval failed (orders may reject): %s", e)
+
     def run(self, max_ticks: int = 0) -> None:
         """Main loop. Blocks until max_ticks reached or SIGINT."""
         self._running = True
@@ -258,6 +282,7 @@ class ApexRunner:
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
         self._preflight_check()
+        self._approve_builder_fee()
 
         # Register with telemetry service
         if self.telemetry:
@@ -1012,6 +1037,22 @@ class ApexRunner:
         # Update PnL
         self.state.daily_pnl += pnl
         self.state.total_pnl += pnl
+
+        # Track consecutive losses and trigger cooldown
+        if pnl < 0:
+            self.state.consecutive_losses += 1
+            if self.state.consecutive_losses >= self.config.cooldown_trigger_losses:
+                now_ms = int(time.time() * 1000)
+                self.state.cooldown_until_ms = (
+                    now_ms + self.config.cooldown_duration_ms)
+                log.warning(
+                    "LOSS COOLDOWN: %d consecutive losses, "
+                    "blocking entries for %d min",
+                    self.state.consecutive_losses,
+                    self.config.cooldown_duration_ms // 60_000)
+        else:
+            self.state.consecutive_losses = 0
+            self.state.cooldown_until_ms = 0
 
         if self.state.daily_pnl <= -self.config.daily_loss_limit:
             self.state.daily_loss_triggered = True

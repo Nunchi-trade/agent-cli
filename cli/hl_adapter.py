@@ -324,18 +324,25 @@ class DirectHLProxy:
         # Round price to HL tick size (price-dependent, 5 sig figs)
         price = self._round_price(price, coin)
 
-        # For IOC orders, apply slippage to cross the spread and guarantee fill.
-        # Strategy prices are often at fair value (inside the spread) which won't
-        # match any resting orders. Push buys above ask, sells below bid.
-        if tif == "Ioc":
-            try:
-                snap = self._hl.get_snapshot(instrument)
+        # Price adjustment based on order type:
+        # - IOC: push past spread to guarantee fill (taker)
+        # - ALO: sit on maker side of book for rebates
+        try:
+            snap = self._hl.get_snapshot(instrument)
+            if tif == "Ioc":
                 if is_buy and snap.ask > 0:
-                    price = max(price, self._round_price(snap.ask * SLIPPAGE_FACTOR, coin))
+                    price = max(price, self._round_price(
+                        snap.ask * SLIPPAGE_FACTOR, coin))
                 elif not is_buy and snap.bid > 0:
-                    price = min(price, self._round_price(snap.bid * (2 - SLIPPAGE_FACTOR), coin))
-            except Exception:
-                pass  # use original price if snapshot fails
+                    price = min(price, self._round_price(
+                        snap.bid * (2 - SLIPPAGE_FACTOR), coin))
+            elif tif == "Alo":
+                if is_buy and snap.bid > 0:
+                    price = self._round_price(snap.bid, coin)
+                elif not is_buy and snap.ask > 0:
+                    price = self._round_price(snap.ask, coin)
+        except Exception:
+            pass  # use original price if snapshot fails
 
         fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder)
 
