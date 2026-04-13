@@ -90,6 +90,25 @@ class TestTickCycle:
         engine._tick()
         assert engine.tick_count == 1
 
+    def test_float_fill_from_venue_is_coerced_for_position_tracker(self):
+        engine = _make_engine(strategy=StubStrategy())
+        engine.dry_run = False
+        engine.order_manager.update = MagicMock(return_value=[
+            type("Fill", (), {
+                "oid": "fill-1",
+                "instrument": "ETH-PERP",
+                "side": "BUY",
+                "price": 2500.5,
+                "quantity": 1.25,
+                "timestamp_ms": 123,
+                "fee": 0.0,
+            })()
+        ])
+        engine._tick()
+        pos = engine.position_tracker.get_agent_position("test_stub", "ETH-PERP")
+        assert pos.net_qty == Decimal("1.25")
+        assert pos.avg_entry_price == Decimal("2500.5")
+
     def test_noop_strategy_no_fills(self):
         engine = _make_engine(strategy=StubStrategy(decisions=[]))
         engine._tick()
@@ -156,6 +175,16 @@ class TestStatePersistence:
         engine2._restore_state()
         assert engine2.tick_count == 5
 
+    def test_resume_runs_additional_ticks_instead_of_stopping_immediately(self):
+        tmp = tempfile.mkdtemp()
+        engine1 = _make_engine(tmp_dir=tmp)
+        engine1.run(max_ticks=5, resume=False)
+        assert engine1.tick_count == 5
+
+        engine2 = _make_engine(tmp_dir=tmp)
+        engine2.run(max_ticks=3, resume=True)
+        assert engine2.tick_count == 8
+
     def test_strategy_mismatch_starts_fresh(self):
         tmp = tempfile.mkdtemp()
         engine1 = _make_engine(
@@ -196,6 +225,16 @@ class TestPreflightCheck:
             "marginSummary": {"accountValue": "0"},
         }
         # Should not raise — just logs a warning
+        engine._preflight_check()
+
+    def test_preflight_counts_non_hl_balances(self):
+        engine = _make_engine()
+        engine.dry_run = False
+        engine.hl.get_account_state = lambda: {
+            "venue": "paradex",
+            "balances": [{"token": "USDC", "size": "487.48"}],
+        }
+        assert engine._estimate_account_balance(engine.hl.get_account_state()) == pytest.approx(487.48)
         engine._preflight_check()
 
     def test_preflight_handles_failure(self):

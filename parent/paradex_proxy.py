@@ -241,6 +241,21 @@ class ParadexProxy:
                 return market
         return {}
 
+    def get_market_summary(self, instrument: str) -> Dict[str, Any]:
+        instrument_upper = instrument.upper()
+        api_client = self.get_api_client()
+        if api_client is None:
+            return {}
+        method = getattr(api_client, "fetch_markets_summary", None)
+        if not callable(method):
+            return {}
+        response = method({"market": instrument_upper})
+        if isinstance(response, dict):
+            rows = response.get("results", [])
+            if isinstance(rows, list) and rows:
+                return self._coerce_dict(rows[0])
+        return self._coerce_dict(response)
+
     def get_account_state(self) -> Dict[str, Any]:
         balances = self.fetch_balances()
         positions = self.fetch_positions()
@@ -259,12 +274,13 @@ class ParadexProxy:
 
     def submit_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
         self._authenticate_if_needed(force=False)
+        sdk_order = self._build_sdk_order(order)
         candidates = [
             (self.get_api_client(), "submit_order"),
             (self._client, "submit_order"),
             (self._client, "place_order"),
         ]
-        result = self._call_first(candidates, kwargs={"order": order}, positional_fallback=order)
+        result = self._call_first(candidates, kwargs={"order": sdk_order}, positional_fallback=sdk_order)
         normalized = self._coerce_dict(result)
         if normalized:
             self.placed_orders.append(normalized)
@@ -465,6 +481,32 @@ class ParadexProxy:
         if isinstance(result, dict):
             return result
         return {"value": result}
+
+    @staticmethod
+    def _build_sdk_order(order: Dict[str, Any]):
+        from decimal import Decimal
+        from paradex_py.common.order import Order, OrderSide, OrderType  # type: ignore
+
+        symbol = str(order.get("symbol") or order.get("market") or order.get("instrument") or "")
+        side = str(order.get("side") or "BUY").upper()
+        size = Decimal(str(order.get("size") or order.get("qty") or order.get("quantity") or 0))
+        price = Decimal(str(order.get("price") or order.get("limit_price") or 0))
+        instruction = str(order.get("time_in_force") or order.get("instruction") or "GTC").upper()
+        client_id = str(order.get("client_id") or "")
+        reduce_only = bool(order.get("reduce_only", False))
+        order_id = order.get("order_id") or order.get("id")
+
+        return Order(
+            market=symbol,
+            order_type=OrderType.Limit,
+            order_side=OrderSide.Buy if side == "BUY" else OrderSide.Sell,
+            size=size,
+            limit_price=price,
+            client_id=client_id,
+            instruction=instruction,
+            reduce_only=reduce_only,
+            order_id=str(order_id) if order_id else None,
+        )
 
     @staticmethod
     def _resolve_l1_address(explicit_address: Optional[str], l1_private_key: Optional[str]) -> str:

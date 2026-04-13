@@ -83,6 +83,8 @@ class TradingEngine:
         if resume:
             self._restore_state()
 
+        target_tick_count = self.tick_count + max_ticks if max_ticks > 0 else 0
+
         # Graceful shutdown handlers
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
@@ -103,7 +105,7 @@ class TradingEngine:
                  self.tick_interval, mode, self.risk_manager.limits.max_leverage)
 
         while self._running:
-            if max_ticks > 0 and self.tick_count >= max_ticks:
+            if target_tick_count > 0 and self.tick_count >= target_tick_count:
                 log.info("Reached max ticks (%d), stopping", max_ticks)
                 break
 
@@ -230,17 +232,19 @@ class TradingEngine:
 
         # 7. Apply fills to position tracker
         for fill in fills:
+            fill_qty = Decimal(str(fill.quantity))
+            fill_price = Decimal(str(fill.price))
             self.position_tracker.apply_fill(
-                agent_id, self.instrument, fill.side,
-                fill.quantity, fill.price,
+                agent_id, self.instrument, str(fill.side).lower(),
+                fill_qty, fill_price,
             )
             self.trade_log.append({
                 "tick": self.tick_count,
                 "oid": fill.oid,
                 "instrument": fill.instrument,
-                "side": fill.side,
-                "price": str(fill.price),
-                "quantity": str(fill.quantity),
+                "side": str(fill.side).lower(),
+                "price": str(fill_price),
+                "quantity": str(fill_qty),
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": self.strategy.strategy_id,
@@ -497,22 +501,51 @@ class TradingEngine:
         """Verify account has funds before starting. Warns loudly if not."""
         try:
             account = self.hl.get_account_state()
-            balance = 0.0
-            if "crossMarginSummary" in account:
-                balance = float(account["crossMarginSummary"].get("accountValue", 0))
-            elif "marginSummary" in account:
-                balance = float(account["marginSummary"].get("accountValue", 0))
+            balance = self._estimate_account_balance(account)
             if balance <= 0:
+                venue = str(account.get("venue") or "hl").lower()
+                is_hl = venue in {"", "hl", "hyperliquid"}
                 is_testnet = os.environ.get("HL_TESTNET", "true").lower() == "true"
-                if is_testnet:
+                if is_hl and is_testnet:
                     log.warning("** NO FUNDS DETECTED ** On testnet, claim USDyP first: hl setup claim-usdyp")
-                else:
+                elif is_hl:
                     log.warning("** NO FUNDS DETECTED ** On mainnet, deposit USDC via the Hyperliquid web UI")
+                else:
+                    log.warning("** NO FUNDS DETECTED ** Venue reported zero balances/available margin")
                 log.warning("Without funds, all orders will fail silently.")
             else:
                 log.info("Account balance: $%.2f", balance)
         except Exception as e:
             log.warning("Preflight balance check failed: %s (continuing anyway)", e)
+
+    @staticmethod
+    def _estimate_account_balance(account: Dict[str, Any]) -> float:
+        if "crossMarginSummary" in account:
+            try:
+                return float(account["crossMarginSummary"].get("accountValue", 0))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        if "marginSummary" in account:
+            try:
+                return float(account["marginSummary"].get("accountValue", 0))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        balances = account.get("balances") or []
+        total = 0.0
+        if isinstance(balances, list):
+            for balance in balances:
+                if not isinstance(balance, dict):
+                    continue
+                raw_size = balance.get("size")
+                if raw_size is None:
+                    raw_size = balance.get("available")
+                if raw_size is None:
+                    raw_size = balance.get("balance")
+                try:
+                    total += float(raw_size or 0)
+                except (TypeError, ValueError):
+                    continue
+        return total
 
     def _handle_shutdown(self, signum, frame):
         log.info("Shutdown signal received")

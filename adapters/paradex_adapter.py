@@ -47,9 +47,12 @@ class ParadexVenueAdapter(VenueAdapter):
 
     def get_snapshot(self, instrument: str) -> MarketSnapshot:
         market = self._proxy.get_market_metadata(instrument)
-        bid = self._coerce_float(market, "best_bid", "bid", "bid_price")
-        ask = self._coerce_float(market, "best_ask", "ask", "ask_price")
-        mid = self._coerce_float(market, "mark_price", "mid", "mid_price", "index_price", "last_price")
+        summary = self._proxy.get_market_summary(instrument)
+        merged = dict(market)
+        merged.update(summary)
+        bid = self._coerce_float(merged, "best_bid", "bid", "bid_price")
+        ask = self._coerce_float(merged, "best_ask", "ask", "ask_price")
+        mid = self._coerce_float(merged, "mark_price", "mid", "mid_price", "index_price", "last_price")
         if mid <= 0 and bid > 0 and ask > 0:
             mid = (bid + ask) / 2
         spread = ((ask - bid) / mid * 10000) if mid > 0 and bid > 0 and ask > 0 else 0.0
@@ -60,8 +63,8 @@ class ParadexVenueAdapter(VenueAdapter):
             ask=ask,
             spread_bps=spread,
             timestamp_ms=int(time.time() * 1000),
-            volume_24h=self._coerce_float(market, "volume_24h", "turnover_24h", "quote_volume_24h"),
-            open_interest=self._coerce_float(market, "open_interest", "openInterest"),
+            volume_24h=self._coerce_float(merged, "volume_24h", "turnover_24h", "quote_volume_24h"),
+            open_interest=self._coerce_float(merged, "open_interest", "openInterest"),
         )
 
     def get_candles(self, coin: str, interval: str, lookback_ms: int) -> List[Dict]:
