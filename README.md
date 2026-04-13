@@ -75,6 +75,54 @@ hl run engine_mm -i ETH-PERP --tick 10 --mainnet
 hl apex run --mainnet
 ```
 
+### Paradex SOL Avellaneda Profiles
+
+Three ready-made configs are included for SOL market making on Paradex mainnet:
+
+- `configs/paradex_sol_avellaneda_tight.yaml`
+  - narrowest quoting
+  - `base_size: 0.10`
+  - good for tighter books, but more likely to get clipped
+- `configs/paradex_sol_avellaneda_tuned.yaml`
+  - balanced default
+  - `base_size: 0.15`
+  - recommended first live profile
+- `configs/paradex_sol_avellaneda_wide.yaml`
+  - widest / most conservative quoting
+  - `base_size: 0.10`
+  - best when testing cautiously or in noisier conditions
+
+All three profiles:
+- target `SOL-USD-PERP`
+- set `venue: paradex`
+- disable builder fees for Paradex
+- are intended for small capped test runs first
+
+Examples:
+
+```bash
+# Live market data, no real orders
+hl run avellaneda_mm \
+  --config configs/paradex_sol_avellaneda_tuned.yaml \
+  --instrument SOL-USD-PERP \
+  --venue paradex \
+  --mainnet \
+  --dry-run \
+  --tick 2 \
+  --max-ticks 5
+
+# Smallest-risk live test
+hl run avellaneda_mm \
+  --config configs/paradex_sol_avellaneda_tuned.yaml \
+  --instrument SOL-USD-PERP \
+  --venue paradex \
+  --mainnet \
+  --tick 2 \
+  --max-ticks 3
+```
+
+Note: live Paradex execution still requires the appropriate `PARADEX_ADDRESS` / `PARADEX_L2_ADDRESS` and private key credentials in the environment or keystore path used by the repo.
+
 ---
 
 ## Strategies
