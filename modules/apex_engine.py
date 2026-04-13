@@ -250,8 +250,11 @@ class ApexEngine:
                 })
 
         # Priority 2.25: Directional strategy signals
+        # Use dedicated threshold (default 50) so strategies aren't blocked
+        # by pulse_confidence_threshold being set high to disable pulse.
+        strategy_threshold = getattr(cfg, "strategy_confidence_threshold", 50.0)
         for sig in strategy_signals:
-            if sig.get("confidence", 0) >= cfg.pulse_confidence_threshold:
+            if sig.get("confidence", 0) >= strategy_threshold:
                 instrument = asset_to_instrument(sig["asset"])
                 candidates.append({
                     "instrument": instrument,

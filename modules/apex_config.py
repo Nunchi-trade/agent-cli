@@ -100,6 +100,10 @@ class ApexConfig:
     excluded_instruments: List[str] = field(default_factory=list)
     allowed_instruments: List[str] = field(default_factory=list)
 
+    # Strategy confidence threshold — separate from pulse so strategies
+    # can enter trades even when pulse is disabled (threshold=95).
+    strategy_confidence_threshold: float = 50.0
+
     # Signal direction flip — when True, invert all entry directions
     # (long→short, short→long).  On thin markets like YEX BTCSWP, pulse
     # signals (FUNDING_FLIP, VOLUME_SURGE, OI_DELTA) fire at move *exhaustion*,
@@ -192,7 +196,8 @@ APEX_PRESETS: Dict[str, ApexConfig] = {
         # v6: Pulse/radar have no directional edge on YEX (100+ trades, 0% WR).
         # Strategy system takes over: per-agent strategies via STRATEGY_NAMES env.
         radar_score_threshold=9999,       # disabled — no edge
-        pulse_confidence_threshold=50.0,  # v6.8: lowered — strategies use this threshold too
+        pulse_confidence_threshold=95.0,  # disabled — pulse has no edge on YEX
+        strategy_confidence_threshold=50.0,  # strategies have their own threshold
         strategy_enabled=True,            # v6: enable strategy system
         strategy_interval_ticks=3,        # v6.6: scan every 3 min — 429 retry makes this safe
         reflect_auto_adjust=False,        # disable — fights manual tuning
