@@ -35,6 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["anthropic>=0.40.0"]
 mcp = ["mcp>=1.0.0"]
+telegram = ["python-telegram-bot>=21.0"]
 dev = ["pytest>=7.0", "ruff>=0.4.0", "mypy>=1.8.0"]
 
 [project.scripts]
@@ -55,4 +56,4 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
-include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*"]
+include = ["cli*", "strategies*", "sdk*", "common*", "parent*", "modules*", "skills*", "quoting_engine*", "tg_bot*"]

@@ -35,6 +35,8 @@ from cli.commands.mcp import mcp_app
 from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
+from cli.commands.telegram_cmd import telegram_app
+from cli.jobs.commands import jobs_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -53,6 +55,8 @@ app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery"
 app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
+app.add_typer(telegram_app, name="telegram", help="Telegram bot — deploy agents from chat")
+app.add_typer(jobs_app, name="jobs", help="Perpetual agent jobs — register, run, and manage on-chain jobs")
 
 
 def main():

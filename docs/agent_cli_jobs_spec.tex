@@ -1,0 +1,1305 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{mdframed}
+\usepackage{colortbl}
+\usepackage{tabularx}
+
+\geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+
+\definecolor{critical}{RGB}{220,53,69}
+\definecolor{warning}{RGB}{255,193,7}
+\definecolor{success}{RGB}{40,167,69}
+\definecolor{info}{RGB}{23,162,184}
+\definecolor{codeblue}{RGB}{0,102,204}
+\definecolor{codegray}{RGB}{128,128,128}
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{nunchiblue}{HTML}{1a73e8}
+\definecolor{nunchidark}{HTML}{202124}
+\definecolor{cooperative}{RGB}{106,27,154}
+\definecolor{keeper}{RGB}{2,119,189}
+\definecolor{operator}{RGB}{230,81,0}
+\definecolor{managed}{RGB}{46,125,50}
+
+\newtcolorbox{criticalbox}{colback=critical!10,colframe=critical,title=\textbf{CRITICAL}}
+\newtcolorbox{warningbox}{colback=warning!10,colframe=warning!80!black,title=\textbf{WARNING}}
+\newtcolorbox{infobox}{colback=info!10,colframe=info,title=\textbf{INFO}}
+\newtcolorbox{successbox}{colback=success!10,colframe=success,title=\textbf{SUCCESS CRITERIA}}
+\newtcolorbox{contractbox}{colback=codebg,colframe=codeblue,title=\textbf{Contract Interface}}
+\newtcolorbox{flowbox}{colback=gray!5,colframe=gray!50!black,title=\textbf{Process Flow}}
+\newtcolorbox{cooperativebox}{colback=cooperative!8,colframe=cooperative,title=\textbf{House Cooperative}}
+\newtcolorbox{keeperbox}{colback=keeper!8,colframe=keeper,title=\textbf{Permissionless Keeper}}
+\newtcolorbox{operatorbox}{colback=operator!8,colframe=operator,title=\textbf{Privileged Operator}}
+\newtcolorbox{managedbox}{colback=managed!8,colframe=managed,title=\textbf{Managed Infrastructure}}
+\newtcolorbox{designbox}[1][]{colback=nunchiblue!5,colframe=nunchiblue,title=\textbf{Design Decision: #1}}
+
+% CLI-specific box
+\newtcolorbox{clibox}[1][]{colback=nunchidark!5,colframe=nunchidark,title=\textbf{CLI: #1}}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\color{codeblue}\bfseries,
+    commentstyle=\color{codegray},
+    stringstyle=\color{success!80!black},
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{codegray},
+    tabsize=2
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Nunchi Trade -- Agent CLI Jobs}
+\lhead{Specification v1.0}
+\rfoot{Page \thepage}
+
+\title{\textbf{Agent CLI: Job Integration \& Assignment Routing}\\[0.5em]
+\large Unified CLI for Perpetual Agent Jobs\\[0.3em]
+\small Companion to: Perpetual Agent Jobs Specification v1.0}
+\author{Nunchi Trade}
+\date{March 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{center}
+\fbox{\parbox{0.9\textwidth}{
+\textbf{Scope.} This document specifies how the \texttt{hl} CLI integrates with the
+eight perpetual agent jobs defined in the Perpetual Agent Jobs Specification v1.0.
+It covers the \texttt{hl jobs} command group, the engine hierarchy that dispatches
+each job to the correct execution runtime, strategy interfaces for each job category,
+event subscription, custody enforcement at the CLI layer, and the phased migration
+plan from current-state scripts to a unified CLI-driven job system.
+}}
+\end{center}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction and Motivation}
+%==============================================================================
+
+The Nunchi agent runtime currently spans two disconnected execution surfaces:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{The \texttt{hl} CLI} handles free-form Hyperliquid trading strategies.
+        A user runs \texttt{hl run avellaneda\_mm} to start a market-making loop that
+        polls the relay, generates quotes via a pluggable \texttt{BaseStrategy}, and
+        submits sealed decisions through the TEE-work commit--reveal pipeline.
+  \item \textbf{Standalone scripts} (\texttt{scripts/run\_agent.py},
+        \texttt{scripts/run\_relay.py}) bootstrap the cooperative market-making
+        infrastructure separately. Keeper services such as oracle updates, funding
+        settlement, and liquidation flagging are handled by ad-hoc cron jobs or
+        manual invocations with no shared lifecycle management.
+\end{enumerate}
+
+The Perpetual Agent Jobs Specification formalizes eight on-chain roles across four
+categories---\textcolor{keeper}{\textbf{Keeper}}, \textcolor{operator}{\textbf{Operator}},
+\textcolor{cooperative}{\textbf{Cooperative}}, and \textcolor{managed}{\textbf{Managed}}---each
+with explicit trigger conditions, custody constraints, staking requirements, and
+reward mechanisms. This document specifies how the CLI becomes the \textbf{unified
+interface} for all eight job types, from permissionless keepers to TEE-attested
+cooperative agents.
+
+Three requirements drive the design:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Job integration.} Register, run, monitor, and claim rewards for any
+        of the 8 job types through a single CLI command group (\texttt{hl jobs}).
+        The CLI manages the full on-chain lifecycle: staking, heartbeats, reward
+        claims, and deregistration.
+  \item \textbf{Assignment routing.} Automatically dispatch each job to the correct
+        execution engine based on its category. A keeper job routes to the
+        \texttt{KeeperEngine} (event-driven, stateless transaction submission);
+        a cooperative job routes to the \texttt{CooperativeEngine} (relay-polling,
+        commit--reveal rounds); a managed job routes to the \texttt{ManagedEngine}
+        (periodic evaluation with capital actions). The user does not need to know
+        which engine handles their job---the factory resolves it from the job
+        definition.
+  \item \textbf{Extensibility.} Support new job types without modifying the routing
+        or engine infrastructure. Adding a new keeper (e.g., a cross-chain bridge
+        relayer) requires only a new \texttt{KeeperStrategy} implementation and a
+        registry entry. The engine, event subscription, and custody layers remain
+        unchanged.
+\end{enumerate}
+
+\begin{infobox}
+This spec is a companion to the Perpetual Agent Jobs Specification v1.0. That document
+defines the jobs themselves (triggers, custody, rewards, slashing). This document
+defines the CLI surface and execution infrastructure that runs them.
+\end{infobox}
+
+%==============================================================================
+\section{CLI Command Design}
+%==============================================================================
+
+All job-related commands live under the \texttt{hl jobs} command group. Each command
+maps to a specific phase of the job lifecycle.
+
+\begin{clibox}[hl jobs list]
+\begin{lstlisting}
+$ hl jobs list
+
+ ID                 NAME              CATEGORY     TRIGGER          MIN STAKE
+ oracle_updater     Oracle Updater    KEEPER       NewBlock         10 HYPE
+ funding_keeper     Funding Keeper    KEEPER       NewBlock         10 HYPE
+ liq_flagger        Liq. Flagger      KEEPER       OracleUpdate     10 HYPE
+ liq_executor       Liq. Executor     OPERATOR     PositionFlagged  50 HYPE
+ tpsl_agent         TP/SL Agent       OPERATOR     OracleUpdate     25 HYPE
+ market_maker       Market Maker      COOPERATIVE  RoundStart       100 HYPE
+ abm_agent          ABM Agent         COOPERATIVE  OracleUpdate     100 HYPE
+ glv_manager        GLV Manager       MANAGED      Periodic+Event   50 HYPE
+\end{lstlisting}
+Lists all job types from the local registry, showing category, trigger type, and minimum stake.
+\end{clibox}
+
+\begin{clibox}[hl jobs info]
+\begin{lstlisting}
+$ hl jobs info oracle_updater
+
+  Job:       Oracle Updater (oracle_updater)
+  Category:  KEEPER (Permissionless)
+  Trigger:   NewBlock
+  Custody:   OracleManager.updatePriceFeeds only
+  Min Stake: 10 HYPE
+  Reward:    0.002 HYPE per successful update
+  Slashing:  Liveness (miss 100 consecutive blocks)
+  TEE:       Not required
+  Status:    Not registered
+\end{lstlisting}
+Shows full details for a specific job: trigger conditions, custody constraints,
+staking and reward parameters, slashing conditions, and current registration status.
+\end{clibox}
+
+\begin{clibox}[hl jobs register]
+\begin{lstlisting}
+$ hl jobs register oracle_updater --stake 15
+
+  Registering for job: Oracle Updater
+  Staking: 15 HYPE (min: 10 HYPE)
+  TEE attestation: not required
+  Transaction: 0xabc123...
+  Status: REGISTERED
+\end{lstlisting}
+Registers the caller for a job on-chain. Stakes the specified amount (must meet
+minimum). If \texttt{-{}-tee} is passed, generates and submits a TEE attestation
+as part of registration.
+\end{clibox}
+
+\begin{clibox}[hl jobs run]
+\begin{lstlisting}
+$ hl jobs run oracle_updater --config jobs/oracle.yaml --mainnet
+
+  Loading config: jobs/oracle.yaml
+  Job: oracle_updater -> KeeperEngine
+  Subscribing to: NewBlock events
+  Custody policy: OracleManager.updatePriceFeeds
+  Engine started. Press Ctrl+C to stop.
+  [12:00:01] Block 1234: staleness 47s > 45s, submitting update...
+  [12:00:01] tx 0xdef456 submitted (gas: 142000)
+  [12:00:13] Block 1235: staleness 1s, skipping.
+\end{lstlisting}
+Starts the job engine. The CLI loads the YAML config, looks up the job definition
+in the registry, validates requirements (role, TEE, minimum stake), creates the
+appropriate engine via \texttt{JobEngineFactory}, and enters the execution loop.
+Supports \texttt{-{}-dry-run} for local simulation without submitting transactions.
+\end{clibox}
+
+\begin{clibox}[hl jobs status]
+\begin{lstlisting}
+$ hl jobs status
+
+  RUNNING JOBS:
+  ID                ENGINE          UPTIME    HEARTBEAT   REWARDS
+  oracle_updater    KeeperEngine    2h 14m    12s ago     1.24 HYPE
+  market_maker      CoopEngine      1h 02m    3s ago      8.71 HYPE
+\end{lstlisting}
+Shows running jobs, their engine type, uptime, last heartbeat, and accumulated rewards.
+Use \texttt{-{}-job-id <id>} to filter to a specific job.
+\end{clibox}
+
+\begin{clibox}[hl jobs claim]
+\begin{lstlisting}
+$ hl jobs claim oracle_updater
+
+  Claiming rewards for: Oracle Updater
+  Accumulated: 1.24 HYPE
+  Transaction: 0x789abc...
+  Claimed: 1.24 HYPE -> 0xYourAddress
+\end{lstlisting}
+Claims accumulated rewards for a job from the on-chain JobRegistry contract.
+\end{clibox}
+
+\begin{clibox}[hl jobs deregister]
+\begin{lstlisting}
+$ hl jobs deregister oracle_updater
+
+  Deregistering from: Oracle Updater
+  Unstaking: 15 HYPE (cooldown: 7 days)
+  Transaction: 0xfed321...
+  Status: DEREGISTERED (stake unlocks at block 98765)
+\end{lstlisting}
+Deregisters from a job and initiates the unstaking cooldown. The staked amount
+is returned after the cooldown period.
+\end{clibox}
+
+\begin{designbox}[Why \texttt{hl jobs} is separate from \texttt{hl run}]
+The existing \texttt{hl run <strategy>} command starts a free-form trading strategy
+with no on-chain lifecycle. There is no registration, no staking, no heartbeat
+obligation, no slashing risk, and no custody enforcement. The user simply picks a
+strategy and runs it against Hyperliquid.
+
+Jobs are fundamentally different: they have an \textbf{on-chain lifecycle}
+(registration, staking, heartbeats, slashing, custody enforcement) that trading
+strategies do not need. Merging these into a single command would force trading
+users to deal with staking and registration, and force job operators to skip
+lifecycle steps they actually need. The \texttt{hl jobs} command group makes
+the lifecycle explicit while reusing the same strategy infrastructure underneath.
+
+A cooperative job (\texttt{hl jobs run market\_maker}) and a free-form strategy
+(\texttt{hl run avellaneda\_mm}) may even use the same \texttt{BaseStrategy}
+subclass, but the job version wraps it with heartbeats, custody validation, and
+reward tracking.
+\end{designbox}
+
+\subsection{Job Configuration (YAML)}
+
+Each job is configured via a YAML file passed to \texttt{hl jobs run -{}-config}.
+
+\begin{keeperbox}
+\textbf{Example: Keeper job configuration (oracle\_updater)}
+\begin{lstlisting}[language={}]
+job_id: oracle_updater
+agent_id: agent-oracle-1
+chain_rpc: https://rpc.nunchi.trade
+event_bus_ws: wss://events.nunchi.trade/ws
+strategy: jobs.keepers.oracle:OracleKeeperStrategy
+strategy_params:
+  staleness_threshold_s: 45
+  deviation_threshold_pct: 0.1
+  pyth_hermes_url: https://hermes.pyth.network
+mainnet: true
+data_dir: data/jobs/oracle
+\end{lstlisting}
+\end{keeperbox}
+
+\begin{cooperativebox}
+\textbf{Example: Cooperative job configuration (market\_maker)}
+\begin{lstlisting}[language={}]
+job_id: market_maker
+agent_id: agent-mm-1
+relay_url: http://relay.nunchi.trade:8080
+strategy: strategies.avellaneda_mm:AvellanedaStoikovMM
+strategy_params:
+  gamma: 0.1
+  k: 4.0
+  base_size: 0.05
+tee_enabled: true
+stake_amount: 100.0
+risk:
+  max_position_qty: 0.5
+  max_leverage: 2.0
+  max_daily_drawdown_pct: 2.0
+data_dir: data/jobs/mm
+\end{lstlisting}
+\end{cooperativebox}
+
+%==============================================================================
+\section{Architecture --- Engine Hierarchy}
+%==============================================================================
+
+The engine hierarchy is the core dispatch mechanism. Each job category maps to
+exactly one engine type. All engines implement the same \texttt{JobEngine} abstract
+base class, ensuring uniform lifecycle management regardless of the underlying
+execution model.
+
+\begin{contractbox}
+\textbf{Engine Hierarchy}
+\begin{lstlisting}[language={}]
+JobEngine (ABC)
+  start(job_def, config) -> None
+  stop() -> None
+  heartbeat() -> None
+  status() -> JobStatus
+  |
+  +-- KeeperEngine          # KEEPER + OPERATOR jobs
+  |     EventSubscriber -> condition check -> CustodyGuard
+  |       -> tx submit -> heartbeat
+  |
+  +-- CooperativeEngine     # COOPERATIVE jobs (wraps AgentClient)
+  |     Relay poll -> strategy tick -> seal -> commit
+  |       -> reveal -> feedback -> heartbeat
+  |
+  +-- ManagedEngine          # MANAGED jobs
+        Timer + EventSubscriber -> condition check
+          -> CustodyGuard -> tx submit
+\end{lstlisting}
+\end{contractbox}
+
+\textbf{KeeperEngine} handles both \textcolor{keeper}{Keeper} and
+\textcolor{operator}{Operator} jobs. These are event-driven: the engine subscribes
+to chain events (new blocks, oracle updates, position flags), evaluates a
+\texttt{KeeperStrategy} on each event, and submits transactions when the strategy
+returns a non-null result. The \texttt{CustodyGuard} validates every transaction
+against the job's custody policy before signing.
+
+\textbf{CooperativeEngine} handles \textcolor{cooperative}{Cooperative} jobs. It
+wraps the existing \texttt{AgentClient} from the tee-work-llm repository, adding
+heartbeat reporting and reward tracking. The execution model is relay-driven:
+poll for a clearing round, run the strategy tick, seal the decision, commit, reveal,
+and receive feedback.
+
+\textbf{ManagedEngine} handles \textcolor{managed}{Managed} jobs. It combines
+periodic timers with event subscriptions. The \texttt{ManagedStrategy} evaluates
+vault state on each tick and returns a list of capital actions (rebalance, harvest,
+process withdrawals). Like \texttt{KeeperEngine}, it enforces custody constraints
+before transaction submission.
+
+\subsection{Factory Dispatch}
+
+The \texttt{JobEngineFactory} maps job categories to engine types. This is the
+single point of routing logic---adding a new category requires only a new match arm.
+
+\begin{contractbox}
+\textbf{JobEngineFactory}
+\begin{lstlisting}[language=Python]
+class JobEngineFactory:
+    @staticmethod
+    def create(job_def: JobDefinition) -> JobEngine:
+        match job_def.category:
+            case JobCategory.KEEPER | JobCategory.OPERATOR:
+                return KeeperEngine(job_def)
+            case JobCategory.COOPERATIVE:
+                return CooperativeEngine(job_def)
+            case JobCategory.MANAGED:
+                return ManagedEngine(job_def)
+            case _:
+                raise ValueError(
+                    f"Unknown job category: {job_def.category}"
+                )
+\end{lstlisting}
+\end{contractbox}
+
+\subsection{Full Dispatch Flow}
+
+\begin{flowbox}
+\textbf{\texttt{hl jobs run <job\_id> -{}-config <file>}}
+\begin{enumerate}[leftmargin=2em]
+  \item Load \texttt{JobConfig} from the YAML configuration file.
+  \item Look up \texttt{job\_id} in \texttt{JOB\_REGISTRY} to obtain the
+        \texttt{JobDefinition} (category, trigger, custody policy, staking
+        requirements).
+  \item \textbf{Validate}: check that the caller meets role requirements (e.g.,
+        \texttt{OPERATOR\_ROLE} for privileged jobs), TEE requirements (attestation
+        present if \texttt{requires\_tee} is true), and minimum stake (on-chain
+        registration with sufficient stake).
+  \item \texttt{JobEngineFactory.create(job\_def)} returns the appropriate engine
+        instance.
+  \item \texttt{engine.start(job\_def, config)} initializes event subscriptions,
+        loads the strategy, and enters the execution loop.
+  \item Register signal handlers (\texttt{SIGINT}, \texttt{SIGTERM}) for graceful
+        shutdown.
+  \item On signal: \texttt{engine.stop()} flushes pending state, sends a final
+        heartbeat, and exits cleanly.
+\end{enumerate}
+\end{flowbox}
+
+%==============================================================================
+\section{Strategy Interfaces}
+%==============================================================================
+
+Each engine type consumes a different strategy abstract base class. The strategy
+is the user-authored component: it encapsulates the decision logic while the engine
+handles lifecycle, event routing, custody, and heartbeats.
+
+\subsection{KeeperStrategy}
+
+\begin{contractbox}
+\textbf{KeeperStrategy --- for Keeper and Operator jobs}
+\begin{lstlisting}[language=Python]
+class KeeperStrategy(ABC):
+    """Event-driven, stateless decisions.
+
+    Receives a chain event and context, returns either a
+    Transaction to submit or None to skip this event.
+    """
+
+    @abstractmethod
+    def should_execute(
+        self,
+        event: ChainEvent,
+        context: KeeperContext,
+    ) -> Optional[Transaction]:
+        """Evaluate the event against current on-chain state.
+
+        Args:
+            event: The chain event that triggered evaluation
+                   (new block, oracle update, position flag).
+            context: Current on-chain state relevant to this
+                     job (price ages, margin ratios, etc.).
+
+        Returns:
+            A Transaction to submit, or None to skip.
+        """
+        ...
+\end{lstlisting}
+\end{contractbox}
+
+\textbf{KeeperContext} contains:
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{event}: the \texttt{ChainEvent} that triggered evaluation (block number, event type, raw log data).
+  \item \texttt{on\_chain\_state}: current state relevant to the job---e.g., oracle price age and deviation for the oracle updater, flagged position list for the liquidation executor, margin ratios for the liquidation flagger.
+  \item \texttt{gas\_estimate}: estimated gas cost for the transaction, used by the strategy to decide whether execution is profitable given current reward rates.
+\end{itemize}
+
+\subsection{CooperativeStrategy}
+
+\begin{contractbox}
+\textbf{CooperativeStrategy --- for House Cooperative jobs}
+\begin{lstlisting}[language=Python]
+class CooperativeStrategy(BaseStrategy):
+    """Extends BaseStrategy with round feedback.
+
+    Inherits the core tick() -> List[StrategyDecision]
+    interface from BaseStrategy. Adds on_round_result()
+    for post-clearing adaptive learning.
+    """
+
+    def on_round_result(
+        self,
+        result: RoundResult,
+    ) -> None:
+        """Receive post-clearing feedback.
+
+        Called after the clearing engine resolves the round.
+        Contains fill information, PnL attribution, and
+        counterparty flow data for adaptive learning.
+
+        Args:
+            result: Clearing outcome including fills,
+                    realized PnL, and inventory delta.
+        """
+        pass
+\end{lstlisting}
+\end{contractbox}
+
+\textbf{CooperativeStrategy} extends the existing \texttt{BaseStrategy} from the
+agent runtime. The inherited \texttt{tick()} method receives a \texttt{StrategyContext}
+(current position, PnL, market snapshot) and returns a list of \texttt{StrategyDecision}
+objects (quotes, hedges). The added \texttt{on\_round\_result()} callback enables
+strategies to learn from clearing outcomes---adjusting spread, inventory targets,
+or aggressiveness based on realized fills and adverse selection.
+
+\subsection{ManagedStrategy}
+
+\begin{contractbox}
+\textbf{ManagedStrategy --- for Managed Infrastructure jobs}
+\begin{lstlisting}[language=Python]
+class ManagedStrategy(ABC):
+    """Periodic evaluation with capital management actions.
+
+    Evaluates vault state on each tick and returns a list
+    of capital actions to execute (rebalance, harvest fees,
+    process pending withdrawals).
+    """
+
+    @abstractmethod
+    def evaluate(
+        self,
+        context: ManagedContext,
+    ) -> List[CapitalAction]:
+        """Evaluate current state and return actions.
+
+        Args:
+            context: Current vault state including balances,
+                     pending withdrawals, total assets, and
+                     last harvest timestamp.
+
+        Returns:
+            List of CapitalAction objects to execute.
+            Empty list means no action needed.
+        """
+        ...
+\end{lstlisting}
+\end{contractbox}
+
+\textbf{ManagedContext} contains:
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{vault\_balance}: current idle balance in the vault contract.
+  \item \texttt{pending\_withdrawals}: list of withdrawal requests awaiting processing, each with amount and requester.
+  \item \texttt{total\_assets}: total assets under management (idle + deployed in strategy).
+  \item \texttt{last\_harvest\_timestamp}: Unix timestamp of the last performance fee harvest, used to determine if a new harvest is due.
+\end{itemize}
+
+\subsection{Job-to-Strategy Mapping}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l l X}
+\toprule
+\textbf{Job} & \textbf{Strategy ABC} & \textbf{Context Model} & \textbf{Decision Output} \\
+\midrule
+\rowcolor{keeper!8}
+Oracle Updater & KeeperStrategy & KeeperContext (price age, Pyth data) & Transaction (\texttt{updatePriceFeeds}) \\
+\rowcolor{keeper!8}
+Funding Keeper & KeeperStrategy & KeeperContext (window state) & Transaction (\texttt{settleFundingWindow}) \\
+\rowcolor{keeper!8}
+Liq.\ Flagger & KeeperStrategy & KeeperContext (positions, margins) & Transaction (\texttt{flagPosition}) \\
+\rowcolor{operator!8}
+Liq.\ Executor & KeeperStrategy & KeeperContext (flagged positions) & Transaction (\texttt{liquidatePosition}) \\
+\rowcolor{operator!8}
+TP/SL Agent & KeeperStrategy & KeeperContext (conditional orders, prices) & Transaction (\texttt{placeOrder} REDUCE\_ONLY) \\
+\rowcolor{cooperative!8}
+Market Maker & CooperativeStrategy & StrategyContext (position, PnL) & List[StrategyDecision] \\
+\rowcolor{cooperative!8}
+ABM Agent & CooperativeStrategy & StrategyContext + bin context & List[StrategyDecision] \\
+\rowcolor{managed!8}
+GLV Manager & ManagedStrategy & ManagedContext (vault, withdrawals) & List[CapitalAction] \\
+\bottomrule
+\end{tabularx}
+\caption{Mapping of each job to its strategy interface, context model, and output type.}
+\end{table}
+
+%==============================================================================
+\section{Event Subscription Model}
+%==============================================================================
+
+Engines receive triggers through an \texttt{EventSubscriber} abstraction. This
+decouples the engine from the specific event transport---whether that is a WebSocket
+connection to the canonical chain event bus or a fallback polling mechanism against
+EVM \texttt{eth\_getLogs}.
+
+\begin{contractbox}
+\textbf{EventSubscriber ABC}
+\begin{lstlisting}[language=Python]
+class EventSubscriber(ABC):
+    """Abstract event source for job engines."""
+
+    @abstractmethod
+    async def subscribe(
+        self,
+        event_types: List[str],
+        callback: Callable[[ChainEvent], Awaitable[None]],
+    ) -> None:
+        """Subscribe to one or more event types.
+
+        Args:
+            event_types: List of event type strings
+                         (e.g., ["NewBlock", "OracleUpdate"]).
+            callback: Async function called on each event.
+        """
+        ...
+
+    @abstractmethod
+    async def unsubscribe(self) -> None:
+        """Cleanly disconnect and release resources."""
+        ...
+\end{lstlisting}
+\end{contractbox}
+
+\subsection{Implementations}
+
+\begin{contractbox}
+\textbf{ChainEventSubscriber}
+\begin{lstlisting}[language=Python]
+class ChainEventSubscriber(EventSubscriber):
+    """WebSocket connection to canonical chain event bus.
+
+    Connects to the chain event bus via WebSocket, subscribes
+    to requested event types, and dispatches ChainEvent objects
+    to the callback. Handles reconnection with exponential
+    backoff. Target implementation for L1 mainnet.
+    """
+
+    def __init__(self, ws_url: str): ...
+
+    async def subscribe(self, event_types, callback): ...
+    async def unsubscribe(self): ...
+\end{lstlisting}
+\end{contractbox}
+
+\begin{contractbox}
+\textbf{LogPollingSubscriber}
+\begin{lstlisting}[language=Python]
+class LogPollingSubscriber(EventSubscriber):
+    """Fallback: polls eth_getLogs for contract events.
+
+    For V1 contracts on HyperEVM before chain event bus is
+    available. Polls at a configurable interval (default: 2s),
+    converts raw logs into ChainEvent objects, and dispatches
+    to the callback. Less efficient but works with any
+    EVM-compatible RPC endpoint.
+    """
+
+    def __init__(self, rpc_url: str, poll_interval_s: float = 2.0): ...
+
+    async def subscribe(self, event_types, callback): ...
+    async def unsubscribe(self): ...
+\end{lstlisting}
+\end{contractbox}
+
+\subsection{Event Type Mapping}
+
+Each job subscribes to specific event types based on its trigger condition. The
+engine resolves the correct event types from the \texttt{JobDefinition} and passes
+them to the subscriber.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Job} & \textbf{Event Subscription} \\
+\midrule
+\rowcolor{keeper!8}
+Oracle Updater & \texttt{NewBlock} --- evaluate staleness on every new block \\
+\rowcolor{keeper!8}
+Funding Keeper & \texttt{NewBlock} + window-end check --- evaluate on each block whether the current funding window has ended \\
+\rowcolor{keeper!8}
+Liq.\ Flagger & \texttt{OracleUpdate} --- re-evaluate margin ratios after each oracle price update \\
+\rowcolor{operator!8}
+Liq.\ Executor & \texttt{PositionFlagged} --- act immediately when a position is flagged for liquidation \\
+\rowcolor{operator!8}
+TP/SL Agent & \texttt{OracleUpdate} --- check conditional order trigger prices after each oracle update \\
+\rowcolor{cooperative!8}
+Market Maker & \texttt{ClearingRoundStart} (from relay, not chain) --- poll relay for new clearing rounds \\
+\rowcolor{cooperative!8}
+ABM Agent & \texttt{OracleUpdate} + deviation threshold --- re-evaluate bin placement when price moves beyond threshold \\
+\rowcolor{managed!8}
+GLV Manager & \texttt{WithdrawRequested} + periodic timer --- respond to withdrawal requests and periodically harvest fees \\
+\bottomrule
+\end{tabularx}
+\caption{Event subscriptions per job. Cooperative jobs receive triggers from the relay rather than the chain event bus.}
+\end{table}
+
+\begin{designbox}[Two-Phase Event Transport]
+The \texttt{EventSubscriber} ABC abstracts the event transport so that engines are
+agnostic to the source. This enables a two-phase rollout:
+
+\textbf{Phase 1 (V1 contracts on HyperEVM):} The \texttt{LogPollingSubscriber}
+polls \texttt{eth\_getLogs} against deployed V1 contracts. This is functional but
+inefficient---it introduces latency proportional to the polling interval and
+generates unnecessary RPC load. It serves as the fallback for early deployments
+before the chain event bus is operational.
+
+\textbf{Phase 2 (L1 mainnet):} The \texttt{ChainEventSubscriber} connects to
+the canonical event bus via WebSocket. Events are pushed in real-time with sub-second
+latency. The engine code is unchanged---only the subscriber implementation swapped
+via configuration.
+
+This abstraction also supports testing: a \texttt{MockEventSubscriber} can inject
+synthetic events for deterministic engine testing without a live chain.
+\end{designbox}
+
+%==============================================================================
+\section{Custody Enforcement}
+%==============================================================================
+
+Custody enforcement at the CLI layer is defense-in-depth. The on-chain contracts
+enforce role checks and selector validation independently, but the CLI-side
+\texttt{CustodyGuard} catches mistakes \emph{before} they reach the chain---preventing
+wasted gas on transactions that would revert.
+
+\begin{contractbox}
+\textbf{CustodyGuard}
+\begin{lstlisting}[language=Python]
+class CustodyGuard:
+    """Validates transactions against a job's custody policy
+    before signing and submitting."""
+
+    def __init__(self, policy: CustodyPolicy):
+        self._policy = policy
+        self._tx_count_per_block: Dict[int, int] = {}
+
+    def validate(self, tx: Transaction) -> bool:
+        """Validate a transaction against the custody policy.
+
+        Checks:
+          1. tx.to in policy.destinations
+             (only allowed contract addresses)
+          2. tx.data[:4] in policy.selectors
+             (only allowed function selectors)
+          3. tx.value <= policy.value_cap
+             (native value transfer cap)
+          4. Rate limit: txs per block does not exceed
+             policy.max_txs_per_block
+
+        Returns True if all checks pass, False otherwise.
+        Logs the specific violation on failure.
+        """
+        # 1. Destination whitelist
+        if tx.to not in self._policy.destinations:
+            logger.warning(
+                f"CustodyGuard: tx.to {tx.to} not in "
+                f"allowed destinations"
+            )
+            return False
+
+        # 2. Function selector whitelist
+        selector = tx.data[:4]
+        if selector not in self._policy.selectors:
+            logger.warning(
+                f"CustodyGuard: selector {selector.hex()} "
+                f"not in allowed selectors"
+            )
+            return False
+
+        # 3. Value cap
+        if tx.value > self._policy.value_cap:
+            logger.warning(
+                f"CustodyGuard: tx.value {tx.value} "
+                f"exceeds cap {self._policy.value_cap}"
+            )
+            return False
+
+        # 4. Rate limit
+        block = tx.block_number
+        count = self._tx_count_per_block.get(block, 0)
+        if count >= self._policy.max_txs_per_block:
+            logger.warning(
+                f"CustodyGuard: rate limit exceeded "
+                f"for block {block}"
+            )
+            return False
+        self._tx_count_per_block[block] = count + 1
+
+        return True
+\end{lstlisting}
+\end{contractbox}
+
+\begin{criticalbox}
+Custody enforcement is defense-in-depth. The on-chain contracts also enforce role
+checks and selector validation via the \texttt{RoleRegistry} and per-function access
+control modifiers. The CLI-side \texttt{CustodyGuard} catches mistakes early---wrong
+contract address, wrong function selector, excessive value transfers---before wasting
+gas on a transaction that would revert on-chain. Both layers must agree for a
+transaction to succeed. Neither layer alone is sufficient: the on-chain layer cannot
+prevent gas waste, and the CLI layer cannot prevent a malicious binary from bypassing it.
+\end{criticalbox}
+
+\subsection{Custody Policy per Job}
+
+Each job definition includes a \texttt{CustodyPolicy} specifying the exact contracts,
+selectors, value caps, and rate limits allowed.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l l c}
+\toprule
+\textbf{Job} & \textbf{Allowed Destinations} & \textbf{Allowed Selectors} & \textbf{Value Cap} \\
+\midrule
+\rowcolor{keeper!8}
+Oracle Updater & OracleManager & \texttt{updatePriceFeeds} & 0 \\
+\rowcolor{keeper!8}
+Funding Keeper & ClearingHouse & \texttt{settleFundingWindow} & 0 \\
+\rowcolor{keeper!8}
+Liq.\ Flagger & ClearingHouse & \texttt{flagPosition} & 0 \\
+\rowcolor{operator!8}
+Liq.\ Executor & ClearingHouse & \texttt{liquidatePosition} & 0 \\
+\rowcolor{operator!8}
+TP/SL Agent & ClearingHouse & \texttt{placeOrder} (REDUCE\_ONLY) & 0 \\
+\rowcolor{cooperative!8}
+Market Maker & Relay (off-chain) & commit, reveal & 0 \\
+\rowcolor{cooperative!8}
+ABM Agent & Relay + BinManager & commit, reveal, \texttt{recenterBins} & 0 \\
+\rowcolor{managed!8}
+GLV Manager & Glv & \texttt{deposit}, \texttt{withdraw}, \texttt{harvestPerformanceFee} & 0 \\
+\bottomrule
+\end{tabularx}
+\caption{Custody policies per job. All jobs have a native value cap of 0 (no ETH/HYPE transfers). Cooperative jobs route through the relay for commit/reveal and do not submit on-chain transactions directly except for ABM bin recentering.}
+\end{table}
+
+%==============================================================================
+\section{Job Registry (Local + On-Chain)}
+%==============================================================================
+
+The job registry exists in two layers: a local registry embedded in the CLI for
+offline job discovery and validation, and an on-chain registry contract for
+registration, staking, heartbeats, and reward distribution.
+
+\subsection{Local Registry}
+
+The local \texttt{JOB\_REGISTRY} mirrors the pattern established by
+\texttt{strategy\_registry.py} in the agent runtime. It provides job metadata
+for CLI commands (\texttt{hl jobs list}, \texttt{hl jobs info}) and validation
+logic (\texttt{hl jobs run}) without requiring a chain connection.
+
+\begin{contractbox}
+\textbf{JOB\_REGISTRY}
+\begin{lstlisting}[language=Python]
+JOB_REGISTRY: Dict[str, JobDefinition] = {
+    "oracle_updater": JobDefinition(
+        job_id="oracle_updater",
+        name="Oracle Updater",
+        category=JobCategory.KEEPER,
+        trigger=TriggerType.NEW_BLOCK,
+        custody=CustodyPolicy(
+            destinations=["OracleManager"],
+            selectors=["updatePriceFeeds"],
+            value_cap=0,
+            max_txs_per_block=1,
+        ),
+        min_stake=10,
+        requires_tee=False,
+    ),
+    "funding_keeper": JobDefinition(
+        job_id="funding_keeper",
+        name="Funding Keeper",
+        category=JobCategory.KEEPER,
+        trigger=TriggerType.NEW_BLOCK,
+        custody=CustodyPolicy(
+            destinations=["ClearingHouse"],
+            selectors=["settleFundingWindow"],
+            value_cap=0,
+            max_txs_per_block=1,
+        ),
+        min_stake=10,
+        requires_tee=False,
+    ),
+    "liq_flagger": JobDefinition(
+        job_id="liq_flagger",
+        name="Liquidation Flagger",
+        category=JobCategory.KEEPER,
+        trigger=TriggerType.ORACLE_UPDATE,
+        custody=CustodyPolicy(
+            destinations=["ClearingHouse"],
+            selectors=["flagPosition"],
+            value_cap=0,
+            max_txs_per_block=5,
+        ),
+        min_stake=10,
+        requires_tee=False,
+    ),
+    "liq_executor": JobDefinition(
+        job_id="liq_executor",
+        name="Liquidation Executor",
+        category=JobCategory.OPERATOR,
+        trigger=TriggerType.POSITION_FLAGGED,
+        custody=CustodyPolicy(
+            destinations=["ClearingHouse"],
+            selectors=["liquidatePosition"],
+            value_cap=0,
+            max_txs_per_block=3,
+        ),
+        min_stake=50,
+        requires_tee=False,
+    ),
+    "tpsl_agent": JobDefinition(
+        job_id="tpsl_agent",
+        name="TP/SL Agent",
+        category=JobCategory.OPERATOR,
+        trigger=TriggerType.ORACLE_UPDATE,
+        custody=CustodyPolicy(
+            destinations=["ClearingHouse"],
+            selectors=["placeOrder"],
+            value_cap=0,
+            max_txs_per_block=10,
+        ),
+        min_stake=25,
+        requires_tee=False,
+    ),
+    "market_maker": JobDefinition(
+        job_id="market_maker",
+        name="Market Maker",
+        category=JobCategory.COOPERATIVE,
+        trigger=TriggerType.ROUND_START,
+        custody=CustodyPolicy(
+            destinations=["Relay"],
+            selectors=["commit", "reveal"],
+            value_cap=0,
+            max_txs_per_block=1,
+        ),
+        min_stake=100,
+        requires_tee=True,
+    ),
+    "abm_agent": JobDefinition(
+        job_id="abm_agent",
+        name="ABM Agent",
+        category=JobCategory.COOPERATIVE,
+        trigger=TriggerType.ORACLE_UPDATE,
+        custody=CustodyPolicy(
+            destinations=["Relay", "BinManager"],
+            selectors=[
+                "commit", "reveal", "recenterBins",
+            ],
+            value_cap=0,
+            max_txs_per_block=2,
+        ),
+        min_stake=100,
+        requires_tee=True,
+    ),
+    "glv_manager": JobDefinition(
+        job_id="glv_manager",
+        name="GLV Manager",
+        category=JobCategory.MANAGED,
+        trigger=TriggerType.PERIODIC_AND_EVENT,
+        custody=CustodyPolicy(
+            destinations=["Glv"],
+            selectors=[
+                "deposit", "withdraw",
+                "harvestPerformanceFee",
+            ],
+            value_cap=0,
+            max_txs_per_block=2,
+        ),
+        min_stake=50,
+        requires_tee=False,
+    ),
+}
+\end{lstlisting}
+\end{contractbox}
+
+\subsection{On-Chain Registry Client}
+
+The on-chain \texttt{JobRegistry} contract manages agent registration, staking,
+heartbeat tracking, reward accrual, and slashing. The CLI interacts with it through
+a \texttt{JobRegistryClient} abstraction that supports both mock and live
+implementations.
+
+\begin{contractbox}
+\textbf{JobRegistryClient ABC}
+\begin{lstlisting}[language=Python]
+class JobRegistryClient(ABC):
+    """Interface to the on-chain JobRegistry contract."""
+
+    @abstractmethod
+    def register(
+        self,
+        job_id: str,
+        stake: int,
+        attestation: bytes,
+    ) -> str:
+        """Register for a job with stake and optional
+        TEE attestation. Returns transaction hash."""
+        ...
+
+    @abstractmethod
+    def heartbeat(self, job_id: str) -> None:
+        """Submit a heartbeat proving liveness."""
+        ...
+
+    @abstractmethod
+    def claim_reward(self, job_id: str) -> int:
+        """Claim accumulated rewards.
+        Returns amount claimed in wei."""
+        ...
+
+    @abstractmethod
+    def deregister(self, job_id: str) -> None:
+        """Deregister and initiate unstaking cooldown."""
+        ...
+\end{lstlisting}
+\end{contractbox}
+
+\begin{contractbox}
+\textbf{MockJobRegistryClient}
+\begin{lstlisting}[language=Python]
+class MockJobRegistryClient(JobRegistryClient):
+    """For development before JobRegistry contract is
+    deployed. Stores state in-memory. Heartbeats are
+    no-ops. Rewards accrue at a fixed rate per call.
+    Used in --dry-run mode and local development."""
+
+    def __init__(self):
+        self._registered: Dict[str, int] = {}
+        self._rewards: Dict[str, int] = {}
+
+    def register(self, job_id, stake, attestation):
+        self._registered[job_id] = stake
+        self._rewards[job_id] = 0
+        return "0x" + "0" * 64  # mock tx hash
+
+    def heartbeat(self, job_id):
+        self._rewards[job_id] = (
+            self._rewards.get(job_id, 0) + 1
+        )
+
+    def claim_reward(self, job_id):
+        amount = self._rewards.get(job_id, 0)
+        self._rewards[job_id] = 0
+        return amount
+
+    def deregister(self, job_id):
+        self._registered.pop(job_id, None)
+\end{lstlisting}
+\end{contractbox}
+
+\begin{contractbox}
+\textbf{Web3JobRegistryClient}
+\begin{lstlisting}[language=Python]
+class Web3JobRegistryClient(JobRegistryClient):
+    """Interacts with deployed JobRegistry contract via
+    web3.py. Reads contract address and ABI from the
+    deployments registry. Handles transaction signing,
+    gas estimation, and confirmation waiting."""
+
+    def __init__(
+        self,
+        rpc_url: str,
+        registry_address: str,
+        signer: Account,
+    ):
+        self._w3 = Web3(Web3.HTTPProvider(rpc_url))
+        self._contract = self._w3.eth.contract(
+            address=registry_address,
+            abi=self._load_abi(),
+        )
+        self._signer = signer
+
+    def register(self, job_id, stake, attestation):
+        tx = self._contract.functions.register(
+            job_id, attestation
+        ).build_transaction({
+            "value": stake,
+            "from": self._signer.address,
+        })
+        signed = self._signer.sign_transaction(tx)
+        tx_hash = self._w3.eth.send_raw_transaction(
+            signed.raw_transaction
+        )
+        return tx_hash.hex()
+
+    def heartbeat(self, job_id):
+        tx = self._contract.functions.heartbeat(
+            job_id
+        ).build_transaction({
+            "from": self._signer.address,
+        })
+        signed = self._signer.sign_transaction(tx)
+        self._w3.eth.send_raw_transaction(
+            signed.raw_transaction
+        )
+
+    def claim_reward(self, job_id):
+        tx = self._contract.functions.claimReward(
+            job_id
+        ).build_transaction({
+            "from": self._signer.address,
+        })
+        signed = self._signer.sign_transaction(tx)
+        receipt = self._w3.eth.send_raw_transaction(
+            signed.raw_transaction
+        )
+        # Parse reward amount from event logs
+        return self._parse_reward_claimed(receipt)
+
+    def deregister(self, job_id):
+        tx = self._contract.functions.deregister(
+            job_id
+        ).build_transaction({
+            "from": self._signer.address,
+        })
+        signed = self._signer.sign_transaction(tx)
+        self._w3.eth.send_raw_transaction(
+            signed.raw_transaction
+        )
+\end{lstlisting}
+\end{contractbox}
+
+%==============================================================================
+\section{Cooperative Engine Bridge}
+%==============================================================================
+
+The \texttt{CooperativeEngine} bridges the job system with the existing TEE-work
+cooperative market-making infrastructure. Rather than reimplementing the relay
+polling, commit--reveal, and clearing feedback loop, it wraps the \texttt{AgentClient}
+from the tee-work-llm repository.
+
+\begin{contractbox}
+\textbf{CooperativeEngine}
+\begin{lstlisting}[language=Python]
+class CooperativeEngine(JobEngine):
+    """Engine for COOPERATIVE jobs.
+
+    Wraps tee-work-llm's AgentClient, adding job lifecycle
+    management (heartbeats, reward tracking, graceful
+    shutdown) on top of the existing relay-based cooperative
+    execution model.
+    """
+
+    def start(self, job_def: JobDefinition, config: JobConfig):
+        from agent.client import AgentClient
+
+        # Load the strategy (e.g., AvellanedaStoikovMM)
+        strategy = load_strategy(config.strategy)
+
+        # Initialize the AgentClient with job config
+        self._client = AgentClient(
+            agent_id=config.agent_id,
+            strategy=strategy,
+            relay_url=config.relay_url,
+        )
+
+        # TEE attestation if required
+        if job_def.requires_tee:
+            self._attest()
+
+        # Start heartbeat background task
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop()
+        )
+
+        # Enter the cooperative execution loop
+        # (poll relay -> tick -> seal -> commit -> reveal)
+        self._client.run()
+
+    def stop(self):
+        self._heartbeat_task.cancel()
+        self._client.shutdown()
+
+    def heartbeat(self):
+        self._registry_client.heartbeat(
+            self._job_def.job_id
+        )
+
+    def status(self) -> JobStatus:
+        return JobStatus(
+            job_id=self._job_def.job_id,
+            engine="CooperativeEngine",
+            running=self._client.is_running(),
+            uptime=self._uptime(),
+            last_heartbeat=self._last_heartbeat,
+            rewards=self._accumulated_rewards,
+        )
+
+    async def _heartbeat_loop(self):
+        """Send heartbeats at regular intervals."""
+        while True:
+            await asyncio.sleep(30)
+            self.heartbeat()
+            self._last_heartbeat = time.time()
+\end{lstlisting}
+\end{contractbox}
+
+\begin{designbox}[Shared Models Between Repositories]
+The \texttt{CooperativeEngine} imports \texttt{AgentClient} from the tee-work-llm
+repository. This import is safe because both repositories share identical data
+models: \texttt{MarketSnapshot}, \texttt{StrategyDecision}, and \texttt{BaseStrategy}
+are defined in tee-work-llm and consumed by the agent-cli.
+
+Currently, these models are duplicated or imported via path manipulation. Long-term,
+they should be extracted into a standalone \texttt{nunchi-sdk} package that both
+repositories depend on. This eliminates version drift and makes the dependency
+explicit in each project's \texttt{pyproject.toml}.
+
+Until \texttt{nunchi-sdk} is published, the agent-cli lists tee-work-llm as a
+development dependency and imports directly. The CI pipeline verifies model
+compatibility by running cross-repository integration tests.
+\end{designbox}
+
+%==============================================================================
+\section{File Structure}
+%==============================================================================
+
+The job integration code lives under \texttt{agent-cli/cli/jobs/}. Each module
+has a single responsibility, matching the architecture sections above.
+
+\begin{lstlisting}[language={}]
+agent-cli/cli/jobs/
+  __init__.py                  # Package init, exports command group
+  commands.py                  # Typer command group (list, info,
+                               #   register, run, status, claim,
+                               #   deregister)
+  registry.py                  # JOB_REGISTRY dict + JobDefinition
+                               #   dataclass + JobCategory enum
+  config.py                    # JobConfig dataclass (parsed from YAML)
+  engines.py                   # JobEngine ABC + KeeperEngine +
+                               #   CooperativeEngine + ManagedEngine +
+                               #   JobEngineFactory
+  events.py                    # ChainEvent dataclass + EventSubscriber
+                               #   ABC + ChainEventSubscriber +
+                               #   LogPollingSubscriber
+  custody.py                   # CustodyPolicy dataclass + CustodyGuard
+  strategy_interfaces.py       # KeeperStrategy + CooperativeStrategy +
+                               #   ManagedStrategy ABCs + context models
+  status.py                    # JobStatus dataclass + heartbeat/reward
+                               #   tracking utilities
+\end{lstlisting}
+
+Integration with the existing CLI requires a two-line change to \texttt{cli/main.py}:
+
+\begin{lstlisting}[language=Python]
+# cli/main.py
+from cli.jobs.commands import jobs_app
+
+app.add_typer(jobs_app, name="jobs", help="Manage perpetual agent jobs")
+\end{lstlisting}
+
+%==============================================================================
+\section{Migration and Phasing}
+%==============================================================================
+
+The CLI job integration rolls out in four phases, aligned with the migration plan
+from the Perpetual Agent Jobs Specification.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Phase} & \textbf{Infrastructure} & \textbf{CLI Capability} \\
+\midrule
+\rowcolor{gray!10}
+Phase 1 & V1 Contracts &
+\texttt{hl run} for free-form trading strategies. TEE-work scripts
+(\texttt{run\_agent.py}, \texttt{run\_relay.py}) for cooperative market making.
+No \texttt{hl jobs} command group yet. Keeper services run as ad-hoc cron jobs. \\
+\rowcolor{info!10}
+Phase 2 & L1 Testnet &
+\texttt{hl jobs run oracle\_updater} and \texttt{hl jobs run liq\_flagger}
+available as permissionless keeper jobs using \texttt{LogPollingSubscriber}
+against V1 contracts on HyperEVM. \texttt{hl jobs run market\_maker} wraps
+the tee-work \texttt{AgentClient} via \texttt{CooperativeEngine}.
+\texttt{MockJobRegistryClient} used for registration and rewards (no on-chain
+contract yet). \\
+\rowcolor{success!10}
+Phase 3 & L1 Mainnet &
+All 8 jobs available via \texttt{hl jobs run}. \texttt{ChainEventSubscriber}
+replaces \texttt{LogPollingSubscriber} for real-time event delivery.
+\texttt{Web3JobRegistryClient} connects to the deployed \texttt{JobRegistry}
+contract for on-chain registration, staking, heartbeats, and reward claims.
+Full custody enforcement active on both CLI and contract layers. \\
+\rowcolor{cooperative!8}
+Phase 4 & Full Integration &
+Agent Passports integrated into the registration flow. Dynamic job discovery
+from the on-chain registry---the CLI queries the contract for available jobs
+rather than relying solely on the local \texttt{JOB\_REGISTRY}. Passport-based
+reputation scoring influences job assignment priority and reward multipliers. \\
+\bottomrule
+\end{tabularx}
+\caption{Phased rollout of CLI job integration, aligned with infrastructure milestones.}
+\end{table}
+
+\begin{successbox}
+The CLI job integration is considered complete when:
+\begin{itemize}[leftmargin=2em]
+  \item All 8 jobs can be started, monitored, and stopped via \texttt{hl jobs run}.
+  \item The \texttt{JobEngineFactory} correctly routes each job category to its engine.
+  \item Custody enforcement rejects transactions outside the job's policy at the CLI layer.
+  \item Heartbeats are submitted automatically and visible via \texttt{hl jobs status}.
+  \item Rewards can be claimed via \texttt{hl jobs claim} against the live \texttt{JobRegistry} contract.
+  \item A new job type can be added by writing a strategy implementation and a registry entry, with no changes to the engine or routing infrastructure.
+\end{itemize}
+\end{successbox}
+
+\end{document}
