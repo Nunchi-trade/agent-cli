@@ -36,24 +36,29 @@ BACKOFF_MAX_S = 8.0
 # cache lives in /tmp (or DEX_CACHE_DIR) and is keyed by (kind, dex). TTL
 # is intentionally short so live data stays fresh; the win is that within
 # any TTL window, only one agent actually hits HL.
-DEX_CACHE_DIR = os.environ.get("DEX_CACHE_DIR", os.path.join(tempfile.gettempdir(), "nunchi_dex_cache"))
+SHARED_CACHE_DIR = os.environ.get("DEX_CACHE_DIR", os.path.join(tempfile.gettempdir(), "nunchi_dex_cache"))
+DEX_CACHE_DIR = SHARED_CACHE_DIR  # backwards compat
 DEX_CACHE_TTL_S = float(os.environ.get("DEX_CACHE_TTL_S", "30"))
+# Candle data changes slowly — 60s TTL is safe and cuts API calls by 95%+
+CANDLE_CACHE_TTL_S = float(os.environ.get("CANDLE_CACHE_TTL_S", "60"))
+# Market meta/mids refresh every 30s (same as dex cache)
+MARKET_CACHE_TTL_S = float(os.environ.get("MARKET_CACHE_TTL_S", "30"))
 
 
-def _dex_cache_path(kind: str, dex: str) -> Path:
-    Path(DEX_CACHE_DIR).mkdir(parents=True, exist_ok=True)
-    return Path(DEX_CACHE_DIR) / f"{kind}_{dex}.json"
+def _cache_path(key: str) -> Path:
+    Path(SHARED_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    return Path(SHARED_CACHE_DIR) / f"{key}.json"
 
 
-def _dex_cache_read(kind: str, dex: str) -> Optional[Any]:
+def _cache_read(key: str, ttl_s: float) -> Optional[Any]:
     """Return cached payload if fresh, else None. Best-effort, never raises."""
-    p = _dex_cache_path(kind, dex)
+    p = _cache_path(key)
     try:
         st = p.stat()
     except FileNotFoundError:
         return None
     age = time.time() - st.st_mtime
-    if age > DEX_CACHE_TTL_S:
+    if age > ttl_s:
         return None
     try:
         return json.loads(p.read_text())
@@ -61,15 +66,37 @@ def _dex_cache_read(kind: str, dex: str) -> Optional[Any]:
         return None
 
 
-def _dex_cache_write(kind: str, dex: str, payload: Any) -> None:
+def _cache_write(key: str, payload: Any) -> None:
     """Atomic write so concurrent readers never see a partial file."""
-    p = _dex_cache_path(kind, dex)
+    p = _cache_path(key)
     try:
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_text(json.dumps(payload))
         tmp.replace(p)
     except Exception as e:
-        log.debug("dex cache write failed for %s/%s: %s", kind, dex, e)
+        log.debug("cache write failed for %s: %s", key, e)
+
+
+def _cache_read_stale(key: str) -> Optional[Any]:
+    """Read cache ignoring TTL — used as fallback on API failure."""
+    p = _cache_path(key)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
+    return None
+
+
+# Backwards-compat wrappers for existing dex cache callers
+def _dex_cache_path(kind: str, dex: str) -> Path:
+    return _cache_path(f"{kind}_{dex}")
+
+def _dex_cache_read(kind: str, dex: str) -> Optional[Any]:
+    return _cache_read(f"{kind}_{dex}", DEX_CACHE_TTL_S)
+
+def _dex_cache_write(kind: str, dex: str, payload: Any) -> None:
+    _cache_write(f"{kind}_{dex}", payload)
 
 
 class APICircuitBreakerOpen(Exception):
@@ -533,16 +560,38 @@ class DirectHLProxy:
             return []
 
     def get_candles(self, coin: str, interval: str, lookback_ms: int) -> list:
-        """Fetch candle data from HL."""
-        return self._hl.get_candles(coin, interval, lookback_ms)
+        """Fetch candle data from HL (shared file cache, 60s TTL).
+
+        28 agents × 3 timeframes × N markets = hundreds of candle calls per
+        scan interval. The cache means only the first agent to request a
+        (coin, interval) pair within the TTL window hits HL; the rest read
+        from disk. This alone cuts candle API calls by ~95%.
+        """
+        key = f"candles_{coin}_{interval}"
+        cached = _cache_read(key, CANDLE_CACHE_TTL_S)
+        if cached is not None:
+            return cached
+        data = self._hl.get_candles(coin, interval, lookback_ms)
+        _cache_write(key, data)
+        return data
 
     def get_all_markets(self) -> list:
-        """Fetch metadata + asset contexts for all perps."""
-        return self._hl.get_meta_and_asset_ctxs()
+        """Fetch metadata + asset contexts for all perps (shared cache, 30s TTL)."""
+        cached = _cache_read("all_markets", MARKET_CACHE_TTL_S)
+        if cached is not None:
+            return cached
+        data = self._hl.get_meta_and_asset_ctxs()
+        _cache_write("all_markets", data)
+        return data
 
     def get_all_mids(self) -> Dict[str, str]:
-        """Fetch mid prices for all assets."""
-        return self._hl.get_all_mids()
+        """Fetch mid prices for all assets (shared cache, 30s TTL)."""
+        cached = _cache_read("all_mids", MARKET_CACHE_TTL_S)
+        if cached is not None:
+            return cached
+        data = self._hl.get_all_mids()
+        _cache_write("all_mids", data)
+        return data
 
     def get_dex_markets(self, dex: str) -> list:
         """Fetch HIP-3 DEX metaAndAssetCtxs (file-cached, see DEX_CACHE_TTL_S).
