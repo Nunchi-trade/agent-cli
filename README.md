@@ -154,6 +154,7 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 | **[Pulse](#pulse--emerging-pulse-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/pulse/SKILL.md) |
 | **[Guard (Dynamic Stop Loss)](#guard--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/guard/SKILL.md) |
 | **[REFLECT](#reflect--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/reflect/SKILL.md) |
+| **[Nunchi Connect](#nunchi-connect)** | Bind an existing agent to Nunchi Agent Studio with a one-time auth code. | [`SKILL.md`](skills/nunchi-connect/SKILL.md) |
 
 ### Install a skill (agents)
 
@@ -166,6 +167,7 @@ https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/pulse/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/guard/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/nunchi-connect/SKILL.md
 ```
 
 ### Install a skill (OpenClaw / ClawHub)
@@ -329,6 +331,12 @@ hl reflect history -n 10
 ```
 
 **[Download SKILL.md](skills/reflect/SKILL.md)**
+
+### Nunchi Connect
+
+Bind any existing agent to Nunchi Agent Studio after the user clicks **Add agent**. Agent Studio supplies the session-specific account id, agent id, relay URL, pairing session, pairing code, and expiry. The skill tells the agent how to generate an auth code, show it to the user, and POST the first heartbeat to the Nunchi relay.
+
+**[Download SKILL.md](skills/nunchi-connect/SKILL.md)**
 
 ### REFLECT Self-Improvement Loop
 
