@@ -519,7 +519,7 @@ One-click deploy to run APEX autonomously. No AI model needed — pure determini
 
 One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend. Talk to your trading bot via Telegram — it scans markets, enters trades, manages risk, and learns from its mistakes.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET,NUNCHI_RELAY_URL,NUNCHI_ACCOUNT_ID,NUNCHI_AGENT_ID,NUNCHI_BINDING_SESSION_ID,NUNCHI_BINDING_CODE,NUNCHI_BINDING_EXPIRES_AT_MS,NUNCHI_TEMPLATE_VERSION&HL_TESTNETDefault=true&NUNCHI_TEMPLATE_VERSIONDefault=openclaw-railway-v1)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -529,6 +529,19 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 | `TELEGRAM_BOT_TOKEN` | Yes | — | Telegram bot token (from @BotFather) |
 | `TELEGRAM_USERNAME` | Yes | — | Your Telegram @username |
 | `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
+| `NUNCHI_RELAY_URL` | No | — | Nunchi relay URL. Agent Studio fills this for dashboard binding. |
+| `NUNCHI_ACCOUNT_ID` | No | — | Nunchi account id. Agent Studio fills this. |
+| `NUNCHI_AGENT_ID` | No | — | Agent id to bind. Agent Studio fills this. |
+| `NUNCHI_BINDING_SESSION_ID` | No | — | Short-lived Nunchi pairing session. Agent Studio fills this. |
+| `NUNCHI_BINDING_CODE` | No | — | Short-lived Nunchi pairing code. Agent Studio fills this. |
+| `NUNCHI_BINDING_EXPIRES_AT_MS` | No | — | Pairing expiry timestamp. Agent Studio fills this. |
+| `NUNCHI_TEMPLATE_VERSION` | No | `openclaw-railway-v1` | Template version used by Agent Studio to detect stale deploy templates. |
+
+### Nunchi Binding Relay
+
+Agent Studio expects hosted agents to POST binding heartbeats to a public relay, then the desktop polls the relay and asks the user to confirm the auth code shown by the agent.
+
+Deploy the relay template from `deploy/nunchi-relay` and set Agent Studio's relay URL to that deployment. The relay stores only a hash of the pairing code and keeps sessions short-lived.
 
 **What you get:**
 - OpenClaw gateway with web UI at `/openclaw`
@@ -536,6 +549,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 - Our 13 MCP trading tools as the agent's primary capabilities
 - Persistent state across redeploys via `/data` volume
 - Auto-onboard: bot sends "Agent ready" to Telegram on first deploy
+- Agent Studio binding: when Nunchi pairing env vars are present, the deployment sends a pairing heartbeat and Telegram includes the auth code to confirm
 - REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
 
 **How it works:**

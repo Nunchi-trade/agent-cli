@@ -1,0 +1,9 @@
+{
+  "name": "nunchi-agent-binding-relay",
+  "version": "0.1.0",
+  "description": "Short-lived Nunchi Agent Studio binding relay",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js"
+  }
+}

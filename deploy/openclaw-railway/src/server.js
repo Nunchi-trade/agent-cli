@@ -14,6 +14,7 @@ const httpProxy = require("http-proxy");
 const { bootstrap } = require("./bootstrap.mjs");
 const { startGateway, waitForGatewayReady, getGatewayProcess } = require("./gateway");
 const { autoOnboard } = require("./onboard");
+const { emitNunchiBindingEvent } = require("./nunchi-binding");
 const { readStatus, readStrategies } = require("./status");
 
 const app = express();
@@ -240,7 +241,14 @@ const server = app.listen(PORT, async () => {
     // Step 2: Auto-onboard if credentials present
     await autoOnboard();
 
-    // Step 3: Start OpenClaw gateway
+    // Step 3: Bind to Nunchi Agent Studio when launched from desktop/Railway.
+    try {
+      await emitNunchiBindingEvent();
+    } catch (err) {
+      console.warn("[nunchi] Binding heartbeat failed:", err.message);
+    }
+
+    // Step 4: Start OpenClaw gateway
     startGateway();
     await waitForGatewayReady();
     console.log("[server] OpenClaw gateway is ready");
