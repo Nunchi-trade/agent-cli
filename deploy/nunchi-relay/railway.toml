@@ -1,0 +1,15 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[env]
+PORT = "8080"
+NUNCHI_RELAY_STATE_PATH = "/data/nunchi-relay-sessions.json"
+NUNCHI_RELAY_SESSION_TTL_MS = "600000"

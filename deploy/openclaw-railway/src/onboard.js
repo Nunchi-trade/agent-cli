@@ -5,6 +5,7 @@ const { execSync } = require("child_process");
 const { existsSync, readFileSync, writeFileSync } = require("fs");
 const { join } = require("path");
 const https = require("https");
+const { getNunchiBindingSummary } = require("./nunchi-binding");
 
 const STATE_DIR = process.env.OPENCLAW_STATE_DIR || "/data/.openclaw";
 const FINGERPRINT_PATH = join(STATE_DIR, ".env-fingerprint");
@@ -69,9 +70,13 @@ async function autoOnboard() {
   // Send ready message to Telegram
   if (process.env.TELEGRAM_BOT_TOKEN) {
     try {
+      const binding = getNunchiBindingSummary();
+      const authLine = binding
+        ? `\n\nNunchi auth code: ${binding.authCode}\nConfirm it in Agent Studio to finish binding ${binding.agentId}.`
+        : "";
       await sendTelegramMessage(
         process.env.TELEGRAM_BOT_TOKEN,
-        "Nunchi trading agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
+        `Nunchi trading agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.${authLine}`,
       );
       console.log("[onboard] Sent ready message to Telegram");
     } catch (err) {
@@ -90,6 +95,7 @@ function computeFingerprint() {
     process.env.AI_PROVIDER || "",
     (process.env.AI_API_KEY || "").slice(-8),
     process.env.TELEGRAM_BOT_TOKEN ? "tg" : "",
+    process.env.NUNCHI_BINDING_SESSION_ID || "",
     process.env.HL_TESTNET || "true",
   ];
   return crypto.createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
