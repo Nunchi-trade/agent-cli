@@ -310,8 +310,14 @@ def build_command() -> list[str]:
     elif mode == "mcp":
         return py + ["mcp", "serve", "--transport", "sse"]
 
+    elif mode == "telegram":
+        cmd = py + ["telegram", "start"]
+        if os.environ.get("HL_TESTNET", "true").lower() == "false":
+            cmd.append("--mainnet")
+        return cmd
+
     else:
-        log.error("Unknown RUN_MODE: %s. Use apex, wolf, strategy, or mcp.", mode)
+        log.error("Unknown RUN_MODE: %s. Use apex, wolf, strategy, mcp, or telegram.", mode)
         sys.exit(1)
 
 
