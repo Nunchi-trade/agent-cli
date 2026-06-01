@@ -1,0 +1,59 @@
+{
+  "chainId": 1337,
+  "rpcUrl": "https://nunchi-devnet.nunchi.trade",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "addresses": {
+    "RoleRegistry": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "MockERC20": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+    "AgentRegistry": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
+    "IdentityRegistry": "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
+    "ReputationRegistry": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
+    "ValidationRegistry": "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707",
+    "WorkerRegistry": "0x0165878a594ca255338adfa4d48449f69242eb8f",
+    "BountyMarket": "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853",
+    "ConsortiumValidator": "0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6",
+    "JobTypeRegistry": "0x610178da211fef7d417bc0e6fed39f05609ad788",
+    "InsightBoard": "0xb7f8bc63bbcad18155201308c8f3540b07f84f5e",
+    "FeeDistributor": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+    "DisputeResolver": "0x0dcd1bf9a1b36ce34237eeafef220932846bcd82",
+    "CompletionProof": "0x9a676e781a523b5d0c0e43731313a708cb607508",
+    "NotificationRegistry": "0x0b306bf915c4d645ff596e518faf3f9669b97016",
+    "PerpsLiquidatorJob": "0x959922be3caee4b8cd9a407cc3ac1c251c2007b1",
+    "OracleUpdaterJob": "0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae",
+    "FundingRateKeeperJob": "0x68b1d87f95878fe05b998f19b66f4baba5de1aed",
+    "ex.MockRoleRegistry": "0xc5a5c42992decbae36851359345fe25997f5c42d",
+    "ex.USDC": "0x67d269191c92caf3cd7723f116c85e6e9bf55933",
+    "ex.MockPythOracle": "0xc3e53f4d16ae77db1c982e75a937b9f60fe63690",
+    "ex.MockStorkOracle": "0x84ea74d481ee0a5332c457a4d796187f6ba67feb",
+    "ex.PythFeeds": "0x9e545e3c0baab3e08cdfd552c960a1050f373042",
+    "ex.StorkFeeds": "0xa82ff9afd8f496c3d6ac40e2a0f282e47488cfc9",
+    "ex.OracleManager": "0x1613beb3b2c4f22ee086b2b38c1476a3ce7f78e8",
+    "ex.MockLiquidityVault": "0x851356ae760d987e095750cceb3bc6014560891c",
+    "ex.MockTreasury": "0xf5059a5d33d5853360d16c683c16e67980206f36",
+    "AccountNFT": "0x95401dc811bb5740090279ba06cfa8fcf6113778",
+    "PerpOrderbook": "0x998abeb3e57409262ae5b751f60747921b33613e"
+  },
+  "market": {
+    "name": "ETH-PERP-v2",
+    "id": "0xb7c1af83374a7e8e19b347176ac421327ebca0e20843e59fa1c8f2a2b29f3e19",
+    "pythEthUsdFeed": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+  },
+  "deferred": {
+    "phase_B_cannon": [
+      "ClearingHouse",
+      "MarketRegistry (proxies + modules)"
+    ],
+    "phase_E_wire": [
+      "AccountNFT.setClearingHouse(CH)"
+    ],
+    "phase_F_wire": [
+      "MR.registerMarket(ETH-PERP-v2, MarketConfig)",
+      "CH.setAuthorizedContract(PerpOrderbook, true)"
+    ],
+    "reason": "Cannon ClearingHouse/MarketRegistry remain deferred; PerpOrderbook uses placeholder CH/MR as on prior devnets."
+  },
+  "placeholders": {
+    "MIRAGE_CH_used_in_PerpOrderbook_ctor": "0x1D99a347B5EcdbAa3C5365470d461Cf66B77ECd2",
+    "MIRAGE_MR_used_in_PerpOrderbook_ctor": "0x84227190685c25c4aF662EE1bD0E4cd82e57360D"
+  }
+}
