@@ -79,7 +79,7 @@ class TestConstants:
         assert len(BUILDER_ADDRESS) == 42
 
     def test_default_client_id(self):
-        assert DEFAULT_CLIENT_ID == "APITRADER"
+        assert DEFAULT_CLIENT_ID == "NUNCHI"
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +331,74 @@ class TestAccount:
             a.set_leverage(0, "ETH")
         with pytest.raises(ValueError):
             a.set_leverage(101, "ETH")
+
+
+class TestPositions:
+    def test_returns_all_when_no_filter(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/positions", [
+            {"positionId": "p1", "longAssets": [{"coin": "ETH"}], "shortAssets": [{"coin": "BTC"}]},
+            {"positionId": "p2", "longAssets": [{"coin": "SOL"}], "shortAssets": [{"coin": "ETH"}]},
+        ])
+        assert len(a.get_positions()) == 2
+
+    def test_filters_by_instrument_both_directions(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/positions", [
+            {"positionId": "p1", "longAssets": [{"coin": "ETH"}], "shortAssets": [{"coin": "BTC"}]},
+            {"positionId": "p2", "longAssets": [{"coin": "BTC"}], "shortAssets": [{"coin": "ETH"}]},
+            {"positionId": "p3", "longAssets": [{"coin": "SOL"}], "shortAssets": [{"coin": "ETH"}]},
+        ])
+        out = a.get_positions("ETH-BTC")
+        assert {p["positionId"] for p in out} == {"p1", "p2"}
+
+    def test_empty_when_none_match(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/positions", [
+            {"positionId": "p3", "longAssets": [{"coin": "SOL"}], "shortAssets": [{"coin": "ETH"}]},
+        ])
+        assert a.get_positions("ETH-BTC") == []
+
+    def test_unwraps_data_key(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/positions", {"data": [{"positionId": "p1"}]})
+        assert a.get_positions() == [{"positionId": "p1"}]
+
+
+class TestTradeHistory:
+    def test_returns_list(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/trade-history", [
+            {"tradeHistoryId": "t1", "positionId": "p1", "realizedPnl": 12.5},
+        ])
+        out = a.get_trade_history()
+        assert out == [{"tradeHistoryId": "t1", "positionId": "p1", "realizedPnl": 12.5}]
+
+    def test_default_params_limit_only(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/trade-history", [])
+        a.get_trade_history()
+        params = next(c for c in http.calls if c[1] == "/trade-history")[2]["params"]
+        assert params == {"limit": 100}
+
+    def test_limit_clamped_to_100(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/trade-history", [])
+        a.get_trade_history(limit=500)
+        params = next(c for c in http.calls if c[1] == "/trade-history")[2]["params"]
+        assert params["limit"] == 100
+
+    def test_forwards_start_and_end(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/trade-history", [])
+        a.get_trade_history(limit=10, start="1700000000000", end="1700009999999")
+        params = next(c for c in http.calls if c[1] == "/trade-history")[2]["params"]
+        assert params == {"limit": 10, "startDate": "1700000000000", "endDate": "1700009999999"}
+
+    def test_unwraps_data_key(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/trade-history", {"data": [{"tradeHistoryId": "t1"}]})
+        assert a.get_trade_history() == [{"tradeHistoryId": "t1"}]
 
 
 class TestMarketData:

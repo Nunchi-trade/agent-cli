@@ -10,6 +10,8 @@ Reference: https://docs.pearprotocol.io/api-integration/
 Surface mapping (Pear endpoint  ->  VenueAdapter method):
     GET    /markets                          -> get_all_markets
     GET    /accounts                         -> get_account_state
+    GET    /positions                        -> get_positions
+    GET    /trade-history                    -> get_trade_history
     GET    /orders/open                      -> get_open_orders
     POST   /positions                        -> place_order (executionType=MARKET)
                                              -> place_trigger_order (TRIGGER)
@@ -41,7 +43,7 @@ log = logging.getLogger("adapters.pear")
 BASE_URL = "https://hl-v2.pearprotocol.io"
 WS_URL = "wss://hl-v2.pearprotocol.io/ws"
 BUILDER_ADDRESS = "0xA47D4d99191db54A4829cdf3de2417E527c3b042"
-DEFAULT_CLIENT_ID = "APITRADER"
+DEFAULT_CLIENT_ID = "NUNCHI"
 
 ACCESS_TOKEN_TTL_S = 15 * 60
 REFRESH_LEEWAY_S = 30
@@ -419,6 +421,46 @@ class PearVenueAdapter(VenueAdapter):
 
     def get_account_state(self) -> Dict:
         return self._http.request("GET", "/accounts", headers=self._auth_headers())
+
+    def get_positions(self, instrument: str = "") -> List[Dict]:
+        """Open pair positions (GET /positions). Optional pair filter, both directions.
+
+        Pear position legs are under longAssets[].coin / shortAssets[].coin (note: open
+        *orders* use .asset — different field), so filtering differs from get_open_orders.
+        """
+        positions = self._http.request("GET", "/positions", headers=self._auth_headers())
+        if not isinstance(positions, list):
+            positions = positions.get("data", [])
+        if not instrument:
+            return positions
+        leg_a, leg_b = _parse_pair(instrument)
+        out: List[Dict] = []
+        for p in positions:
+            longs = {a.get("coin") for a in p.get("longAssets", [])}
+            shorts = {a.get("coin") for a in p.get("shortAssets", [])}
+            if (longs == {leg_a} and shorts == {leg_b}) or (longs == {leg_b} and shorts == {leg_a}):
+                out.append(p)
+        return out
+
+    def get_trade_history(
+        self, limit: int = 100, start: Optional[str] = None, end: Optional[str] = None
+    ) -> List[Dict]:
+        """Closed trades (GET /trade-history).
+
+        `limit` is capped at the documented max of 100; `start`/`end` map to the
+        `startDate`/`endDate` query params (ISO string or ms timestamp).
+        """
+        params: Dict[str, Any] = {"limit": min(max(1, int(limit)), 100)}
+        if start is not None:
+            params["startDate"] = start
+        if end is not None:
+            params["endDate"] = end
+        resp = self._http.request(
+            "GET", "/trade-history", params=params, headers=self._auth_headers()
+        )
+        if isinstance(resp, list):
+            return resp
+        return resp.get("data", [])
 
     def set_leverage(self, leverage: int, coin: str, is_cross: bool = True) -> None:
         """Stage leverage for the next pair order whose long leg matches `coin`.
