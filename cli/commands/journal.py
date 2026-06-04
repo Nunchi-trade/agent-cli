@@ -1,6 +1,7 @@
 """hl journal — structured trade journal with reasoning."""
 from __future__ import annotations
 
+import json as _json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,10 @@ def journal_view(
     date: Optional[str] = typer.Option(None, "--date", "-d", help="Filter by date (YYYY-MM-DD)"),
     limit: int = typer.Option(20, "--limit", "-n"),
     data_dir: str = typer.Option("data/apex", "--data-dir"),
+    json_out: bool = typer.Option(
+        False, "--json",
+        help="Emit machine-readable JSON instead of a human table.",
+    ),
 ):
     """View trade journal entries with reasoning."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -25,6 +30,14 @@ def journal_view(
 
     guard = JournalGuard(data_dir=data_dir)
     entries = guard.read_entries(date=date, limit=limit)
+
+    if json_out:
+        typer.echo(_json.dumps({
+            "entries": [e.to_dict() for e in entries],
+            "total": len(entries),
+            "date": date,
+        }, default=str))
+        return
 
     if not entries:
         typer.echo("No journal entries found.")

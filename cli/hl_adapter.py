@@ -111,6 +111,145 @@ def _default_builder() -> Optional[dict]:
 ZERO = Decimal("0")
 
 
+def _assemble_account_state(info, address: str) -> Dict:
+    """Build the unified account-state dict from an HL Info client + address.
+
+    Pure read path: only calls public Info endpoints (user_state /
+    clearinghouseState / spotClearinghouseState). No key or signing involved,
+    so this is reused by both the authenticated proxy (DirectHLProxy) and the
+    keyless read-only path (read_only_account_state).
+
+    Merges perps, HIP-3 DEX clearinghouses (e.g. YEX) and spot balances into a
+    single dict with the same shape get_account_state has always returned.
+    """
+    try:
+        state = info.user_state(address)
+        margin_summary = state.get("marginSummary", {})
+        result = {
+            "account_value": float(margin_summary.get("accountValue", 0)),
+            "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
+            "withdrawable": float(state.get("withdrawable", 0)),
+            "address": address,
+            "positions": state.get("assetPositions", []),
+            "spot_balances": [],
+        }
+    except IndexError:
+        # SDK bug: spot metadata parsing can trigger IndexError.
+        log.warning("SDK IndexError in user_state (spot metadata); trying clearinghouse fallback")
+        try:
+            result = _fetch_perps_via_http(info, address)
+        except Exception as e2:
+            log.error("Clearinghouse fallback also failed: %s", e2)
+            return {}
+    except Exception as e:
+        log.error("Failed to get account state: %s", e)
+        return {}
+
+    # Merge HIP-3 DEX state (asset positions + account value/margin/withdrawable).
+    for dex_id in HIP3_DEXS:
+        try:
+            dex_state = info.post("/info", {
+                "type": "clearinghouseState", "user": address, "dex": dex_id,
+            })
+            if not dex_state:
+                continue
+            if dex_state.get("assetPositions"):
+                result["positions"].extend(dex_state["assetPositions"])
+            dex_margin = dex_state.get("marginSummary", {}) or {}
+            try:
+                result["account_value"] += float(dex_margin.get("accountValue", 0) or 0)
+                result["total_margin"] += float(dex_margin.get("totalMarginUsed", 0) or 0)
+                result["withdrawable"] += float(dex_state.get("withdrawable", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+        except Exception as e:
+            log.warning("Failed to fetch %s state: %s", dex_id, e)
+
+    # Fetch spot balances (separate endpoint).
+    spot_balances = _fetch_spot_balances(info, address)
+    if spot_balances:
+        result["spot_balances"] = spot_balances
+        spot_total = sum(
+            float(b.get("total", 0)) for b in spot_balances
+            if b.get("coin") == "USDC"
+        )
+        result["spot_usdc"] = spot_total
+    return result
+
+
+def _fetch_perps_via_http(info, address: str) -> Dict:
+    """Fallback: fetch perps state via direct HTTP POST (no key)."""
+    import requests
+    base_url = info.base_url
+    resp = requests.post(
+        f"{base_url}/info",
+        json={"type": "clearinghouseState", "user": address},
+        timeout=10,
+    )
+    data = resp.json()
+    margin_summary = data.get("marginSummary", {})
+    return {
+        "account_value": float(margin_summary.get("accountValue", 0)),
+        "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
+        "withdrawable": float(data.get("withdrawable", 0)),
+        "address": address,
+        "positions": data.get("assetPositions", []),
+        "spot_balances": [],
+    }
+
+
+def _fetch_spot_balances(info, address: str) -> List[Dict]:
+    """Fetch spot/unified balances from HL spotClearinghouseState (no key)."""
+    try:
+        import requests
+        base_url = info.base_url
+        resp = requests.post(
+            f"{base_url}/info",
+            json={"type": "spotClearinghouseState", "user": address},
+            timeout=10,
+        )
+        data = resp.json()
+        balances = data.get("balances", [])
+        return [
+            {
+                "coin": b.get("coin", ""),
+                "total": b.get("total", "0"),
+                "hold": b.get("hold", "0"),
+            }
+            for b in balances
+            if float(b.get("total", 0)) != 0
+        ]
+    except Exception as e:
+        log.warning("Failed to fetch spot balances: %s", e)
+        return []
+
+
+def read_only_account_state(address: str, testnet: bool = True) -> Dict:
+    """Fetch account state for ANY address using only public Info endpoints.
+
+    No private key is loaded and nothing is signed — this is the read-only
+    ``--address`` / ``HL_VIEW_AS_USER`` path. Returns the same dict shape as
+    DirectHLProxy.get_account_state(), or {} on failure.
+    """
+    from hyperliquid.info import Info
+    from hyperliquid.utils import constants
+    from parent.hl_proxy import _retry_on_429
+    from parent.sdk_patches import patch_spot_meta_indexing
+
+    patch_spot_meta_indexing()
+    base_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
+    # Construct with the default perp universe only (perp_dexs=[""]). We do NOT
+    # pass HIP3_DEXS here: the Info constructor validates each requested dex
+    # against the network's live perp_dexs() and KeyErrors on dexes that aren't
+    # registered (e.g. a testnet-only HIP-3 dex when reading a mainnet address).
+    # HIP-3 clearinghouse state is merged separately in _assemble_account_state
+    # via explicit POSTs, which already tolerate absent dexes.
+    info = _retry_on_429(
+        Info, base_url, skip_ws=True, timeout=10,
+    )
+    return _assemble_account_state(info, address)
+
+
 def _to_hl_coin(instrument: str) -> str:
     """Map instrument name to HL coin for API calls.
 
@@ -214,119 +353,17 @@ class DirectHLProxy:
     def get_account_state(self) -> Dict:
         """Fetch account state directly from HL Info API.
 
-        Fetches both perps (clearinghouseState) and spot (spotClearinghouseState)
-        balances so `hl account` shows the full unified balance.
+        Fetches perps (clearinghouseState), HIP-3 DEX clearinghouses (e.g.
+        YEX) and spot (spotClearinghouseState) balances so `hl account` shows
+        the full unified balance. Delegates to the shared, key-free assembler
+        so the read-only `--address` path produces identical output.
+
+        The account-value merge matters: agents in PR 3 mode (dedicated agent
+        wallets, funded by treasury into yex) would otherwise report
+        "** NO FUNDS DETECTED **" at preflight even though they hold $1000
+        USDYP in yex, because the universal clearinghouse query returns $0.
         """
-        try:
-            state = self._info.user_state(self._address)
-            margin_summary = state.get("marginSummary", {})
-            result = {
-                "account_value": float(margin_summary.get("accountValue", 0)),
-                "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
-                "withdrawable": float(state.get("withdrawable", 0)),
-                "address": self._address,
-                "positions": state.get("assetPositions", []),
-                "spot_balances": [],
-            }
-        except IndexError:
-            # SDK bug: spot metadata parsing can trigger IndexError.
-            log.warning("SDK IndexError in user_state (spot metadata); trying clearinghouse fallback")
-            try:
-                result = self._fetch_perps_via_http()
-            except Exception as e2:
-                log.error("Clearinghouse fallback also failed: %s", e2)
-                return {}
-        except Exception as e:
-            log.error("Failed to get account state: %s", e)
-            return {}
-
-        # Merge HIP-3 DEX state (e.g. YEX). Two things to merge:
-        #   1. Asset positions (so watchdog/reconciliation can see open trades)
-        #   2. accountValue / margin / withdrawable (so preflight, budget
-        #      calculations, and any other code reading account_value can see
-        #      funds held inside the HIP-3 clearinghouse)
-        #
-        # Without merging the account value, agents in PR 3 mode (dedicated
-        # agent wallets, funded by treasury into yex) report
-        # "** NO FUNDS DETECTED **" at preflight even though they hold
-        # $1000 USDYP in yex, because the universal clearinghouse query
-        # returns $0.
-        for dex_id in HIP3_DEXS:
-            try:
-                dex_state = self._info.post("/info", {
-                    "type": "clearinghouseState", "user": self._address, "dex": dex_id,
-                })
-                if not dex_state:
-                    continue
-                if dex_state.get("assetPositions"):
-                    result["positions"].extend(dex_state["assetPositions"])
-                dex_margin = dex_state.get("marginSummary", {}) or {}
-                try:
-                    result["account_value"] += float(dex_margin.get("accountValue", 0) or 0)
-                    result["total_margin"] += float(dex_margin.get("totalMarginUsed", 0) or 0)
-                    result["withdrawable"] += float(dex_state.get("withdrawable", 0) or 0)
-                except (TypeError, ValueError):
-                    pass
-            except Exception as e:
-                log.warning("Failed to fetch %s state: %s", dex_id, e)
-
-        # Fetch spot balances (separate endpoint).
-        spot_balances = self._fetch_spot_balances()
-        if spot_balances:
-            result["spot_balances"] = spot_balances
-            # Add spot total to account_value so the headline number is accurate.
-            spot_total = sum(
-                float(b.get("total", 0)) for b in spot_balances
-                if b.get("coin") == "USDC"
-            )
-            result["spot_usdc"] = spot_total
-        return result
-
-    def _fetch_perps_via_http(self) -> Dict:
-        """Fallback: fetch perps state via direct HTTP POST."""
-        import requests
-        base_url = self._hl._info.base_url
-        resp = requests.post(
-            f"{base_url}/info",
-            json={"type": "clearinghouseState", "user": self._address},
-            timeout=10,
-        )
-        data = resp.json()
-        margin_summary = data.get("marginSummary", {})
-        return {
-            "account_value": float(margin_summary.get("accountValue", 0)),
-            "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
-            "withdrawable": float(data.get("withdrawable", 0)),
-            "address": self._address,
-            "positions": data.get("assetPositions", []),
-            "spot_balances": [],
-        }
-
-    def _fetch_spot_balances(self) -> List[Dict]:
-        """Fetch spot/unified balances from HL spotClearinghouseState."""
-        try:
-            import requests
-            base_url = self._hl._info.base_url
-            resp = requests.post(
-                f"{base_url}/info",
-                json={"type": "spotClearinghouseState", "user": self._address},
-                timeout=10,
-            )
-            data = resp.json()
-            balances = data.get("balances", [])
-            # Each balance: {"coin": "USDC", "hold": "0.0", "total": "1000.0", "token": 0}
-            return [
-                {
-                    "coin": b.get("coin", ""),
-                    "total": b.get("total", "0"),
-                    "hold": b.get("hold", "0"),
-                }
-                for b in balances
-                if float(b.get("total", 0)) != 0
-            ]
-        except Exception as e:
-            log.warning("Failed to fetch spot balances: %s", e)
-            return []
+        return _assemble_account_state(self._info, self._address)
 
     def _get_price_tick(self, coin: str, price: float) -> float:
         """Get the price tick size for an asset.
