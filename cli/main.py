@@ -35,6 +35,8 @@ from cli.commands.mcp import mcp_app
 from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
+from cli.commands.strategy import strategy_app
+from cli.commands.autoresearch import autoresearch_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -53,6 +55,8 @@ app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery"
 app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
+app.add_typer(strategy_app, name="strategy", help="Strategy scaffold, lifecycle, and live load (autoresearch -> live bridge)")
+app.add_typer(autoresearch_app, name="autoresearch", help="Autonomous strategy research loop (propose -> eval -> keep/discard)")
 
 
 def main():
