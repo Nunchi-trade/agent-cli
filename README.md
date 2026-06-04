@@ -519,7 +519,9 @@ One-click deploy to run APEX autonomously. No AI model needed — pure determini
 
 One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend. Talk to your trading bot via Telegram — it scans markets, enters trades, manages risk, and learns from its mistakes.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
+
+> **Setup:** This image bundles the full agent-cli source, so the build context must be the repo root. After creating the service, in **Settings → Build** leave **Root Directory** at `/` (repo root) and set the **Config-as-code path** to `deploy/openclaw-railway/railway.toml`. (The Dockerfile lives at `deploy/openclaw-railway/Dockerfile` and `COPY`s from the repo root — pointing the service Root Directory at the subdirectory makes the build context too narrow and `pip install` of the CLI fails.)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
