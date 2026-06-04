@@ -183,3 +183,124 @@ def shutdown_summary(
         f"PnL:     {pnl_c}${_sign(round(total_pnl, 2))}{RESET}\n"
         f"Runtime: {int(elapsed_s)}s"
     )
+
+
+# ─── EVM yield (hl yield) ────────────────────────────────────────────────────
+
+
+def _tvl_short(tvl_usd: float) -> str:
+    """Compact TVL: $1.2B / $340M / $5.0M / $0 (unknown)."""
+    if tvl_usd <= 0:
+        return f"{DIM}—{RESET}"
+    if tvl_usd >= 1e9:
+        return f"${tvl_usd / 1e9:.1f}B"
+    if tvl_usd >= 1e6:
+        return f"${tvl_usd / 1e6:.0f}M"
+    if tvl_usd >= 1e3:
+        return f"${tvl_usd / 1e3:.0f}K"
+    return f"${tvl_usd:,.0f}"
+
+
+def _risk_color(risk: float) -> str:
+    """Risk score (0..1, lower safer) -> a colour band."""
+    if risk <= 0.25:
+        return GREEN
+    if risk <= 0.50:
+        return YELLOW
+    return RED
+
+
+def yield_table(opportunities: List[Any], *, net_apy_by_id: Optional[Dict[str, float]] = None) -> str:
+    """Format yield opportunities for `hl yield scan` / `rank`.
+
+    One row per opportunity: protocol, chain, kind, base/reward APY, TVL, risk
+    score, and a routable marker (an on-chain adapter exists for it). When
+    ``net_apy_by_id`` is supplied (the `rank` path), a net-APY column is added.
+    """
+    show_net = net_apy_by_id is not None
+    header = (
+        f"  {'Protocol':<16} {'Chain':<9} {'Kind':<9} "
+        f"{'Base APY':>9} {'Reward':>9} {'TVL':>9} {'Risk':>6}"
+    )
+    if show_net:
+        header += f" {'Net APY':>9}"
+    header += "  Route"
+
+    lines = [
+        f"{BOLD}=== EVM Yield — {len(opportunities)} opportunities ==={RESET}",
+        header,
+        "  " + "-" * (len(header) + 4),
+    ]
+    for opp in opportunities:
+        risk = float(getattr(opp, "risk_score", 0.0) or 0.0)
+        risk_c = _risk_color(risk)
+        routable = bool(getattr(opp, "has_onchain_adapter", False))
+        route_mark = f"{GREEN}yes{RESET}" if routable else f"{DIM}no{RESET}"
+        row = (
+            f"  {CYAN}{opp.protocol:<16}{RESET} {opp.chain.value:<9} "
+            f"{opp.kind.value:<9} "
+            f"{opp.apy_base * 100:>8.2f}% {opp.apy_reward * 100:>8.2f}% "
+            f"{_tvl_short(opp.tvl_usd):>9} {risk_c}{risk:>6.2f}{RESET}"
+        )
+        if show_net:
+            net = net_apy_by_id.get(opp.id, 0.0)
+            net_c = GREEN if net > 0 else RED
+            row += f" {net_c}{net * 100:>8.2f}%{RESET}"
+        row += f"  {route_mark}"
+        lines.append(row)
+
+    lines.append("")
+    lines.append(
+        f"{DIM}APYs are fractions of notional / year. Risk 0..1 (lower safer). "
+        f"Route=yes means an on-chain adapter can execute it.{RESET}"
+    )
+    return "\n".join(lines)
+
+
+def allocation_plan_block(plan: Any) -> str:
+    """Format an `AllocationPlan` for `hl yield optimize`.
+
+    Shows the per-opportunity entries, the blended net APY / risk, the
+    unallocated remainder, and the optimizer's human-readable notes.
+    """
+    lines = [
+        f"{BOLD}=== Yield allocation — ${plan.budget_usd:,.0f} {plan.asset} ==={RESET}",
+    ]
+    if not plan.entries:
+        lines.append(f"{DIM}No allocation produced.{RESET}")
+        for note in plan.notes:
+            lines.append(f"  {YELLOW}• {note}{RESET}")
+        return "\n".join(lines)
+
+    lines.append(
+        f"  {'Protocol':<16} {'Chain':<9} {'Amount':>14} "
+        f"{'Net APY':>10} {'Risk':>7}"
+    )
+    lines.append("  " + "-" * 60)
+    for e in plan.entries:
+        risk_c = _risk_color(e.risk_score)
+        net_c = GREEN if e.expected_net_apy > 0 else RED
+        lines.append(
+            f"  {CYAN}{e.protocol:<16}{RESET} {e.chain.value:<9} "
+            f"${e.amount_usd:>13,.0f} "
+            f"{net_c}{e.expected_net_apy * 100:>9.2f}%{RESET} "
+            f"{risk_c}{e.risk_score:>7.2f}{RESET}"
+        )
+
+    allocated = sum(e.amount_usd for e in plan.entries)
+    blended_c = GREEN if plan.blended_net_apy > 0 else RED
+    lines.extend([
+        "  " + "-" * 60,
+        f"  {'Allocated':<16} {'':<9} ${allocated:>13,.0f}",
+        f"  {'Unallocated':<16} {'':<9} "
+        f"{DIM}${plan.unallocated_usd:>13,.0f}{RESET}",
+        "",
+        f"  Blended net APY: {blended_c}{plan.blended_net_apy * 100:.2f}%{RESET}",
+        f"  Blended risk:    {_risk_color(plan.blended_risk)}{plan.blended_risk:.2f}{RESET}",
+    ])
+    if plan.notes:
+        lines.append("")
+        lines.append(f"{BOLD}Notes:{RESET}")
+        for note in plan.notes:
+            lines.append(f"  {YELLOW}• {note}{RESET}")
+    return "\n".join(lines)
