@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import typer
 
@@ -14,11 +15,25 @@ builder_app = typer.Typer(no_args_is_help=True)
 def builder_approve(
     mainnet: bool = typer.Option(False, "--mainnet"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    policy: Optional[Path] = typer.Option(
+        None, "--policy",
+        help="Session policy file (or inline JSON / NUNCHI_SESSION_POLICY env). "
+             "Local guard only — no web-auth, no network.",
+    ),
 ):
     """Approve builder fee for your account (required before fees can be collected)."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
+
+    # ── Session policy guard (local; permissive if no policy configured) ──
+    from cli.session_policy import ACTION_BUILDER_APPROVE, guard_or_exit
+
+    guard_or_exit(
+        ACTION_BUILDER_APPROVE,
+        policy_path=str(policy) if policy else None,
+        network="mainnet" if mainnet else "testnet",
+    )
 
     from cli.builder_fee import BuilderFeeConfig
     from cli.config import TradingConfig

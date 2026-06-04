@@ -55,12 +55,28 @@ def run_cmd(
         None, "--model",
         help="LLM model override for claude_agent strategy",
     ),
+    policy: Optional[Path] = typer.Option(
+        None, "--policy",
+        help="Session policy file (or inline JSON / NUNCHI_SESSION_POLICY env). "
+             "Local guard only — no web-auth, no network.",
+    ),
 ):
     """Start autonomous trading with a strategy."""
     # Add project root to path for imports
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
+
+    # ── Session policy guard (local; permissive if no policy configured) ──
+    from cli.session_policy import ACTION_RUN, guard_or_exit
+
+    guard_or_exit(
+        ACTION_RUN,
+        policy_path=str(policy) if policy else None,
+        network="mainnet" if mainnet else "testnet",
+        strategy=strategy,
+        market=instrument,
+    )
 
     from cli.config import TradingConfig
     from cli.strategy_registry import resolve_instrument, resolve_strategy_path
