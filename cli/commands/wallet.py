@@ -123,11 +123,28 @@ def wallet_auto(
         )
         env_path.chmod(0o600)
 
+    # Creating a wallet is NOT zero-prompt to first fill: a fresh wallet must be
+    # onboarded on the HL testnet web app once before deposits/claims work. Surface
+    # that explicitly so callers don't assume the wallet is trade-ready. The URL is
+    # the real one (shared with `hl setup claim-usdyp` / readiness checks).
+    from cli.readiness import HL_TESTNET_ONBOARD_URL
+
+    next_steps = [
+        f"Open {HL_TESTNET_ONBOARD_URL} and connect this wallet ({address}) "
+        "— one-time, required so Hyperliquid sees a fresh wallet.",
+        "Deposit/fund the wallet on testnet.",
+        "Claim YEX collateral: hl setup claim-usdyp",
+        "Verify readiness: hl setup status --json",
+    ]
+
     if json_output:
         result = {
             "address": address,
             "password": password,
             "keystore": str(ks_path),
+            "onboarding_required": True,
+            "onboarding_url": HL_TESTNET_ONBOARD_URL,
+            "next_steps": next_steps,
         }
         if save_env:
             result["env_file"] = str(env_path)
@@ -143,6 +160,10 @@ def wallet_auto(
         typer.echo(f"  export HL_KEYSTORE_PASSWORD={password}")
         typer.echo("")
         typer.echo("SAVE THE PASSWORD — it cannot be recovered.")
+        typer.echo("")
+        typer.echo("NEXT STEPS (a new wallet is NOT yet trade-ready):")
+        for i, step in enumerate(next_steps, 1):
+            typer.echo(f"  {i}. {step}")
 
 
 @wallet_app.command("export")
