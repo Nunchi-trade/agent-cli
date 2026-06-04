@@ -21,8 +21,18 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "hedge_agent": {
         "path": "strategies.hedge_agent:HedgeAgent",
-        "description": "Reduces excess exposure per deterministic mandate",
+        "description": "inventory reducer (delta control)",
         "params": {"notional_threshold": 15000.0},
+    },
+    "cfi_hedge": {
+        "path": "strategies.cfi_hedge_agent:CfiHedgeAgent",
+        "description": "CFI-v2 funding-cost hedge",
+        "params": {
+            "notional_trigger": 100000.0,
+            "max_hedge_notional": 50000.0,
+            "max_per_day": 5,
+            "min_interval_seconds": 300,
+        },
     },
     "rfq_agent": {
         "path": "strategies.rfq_agent:RFQAgent",
