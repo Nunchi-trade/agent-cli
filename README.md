@@ -32,7 +32,7 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) AgentSkill, or an MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
 
 ---
 
@@ -481,9 +481,24 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
+**17 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
+
+### Use from any agent harness
+
+`hl mcp serve` is **harness-neutral** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://agentskills.io), and [Hermes](https://github.com/NousResearch/hermes-agent) consume the exact same tools. To point a **Hermes** agent (or any MCP host) at this repo, register the server in its config:
+
+```yaml
+# Hermes ~/.hermes/config.yaml (or any MCP harness)
+mcp_servers:
+  nunchi_trading:
+    command: python3
+    args: ["-m", "cli.main", "mcp", "serve"]
+    # cwd: /path/to/agent-cli   # if not launched from the repo root
+```
+
+This is exactly what `deploy/hermes-railway` auto-generates on boot (alongside `platform_toolsets`), so a deployed Hermes agent is wired out of the box — no OpenClaw-specific assumptions anywhere in the MCP server.
 
 ### HTTP API & SSE
 
@@ -495,7 +510,7 @@ Every deployed agent also exposes an HTTP REST API and SSE real-time feed for da
 
 ## Deploy on Railway
 
-Two deployment options: **headless** (APEX runs strategies directly) or **OpenClaw agent** (conversational AI trading assistant with Telegram).
+Three deployment options: **headless** (APEX runs strategies directly), or a conversational AI trading assistant on either the **OpenClaw** or **Hermes** agent harness (with optional Telegram).
 
 ### Option A: Headless APEX (Deterministic)
 
@@ -547,7 +562,36 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 4. Ask "how did we do?" → it runs REFLECT and reports performance metrics
 5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
 
-Both options persist state via Railway volume at `/data` — APEX state, REFLECT reports, Radar history, and agent memory survive redeploys.
+### Option C: Hermes Agent (Nous Research)
+
+One-click deploy of a full [Hermes](https://github.com/NousResearch/hermes-agent) agent (Nous Research) that uses our CLI as the MCP tool backend. Same conversational trading experience as OpenClaw, on a different harness — chat via Telegram while the agent scans markets, enters trades, manages risk, and reflects on its performance. An Express front door proxies to the internal Hermes dashboard.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
+
+> **Setup:** This image bundles the full agent-cli source, so the build context must be the repo root. After creating the service, in **Settings → Build** leave **Root Directory** at `/` (repo root) and set the **Config-as-code path** to `deploy/hermes-railway/railway.toml`. (The Dockerfile lives at `deploy/hermes-railway/Dockerfile` and `COPY`s from the repo root — pointing the service Root Directory at the subdirectory makes the build context too narrow and `pip install` of the CLI fails.)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
+| `AI_PROVIDER` | Yes | — | `anthropic`, `openai`, `openrouter`, `gemini`, `google`, `nous`, `zai`, `kimi`, or `huggingface` |
+| `AI_API_KEY` | Yes | — | API key for the chosen AI provider |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token (from @BotFather); enables Telegram chat + auto-onboard |
+| `TELEGRAM_USERNAME` | No | — | Your Telegram @username (used to resolve your chat ID) |
+| `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
+| `HERMES_MODEL` | No | — | Override the default model for the chosen provider |
+| `DISCORD_BOT_TOKEN` | No | — | Discord bot token (optional messaging platform) |
+| `SLACK_BOT_TOKEN` | No | — | Slack bot token (optional messaging platform) |
+
+The following are preset by `deploy/hermes-railway/railway.toml` and normally need no change: `PORT` (`8080`), `INTERNAL_GATEWAY_HOST`/`INTERNAL_GATEWAY_PORT` (the internal Hermes dashboard bind), and `HERMES_HOME`/`HERMES_DASHBOARD_HOST`/`HERMES_DASHBOARD_PORT`.
+
+**What you get:**
+- Hermes dashboard (web UI) proxied through the Express front door, plus our MCP trading tools registered as the `nunchi_trading` MCP server (the same toolset the OpenClaw deploy uses)
+- Optional Telegram integration — chat with your bot to start/stop trading, run scans, check status
+- Persistent state across redeploys via `/data` volume (Hermes config, memories, sessions under `HERMES_HOME`)
+- Auto-onboard: when Telegram credentials are present, the bot sends a "ready" message on first deploy
+- REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
+
+Both conversational options persist state via Railway volume at `/data` — APEX state, REFLECT reports, Radar history, and agent memory survive redeploys.
 
 ---
 
