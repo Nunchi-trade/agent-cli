@@ -1,0 +1,12 @@
+[project]
+name = "autotrader"
+version = "0.1.0"
+description = "Autonomous trading strategy research (autoresearch for Hyperliquid)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "scipy>=1.11.0",
+    "requests>=2.31.0",
+    "pyarrow>=14.0.0",
+]
