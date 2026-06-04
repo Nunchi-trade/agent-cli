@@ -2,7 +2,16 @@
 
 ## MCP Server: nunchi_trading
 
-The primary tool provider. Exposes 13 trading tools via Model Context Protocol:
+The primary tool provider. Reach it through the **mcporter** skill — it is registered
+as an mcporter stdio server (not a native gateway tool). Usage:
+
+```bash
+mcporter list nunchi_trading --schema      # list the server's tools + input schemas
+mcporter call nunchi_trading.account       # call a tool (no args)
+mcporter call nunchi_trading.trade instrument=ETH-PERP side=buy size=0.1
+```
+
+Exposes 13 trading tools via Model Context Protocol:
 
 - `account` — Show HL account state (balance, margin, positions)
 - `status` — Current positions, PnL, and risk state
