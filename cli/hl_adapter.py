@@ -121,6 +121,33 @@ def _to_hl_coin(instrument: str) -> str:
     return instrument_to_coin(instrument)
 
 
+def _funding_rates_from_markets(data: Any, coin: Optional[str] = None) -> Dict[str, float]:
+    """Extract {coin: hourly_funding_rate} from a meta_and_asset_ctxs payload.
+
+    `data` is the [meta, asset_ctxs] pair returned by get_all_markets(); the
+    nth asset context lines up with the nth universe entry. Best-effort: any
+    malformed entry is treated as 0.0 funding rather than raising.
+    """
+    rates: Dict[str, float] = {}
+    try:
+        universe = (data[0] or {}).get("universe", []) if data else []
+        ctxs = data[1] if data and len(data) > 1 else []
+        for asset, ctx in zip(universe, ctxs):
+            name = asset.get("name", "")
+            if not name:
+                continue
+            try:
+                rates[name] = float(ctx.get("funding", 0) or 0)
+            except (TypeError, ValueError):
+                rates[name] = 0.0
+    except Exception as e:
+        log.debug("funding parse failed: %s", e)
+    if coin:
+        c = _to_hl_coin(coin)
+        return {c: rates.get(c, 0.0)}
+    return rates
+
+
 class DirectHLProxy:
     """Adapter around HLProxy that adds direct order placement for the CLI.
 
@@ -394,11 +421,15 @@ class DirectHLProxy:
         price: float,
         tif: str = "Ioc",
         builder: Optional[dict] = None,
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         """Place a single order directly on HL. Returns HLFill if filled.
 
         For ALO (tif="Alo"): if the order would cross the book (rejected),
         automatically falls back to Gtc with a warning log.
+
+        When reduce_only is True the order can only shrink an existing
+        position (used to safely close/reduce, never to open or flip).
         """
         # REVENUE-CRITICAL: Enforce builder fee on every order.
         # Default: 10 bps to Nunchi wallet (0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0).
@@ -428,13 +459,13 @@ class DirectHLProxy:
             except Exception:
                 pass  # use original price if snapshot fails
 
-        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder)
+        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only)
 
         # ALO fallback: if ALO was rejected (would cross), retry with Gtc
         if fill is None and tif == "Alo":
             log.warning("ALO rejected for %s %s %s @ %s — falling back to Gtc",
                         side, size, instrument, price)
-            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder)
+            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder, reduce_only)
 
         return fill
 
@@ -448,6 +479,7 @@ class DirectHLProxy:
         price: float,
         tif: str,
         builder: Optional[dict],
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         """Low-level order send with retry on rate-limit. Returns HLFill or None."""
         try:
@@ -455,10 +487,15 @@ class DirectHLProxy:
             result = None
             for attempt in range(MAX_RATE_LIMIT_RETRIES):
                 try:
+                    order_kwargs = {"builder": builder}
+                    # Only pass reduce_only when set so the common path keeps the
+                    # exact call signature existing callers/tests rely on.
+                    if reduce_only:
+                        order_kwargs["reduce_only"] = True
                     result = self._exchange.order(
                         coin, is_buy, size, price,
                         {"limit": {"tif": tif}},
-                        builder=builder,
+                        **order_kwargs,
                     )
                     self._api_consecutive_429s = 0  # reset on success
                     break
@@ -688,6 +725,98 @@ class DirectHLProxy:
             log.warning("Failed to cancel trigger order %s: %s", oid, e)
             return False
 
+    def schedule_cancel(self, time_ms: Optional[int]) -> bool:
+        """Arm or clear Hyperliquid's dead-man's switch (scheduleCancel).
+
+        Pass an epoch-ms timestamp to tell HL to cancel ALL of this account's
+        open orders at that time unless refreshed before then; pass None to
+        clear it. Returns True if HL accepted the request. Intended to be
+        refreshed each tick by long-running agents so a crashed process never
+        leaves resting orders unattended.
+        """
+        try:
+            result = self._exchange.schedule_cancel(time_ms)
+            ok = isinstance(result, dict) and result.get("status") == "ok"
+            if not ok:
+                log.warning("schedule_cancel rejected: %s", result)
+            return ok
+        except Exception as e:
+            log.error("schedule_cancel failed: %s", e)
+            return False
+
+    def get_order_status(self, oid) -> Optional[Dict]:
+        """Look up a single order by oid via HL Info. Returns the status dict or None."""
+        try:
+            return self._info.query_order_by_oid(self._address, int(oid))
+        except Exception as e:
+            log.error("get_order_status failed for oid=%s: %s", oid, e)
+            return None
+
+    def get_funding_rates(self, coin: Optional[str] = None) -> Dict[str, float]:
+        """Return current hourly funding rate per coin (or one coin if given).
+
+        Sourced from the cached meta+asset-contexts payload so it adds no extra
+        API load beyond get_all_markets()'s shared cache.
+        """
+        try:
+            return _funding_rates_from_markets(self.get_all_markets(), coin)
+        except Exception as e:
+            log.error("get_funding_rates failed: %s", e)
+            return {}
+
+    def emergency_close_all(self) -> Dict:
+        """Cancel ALL open orders and market-close ALL positions (reduce-only).
+
+        Safety kill-switch. Every step is best-effort and isolated so one
+        failure never aborts the rest. No builder fee is attached to the
+        closes — reliability is worth more than a few bps on a panic exit.
+        Returns a summary: cancelled order count, per-position close results,
+        and any errors encountered.
+        """
+        summary: Dict[str, Any] = {"cancelled_orders": 0, "closed_positions": [], "errors": []}
+
+        # 1. Cancel every open order across all instruments.
+        try:
+            for o in self.get_open_orders():
+                coin = o.get("coin", "")
+                oid = o.get("oid", "")
+                if not coin or oid == "":
+                    continue
+                try:
+                    self._exchange.cancel(coin, int(oid))
+                    summary["cancelled_orders"] += 1
+                except Exception as e:
+                    summary["errors"].append(f"cancel {coin}#{oid}: {e}")
+        except Exception as e:
+            summary["errors"].append(f"list_orders: {e}")
+
+        # 2. Market-close every open position.
+        try:
+            state = self.get_account_state()
+            positions = state.get("positions", []) if state else []
+        except Exception as e:
+            summary["errors"].append(f"account_state: {e}")
+            positions = []
+
+        for p in positions:
+            pos = p.get("position", {}) if isinstance(p, dict) else {}
+            coin = pos.get("coin", "")
+            try:
+                szi = float(pos.get("szi", 0) or 0)
+            except (TypeError, ValueError):
+                szi = 0.0
+            if not coin or szi == 0:
+                continue
+            try:
+                result = self._exchange.market_close(coin)
+                ok = isinstance(result, dict) and result.get("status") == "ok"
+            except Exception as e:
+                ok = False
+                summary["errors"].append(f"close {coin}: {e}")
+            summary["closed_positions"].append({"coin": coin, "size": szi, "ok": ok})
+
+        return summary
+
 
 class DirectMockProxy:
     """Mock adapter for dry-run / testing — no real HL connection."""
@@ -717,8 +846,10 @@ class DirectMockProxy:
         price: float,
         tif: str = "Ioc",
         builder: Optional[dict] = None,
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         self._last_tif = tif  # expose for testing
+        self._last_reduce_only = reduce_only  # expose for testing
         fill = HLFill(
             oid=f"mock-{int(time.time()*1000)}",
             instrument=instrument,
@@ -769,3 +900,20 @@ class DirectMockProxy:
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
         """Cancel a mock trigger order. Returns True if found and removed."""
         return self._trigger_orders.pop(oid, None) is not None
+
+    def schedule_cancel(self, time_ms: Optional[int]) -> bool:
+        """Record a mock dead-man's switch. Always succeeds."""
+        self._scheduled_cancel_ms = time_ms
+        return True
+
+    def get_order_status(self, oid) -> Optional[Dict]:
+        """Return a mock order-status payload."""
+        return {"oid": str(oid), "status": "mock"}
+
+    def get_funding_rates(self, coin: Optional[str] = None) -> Dict[str, float]:
+        """Derive mock funding rates from the mock market contexts."""
+        return _funding_rates_from_markets(self.get_all_markets(), coin)
+
+    def emergency_close_all(self) -> Dict:
+        """Mock kill-switch — no real positions, returns an empty summary."""
+        return {"cancelled_orders": 0, "closed_positions": [], "errors": []}
