@@ -51,6 +51,7 @@ def _ensure_root_on_path() -> None:
 # --------------------------------------------------------------------------- #
 # Member spec parsing: --member "name=gold;strategy=engine_mm;market=xyz:GOLD;\
 #   preset=house;args=--mock --max-ticks 30"
+# Optional `wallet` is a raw HL private key or env reference (env:MEMBER_KEY).
 # Only `strategy` is required. `args` is whitespace-split into extra_args.
 # --------------------------------------------------------------------------- #
 def _parse_member(spec_str: str):
@@ -149,7 +150,10 @@ def house_up(
     ),
     member: List[str] = typer.Option(
         None, "--member", "-m",
-        help="Member spec 'strategy=engine_mm;market=xyz:GOLD;args=--mock'. Repeatable.",
+        help=(
+            "Member spec 'strategy=engine_mm;market=xyz:GOLD;"
+            "wallet=env:MEMBER_KEY;args=--mock'. Repeatable."
+        ),
     ),
 ):
     """Spawn the fleet and hold it in the foreground until Ctrl-C."""

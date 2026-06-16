@@ -11,7 +11,12 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from cli.builder_fee import BuilderFeeConfig
-from cli.fleet_supervisor import FleetSupervisor, resolve_python, parse_env_file
+from cli.fleet_supervisor import (
+    FleetSupervisor,
+    parse_env_file,
+    resolve_member_wallet,
+    resolve_python,
+)
 from cli.standing_aggregator import StandingAggregator
 from common.fleet_models import FleetMemberSpec
 
@@ -162,6 +167,35 @@ class TestFleetSupervisorHelpers:
         )
         env = parse_env_file(f)
         assert env == {"FOO": "bar", "QUOTED": "hello world", "SINGLE": "x"}
+
+    def test_resolve_member_wallet_env_reference(self, monkeypatch):
+        monkeypatch.setenv("MEMBER1_HL_PRIVATE_KEY", "0xmember")
+        assert resolve_member_wallet("env:MEMBER1_HL_PRIVATE_KEY") == "0xmember"
+
+    def test_build_env_does_not_inherit_parent_wallet(self, monkeypatch):
+        monkeypatch.setenv("HL_PRIVATE_KEY", "0xparent")
+        sup = FleetSupervisor()
+        spec = FleetMemberSpec(name="g", strategy="engine_mm")
+        assert "HL_PRIVATE_KEY" not in sup._build_env(spec)
+
+    def test_build_env_sets_explicit_member_wallet(self, monkeypatch):
+        monkeypatch.setenv("HL_PRIVATE_KEY", "0xparent")
+        sup = FleetSupervisor()
+        spec = FleetMemberSpec(name="g", strategy="engine_mm", wallet="0xmember")
+        env = sup._build_env(spec)
+        assert env["HL_PRIVATE_KEY"] == "0xmember"
+
+    def test_build_env_sets_member_wallet_from_env_reference(self, monkeypatch):
+        monkeypatch.setenv("HL_PRIVATE_KEY", "0xparent")
+        monkeypatch.setenv("MEMBER2_HL_PRIVATE_KEY", "0xmember2")
+        sup = FleetSupervisor()
+        spec = FleetMemberSpec(
+            name="g",
+            strategy="engine_mm",
+            wallet="env:MEMBER2_HL_PRIVATE_KEY",
+        )
+        env = sup._build_env(spec)
+        assert env["HL_PRIVATE_KEY"] == "0xmember2"
 
     def test_build_args_run(self):
         sup = FleetSupervisor()

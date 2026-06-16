@@ -89,6 +89,27 @@ def presets_dir() -> Path:
     return _repo_root() / "configs" / "presets"
 
 
+def resolve_member_wallet(wallet: Optional[str]) -> Optional[str]:
+    """Resolve FleetMemberSpec.wallet into the child HL_PRIVATE_KEY value.
+
+    Supported formats:
+      - raw private key: "0xabc..." (or without 0x)
+      - env reference: "env:MEMBER1_HL_PRIVATE_KEY"
+    """
+    if not wallet:
+        return None
+    wallet = wallet.strip()
+    if wallet.startswith("env:"):
+        env_name = wallet[len("env:"):].strip()
+        if not env_name:
+            raise ValueError("wallet=env: requires an environment variable name")
+        value = os.environ.get(env_name)
+        if not value:
+            raise ValueError(f"wallet env var {env_name!r} is not set")
+        return value
+    return wallet
+
+
 class FleetSupervisor:
     """In-process supervisor for a fleet of agent-cli trading subprocesses."""
 
@@ -202,12 +223,20 @@ class FleetSupervisor:
         return "·".join(parts) if parts else spec.strategy
 
     def _build_env(self, spec: FleetMemberSpec) -> Dict[str, str]:
-        """os.environ + preset .env (preset wins over inherited env)."""
+        """Build an isolated child env.
+
+        Parent HL_PRIVATE_KEY is not inherited by default; presets may provide
+        it, and an explicit member wallet overrides both.
+        """
         env: Dict[str, str] = dict(os.environ)
+        env.pop("HL_PRIVATE_KEY", None)
         if spec.preset:
             preset_file = presets_dir() / f"{spec.preset}.env"
             if preset_file.exists():
                 env.update(parse_env_file(preset_file))
+        member_wallet = resolve_member_wallet(spec.wallet)
+        if member_wallet:
+            env["HL_PRIVATE_KEY"] = member_wallet
         return env
 
     def _build_args(self, spec: FleetMemberSpec) -> List[str]:
