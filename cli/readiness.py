@@ -265,9 +265,10 @@ def check_ai_provider_key() -> Dict[str, Any]:
     found = [name for name in candidates if os.environ.get(name)]
     if found:
         return _check("ai_provider_key", "pass", f"AI provider key set: {found[0]}")
-    return _check("ai_provider_key", "fail",
-                  "no AI provider key in env (set one of "
-                  + ", ".join(candidates) + "); only needed for LLM strategies")
+    return _check("ai_provider_key", "na",
+                  "no AI provider key in env; only needed when preparing "
+                  "LLM-driven strategies (set one of "
+                  + ", ".join(candidates) + ")")
 
 
 def check_fleet_health() -> Dict[str, Any]:

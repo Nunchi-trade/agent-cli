@@ -20,6 +20,7 @@ if _root not in sys.path:
 from cli.readiness import (
     HL_TESTNET_ONBOARD_URL,
     build_readiness_report,
+    check_ai_provider_key,
     check_fleet_health,
     check_oracle_freshness,
 )
@@ -104,9 +105,16 @@ class TestReadinessLogic:
         report = build_readiness_report(probe_network=False)
         assert report["ready"] is False
         ids = {c["id"]: c for c in report["checks"]}
-        # No wallet + no key + no builder + no AI key => these are blocking.
+        # No wallet is blocking; missing AI key is not, because deterministic
+        # strategies do not need an LLM provider.
         assert ids["wallet_configured"]["status"] == "fail"
-        assert ids["ai_provider_key"]["status"] == "fail"
+        assert ids["ai_provider_key"]["status"] == "na"
+        assert "ai_provider_key" not in report["summary"]["blocking_ids"]
+
+    def test_missing_ai_key_does_not_block_non_llm_readiness(self, clean_wallet_env):
+        check = check_ai_provider_key()
+        assert check["status"] == "na"
+        assert "only needed" in check["detail"]
 
     def test_builder_configured_by_default(self, clean_wallet_env):
         # BuilderFeeConfig defaults to the Nunchi wallet, so builder_code passes
