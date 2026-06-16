@@ -25,9 +25,9 @@ _READ_ONLY_TOOLS = {
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
-    "trade", "run_strategy", "apex_run", "emergency_close_all",
+    "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
 }
-# Everything else (wallet_auto, radar_run, reflect_run, schedule_cancel) is
+# Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
 
 
@@ -67,7 +67,8 @@ def create_mcp_server():
         instructions=(
             "Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, "
             "REFLECT reviews. Always confirm details with the user before calling "
-            "destructive tools (trade, run_strategy, apex_run, emergency_close_all). "
+            "destructive tools (trade, run_strategy, apex_run, schedule_cancel, "
+            "emergency_close_all). "
             "emergency_close_all requires confirm=true."
         ),
     )
