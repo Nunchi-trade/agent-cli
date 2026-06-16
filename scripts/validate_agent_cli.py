@@ -5,13 +5,15 @@ Profiles:
   quick       Fast local sanity checks: imports, compile, focused pytest, CLI help.
   full        All local test cases plus static/CLI/Node checks.
   e2e         full + non-destructive mock CLI flows in an isolated HOME/data dir.
-  production  e2e + read-only live exchange probes, gated by explicit opt-in.
+  production  e2e + read-only live exchange probes, gated by explicit opt-in
+              and explicit operator credentials.
 
 Safety:
   - No profile places orders, approves builder fees, or mutates live account state.
   - Mock/e2e flows run with a temporary HOME and HL_TESTNET=true.
   - production refuses to run live probes unless --allow-live or
-    AGENT_CLI_ALLOW_LIVE=1 is set.
+    AGENT_CLI_ALLOW_LIVE=1 is set and the operator HOME/env has live
+    credentials (HL_PRIVATE_KEY, HL_KEYSTORE_PASSWORD, or ~/.hl-agent/env).
 """
 from __future__ import annotations
 
@@ -408,7 +410,7 @@ def mcp_factory_gate_code() -> str:
     )
 
 
-def production_cases(python: str, mainnet: bool) -> list[TestCase]:
+def production_cases(python: str, mainnet: bool, live_data_root: Path) -> list[TestCase]:
     network_flag = ["--mainnet"] if mainnet else []
     return [
         TestCase(
@@ -422,7 +424,10 @@ def production_cases(python: str, mainnet: bool) -> list[TestCase]:
         TestCase(
             name="live_status_read",
             stage="production_readonly",
-            command=python_cmd(["-m", "cli.main", "status"], python),
+            command=python_cmd(
+                ["-m", "cli.main", "status", "--data-dir", str(live_data_root / "cli")],
+                python,
+            ),
             timeout_s=45,
             profiles=("production",),
             live_probe=True,
@@ -441,6 +446,8 @@ def production_cases(python: str, mainnet: bool) -> list[TestCase]:
                     "5",
                     "--score-threshold",
                     "9999",
+                    "--data-dir",
+                    str(live_data_root / "radar"),
                 ],
                 python,
             ),
@@ -527,7 +534,7 @@ def run_case(case: TestCase, env: dict[str, str]) -> TestResult:
     )
 
 
-def build_env(home: Path, data_root: Path, mainnet: bool) -> dict[str, str]:
+def build_sandbox_env(home: Path, data_root: Path, mainnet: bool) -> dict[str, str]:
     env = dict(os.environ)
     env.update(
         {
@@ -539,6 +546,31 @@ def build_env(home: Path, data_root: Path, mainnet: bool) -> dict[str, str]:
         }
     )
     return env
+
+
+def build_live_env(data_root: Path, mainnet: bool) -> dict[str, str]:
+    """Build env for production read-only probes.
+
+    This deliberately preserves the operator's HOME and credential environment
+    instead of reusing the sandbox HOME populated by wallet_auto_sandbox.
+    """
+    env = dict(os.environ)
+    env.update(
+        {
+            "HL_TESTNET": "false" if mainnet else "true",
+            "PYTHONUNBUFFERED": "1",
+            "NUNCHI_VALIDATION": "1",
+            "DATA_DIR": str(data_root),
+        }
+    )
+    return env
+
+
+def has_explicit_live_credentials(env: dict[str, str]) -> bool:
+    if env.get("HL_PRIVATE_KEY") or env.get("HL_KEYSTORE_PASSWORD"):
+        return True
+    home = Path(env.get("HOME") or str(Path.home())).expanduser()
+    return (home / ".hl-agent" / "env").exists()
 
 
 def write_report(results: list[TestResult], report_path: Path, profile: str) -> None:
@@ -583,7 +615,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile", choices=("quick", "full", "e2e", "production"), default="full")
     parser.add_argument("--python", default=sys.executable, help="Python interpreter used for checks")
     parser.add_argument("--quick-pytest", action="store_true", help="Run the focused pytest subset even outside quick profile")
-    parser.add_argument("--allow-live", action="store_true", help="Allow production read-only live probes")
+    parser.add_argument(
+        "--allow-live",
+        action="store_true",
+        help="Allow production read-only live probes using explicit operator credentials",
+    )
     parser.add_argument("--mainnet", action="store_true", help="Use mainnet for production live probes")
     parser.add_argument("--report", default="", help="JSON report path (default: data/validation/<profile>-<ts>.json)")
     parser.add_argument("--list", action="store_true", help="List selected test cases without running them")
@@ -609,15 +645,17 @@ def main() -> int:
     sandbox_root = Path(sandbox.name)
     home = sandbox_root / "home"
     data_root = sandbox_root / "data"
+    live_data_root = sandbox_root / "live-data"
     home.mkdir(parents=True, exist_ok=True)
     data_root.mkdir(parents=True, exist_ok=True)
+    live_data_root.mkdir(parents=True, exist_ok=True)
 
     try:
         cases = [
             *base_cases(args.python, quick_pytest=quick_pytest),
             *node_cases(),
             *e2e_cases(args.python, data_root),
-            *production_cases(args.python, mainnet=args.mainnet),
+            *production_cases(args.python, mainnet=args.mainnet, live_data_root=live_data_root),
         ]
         selected = [case for case in cases if profile_includes(args.profile, case)]
 
@@ -627,13 +665,23 @@ def main() -> int:
                 print(f"{case.stage}/{case.name}{live}: {command_string(case.command)}")
             return 0
 
-        env = build_env(home, data_root, mainnet=args.mainnet)
+        sandbox_env = build_sandbox_env(home, data_root, mainnet=args.mainnet)
+        live_env = build_live_env(live_data_root, mainnet=args.mainnet)
+        if any(case.live_probe for case in selected) and not has_explicit_live_credentials(live_env):
+            print(
+                "Refusing production live probes without explicit live credentials. "
+                "Set HL_PRIVATE_KEY, HL_KEYSTORE_PASSWORD, or ~/.hl-agent/env in the operator HOME.",
+                file=sys.stderr,
+            )
+            return 2
+
         print(f"agent-cli validation profile={args.profile} repo={REPO_ROOT}")
         print(f"sandbox={sandbox_root}")
         print(f"cases={len(selected)}")
 
         results: list[TestResult] = []
         for case in selected:
+            env = live_env if case.live_probe else sandbox_env
             result = run_case(case, env)
             results.append(result)
             print_result(result)
