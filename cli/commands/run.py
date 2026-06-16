@@ -67,17 +67,6 @@ def run_cmd(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    # ── Session policy guard (local; permissive if no policy configured) ──
-    from cli.session_policy import ACTION_RUN, guard_or_exit
-
-    guard_or_exit(
-        ACTION_RUN,
-        policy_path=str(policy) if policy else None,
-        network="mainnet" if mainnet else "testnet",
-        strategy=strategy,
-        market=instrument,
-    )
-
     from cli.config import TradingConfig
     from cli.strategy_registry import resolve_instrument, resolve_strategy_path
 
@@ -94,6 +83,26 @@ def run_cmd(
     cfg.dry_run = dry_run
     cfg.max_ticks = max_ticks
     cfg.data_dir = data_dir
+
+    # ── Session policy guard (local; permissive if no policy configured) ──
+    from cli.session_policy import ACTION_RUN, guard_or_exit, load_policy_or_exit
+
+    policy_path = str(policy) if policy else None
+    active_policy = load_policy_or_exit(policy_path)
+    signer_wallet = None
+    private_key = None
+    if active_policy and active_policy.wallets:
+        private_key = cfg.get_private_key()
+        signer_wallet = cfg.get_wallet_address(private_key)
+
+    guard_or_exit(
+        ACTION_RUN,
+        policy_path=policy_path,
+        wallet=signer_wallet,
+        network="mainnet" if cfg.mainnet else "testnet",
+        strategy=cfg.strategy,
+        market=cfg.instrument,
+    )
 
     # Setup logging
     logging.basicConfig(
@@ -235,7 +244,7 @@ def run_cmd(
         from cli.hl_adapter import DirectHLProxy
         from parent.hl_proxy import HLProxy
 
-        private_key = cfg.get_private_key()
+        private_key = private_key or cfg.get_private_key()
         raw_hl = HLProxy(private_key=private_key, testnet=not cfg.mainnet)
         hl = DirectHLProxy(raw_hl)
         network = "mainnet" if cfg.mainnet else "testnet"

@@ -339,6 +339,60 @@ class TestPolicyCli:
         assert "--policy" in result.stdout
 
 
+class TestWalletPolicyWiring:
+    def _app(self):
+        from cli.main import app
+        return app
+
+    def _stub_private_key(self, monkeypatch):
+        import cli.config as cfgmod
+
+        monkeypatch.setattr(
+            cfgmod.TradingConfig,
+            "get_private_key",
+            lambda self: "0x" + "1" * 64,
+            raising=True,
+        )
+
+    def test_run_wallet_allowlist_refuses_wrong_signer_before_loop(self, monkeypatch):
+        monkeypatch.delenv("NUNCHI_SESSION_POLICY", raising=False)
+        self._stub_private_key(monkeypatch)
+
+        result = runner.invoke(
+            self._app(),
+            [
+                "run",
+                "engine_mm",
+                "--mock",
+                "--max-ticks",
+                "1",
+                "--policy",
+                '{"wallets": ["0x000000000000000000000000000000000000dEaD"]}',
+            ],
+        )
+        assert result.exit_code == 2
+        assert "REFUSED by session policy" in result.output
+        assert "allowed signer list" in result.output
+
+    def test_builder_approve_wallet_allowlist_refuses_before_approval(self, monkeypatch):
+        monkeypatch.delenv("NUNCHI_SESSION_POLICY", raising=False)
+        self._stub_private_key(monkeypatch)
+
+        result = runner.invoke(
+            self._app(),
+            [
+                "builder",
+                "approve",
+                "--yes",
+                "--policy",
+                '{"wallets": ["0x000000000000000000000000000000000000dEaD"]}',
+            ],
+        )
+        assert result.exit_code == 2
+        assert "REFUSED by session policy" in result.output
+        assert "allowed signer list" in result.output
+
+
 # ---------------------------------------------------------------------------
 # CLI wiring — `hl trade` refusal with a stubbed proxy (no network)
 # ---------------------------------------------------------------------------

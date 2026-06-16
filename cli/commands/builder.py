@@ -26,19 +26,29 @@ def builder_approve(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    # ── Session policy guard (local; permissive if no policy configured) ──
-    from cli.session_policy import ACTION_BUILDER_APPROVE, guard_or_exit
-
-    guard_or_exit(
-        ACTION_BUILDER_APPROVE,
-        policy_path=str(policy) if policy else None,
-        network="mainnet" if mainnet else "testnet",
-    )
-
     from cli.builder_fee import BuilderFeeConfig
     from cli.config import TradingConfig
 
     cfg = TradingConfig()
+
+    # ── Session policy guard (local; permissive if no policy configured) ──
+    from cli.session_policy import ACTION_BUILDER_APPROVE, guard_or_exit, load_policy_or_exit
+
+    policy_path = str(policy) if policy else None
+    active_policy = load_policy_or_exit(policy_path)
+    signer_wallet = None
+    private_key = None
+    if active_policy and active_policy.wallets:
+        private_key = cfg.get_private_key()
+        signer_wallet = cfg.get_wallet_address(private_key)
+
+    guard_or_exit(
+        ACTION_BUILDER_APPROVE,
+        policy_path=policy_path,
+        wallet=signer_wallet,
+        network="mainnet" if mainnet else "testnet",
+    )
+
     builder_cfg = cfg.get_builder_config()
 
     if not builder_cfg.enabled:
@@ -59,7 +69,7 @@ def builder_approve(
 
     from parent.hl_proxy import HLProxy
 
-    private_key = cfg.get_private_key()
+    private_key = private_key or cfg.get_private_key()
     hl = HLProxy(private_key=private_key, testnet=not mainnet)
     hl._ensure_client()
 

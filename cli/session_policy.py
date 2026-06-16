@@ -283,6 +283,17 @@ def load_policy(explicit_path: Optional[str] = None) -> Optional[SessionPolicy]:
     return SessionPolicy.from_dict(data)
 
 
+def load_policy_or_exit(explicit_path: Optional[str] = None) -> Optional[SessionPolicy]:
+    """Load policy for CLI callers and render parse errors consistently."""
+    import typer
+
+    try:
+        return load_policy(explicit_path)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
+        typer.echo(f"Session policy error: {e}", err=True)
+        raise typer.Exit(2)
+
+
 # ---------------------------------------------------------------------------
 # Daily notional counters — local, self-contained JSON store.
 # Keyed by (wallet, network, workspace) with UTC-midnight rollover.
@@ -467,11 +478,7 @@ def guard_or_exit(
     """
     import typer  # local import keeps pure-data import path typer-free
 
-    try:
-        policy = load_policy(policy_path)
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
-        typer.echo(f"Session policy error: {e}", err=True)
-        raise typer.Exit(2)
+    policy = load_policy_or_exit(policy_path)
 
     if policy is None:
         return None  # permissive default — unchanged behaviour
