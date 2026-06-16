@@ -33,15 +33,16 @@ async function autoOnboard() {
 
   console.log("[onboard] Running auto-onboard...");
 
+  let telegramChatId = null;
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_USERNAME) {
     try {
-      const chatId = await resolveTelegramChatId(
+      telegramChatId = await resolveTelegramChatId(
         process.env.TELEGRAM_BOT_TOKEN,
         process.env.TELEGRAM_USERNAME,
       );
-      if (chatId) {
-        console.log(`[onboard] Resolved Telegram chat ID: ${chatId}`);
-        const userMd = `# User\n\nTelegram chat ID: ${chatId}\nUsername: ${process.env.TELEGRAM_USERNAME}\n`;
+      if (telegramChatId) {
+        console.log(`[onboard] Resolved Telegram chat ID: ${telegramChatId}`);
+        const userMd = `# User\n\nTelegram chat ID: ${telegramChatId}\nUsername: ${process.env.TELEGRAM_USERNAME}\n`;
         writeFileSync(join(HERMES_HOME, "workspace", "USER.md"), userMd);
       }
     } catch (err) {
@@ -54,6 +55,7 @@ async function autoOnboard() {
       await sendTelegramMessage(
         process.env.TELEGRAM_BOT_TOKEN,
         "Nunchi Hermes agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
+        telegramChatId,
       );
       console.log("[onboard] Sent ready message to Telegram");
     } catch (err) {
@@ -91,11 +93,12 @@ async function resolveTelegramChatId(botToken, username) {
   return null;
 }
 
-async function sendTelegramMessage(botToken, text) {
-  const data = await fetchJson(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
-  if (!data.ok || !data.result || data.result.length === 0) return;
-
-  const chatId = data.result[0].message?.chat?.id;
+async function sendTelegramMessage(botToken, text, chatId = null) {
+  if (!chatId) {
+    const data = await fetchJson(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
+    if (!data.ok || !data.result || data.result.length === 0) return;
+    chatId = data.result[0].message?.chat?.id;
+  }
   if (!chatId) return;
 
   await fetchJson(`https://api.telegram.org/bot${botToken}/sendMessage`, {

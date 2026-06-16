@@ -8,6 +8,7 @@
  *   4. Serve health checks + Nunchi /api/* + proxy everything else to dashboard
  */
 const express = require("express");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
@@ -24,6 +25,7 @@ const GATEWAY_PORT = parseInt(process.env.INTERNAL_GATEWAY_PORT || "9119", 10);
 const START_TIME = Date.now();
 const AGENT_CLI_DIR = "/agent-cli";
 const DATA_DIR = process.env.DATA_DIR || "/data";
+const CONTROL_API_TOKEN = process.env.CONTROL_API_TOKEN || "";
 
 const proxy = httpProxy.createProxyServer({
   target: `http://${GATEWAY_HOST}:${GATEWAY_PORT}`,
@@ -52,10 +54,33 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 app.use("/api", (req, res, next) => {
   res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Token");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+
+function tokensEqual(a, b) {
+  const left = Buffer.from(a || "");
+  const right = Buffer.from(b || "");
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requireControlAuth(req, res, next) {
+  if (!CONTROL_API_TOKEN) {
+    return res.status(503).json({
+      error: "control_auth_required",
+      message: "Set CONTROL_API_TOKEN to enable mutating control endpoints.",
+    });
+  }
+
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const provided = bearer || req.get("x-api-token") || "";
+  if (!tokensEqual(provided, CONTROL_API_TOKEN)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  return next();
+}
 
 app.get("/status", async (req, res) => {
   try {
@@ -118,7 +143,7 @@ app.post("/api/skill/install", express.json(), (req, res) => {
   }
 });
 
-app.post("/api/pause", (req, res) => {
+app.post("/api/pause", requireControlAuth, (req, res) => {
   const gw = getGatewayProcess();
   if (gw && !gw.killed) {
     try {
@@ -132,7 +157,7 @@ app.post("/api/pause", (req, res) => {
   }
 });
 
-app.post("/api/resume", (req, res) => {
+app.post("/api/resume", requireControlAuth, (req, res) => {
   const gw = getGatewayProcess();
   if (gw && !gw.killed) {
     try {
@@ -146,7 +171,7 @@ app.post("/api/resume", (req, res) => {
   }
 });
 
-app.post("/api/configure", express.json(), (req, res) => {
+app.post("/api/configure", requireControlAuth, express.json(), (req, res) => {
   const configPath = path.join(DATA_DIR, "apex", "config-override.json");
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
