@@ -592,7 +592,7 @@ python leaderboard.py serve --port 8090
 
 ## MCP Server
 
-The MCP server exposes 16 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
+The MCP server exposes 20 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
 
 ### Starting the Server
 
@@ -711,6 +711,43 @@ Returns:
   "passed": true
 }
 ```
+
+#### `treadfi_spec_status()`
+
+Report whether the TreadFi endpoint/MCP contract is present. This is read-only
+and does not call TreadFi.
+
+```
+Tool: treadfi_spec_status
+Args: (none)
+```
+
+Returns JSON with `status`, missing contract fields, and known local `agent-cli`
+context.
+
+#### `treadfi_capabilities()`
+
+List local TreadFi placeholders and blocked live capabilities.
+
+```
+Tool: treadfi_capabilities
+Args: (none)
+```
+
+Returns JSON that marks live TreadFi discovery unavailable until Eng provides the
+real contract.
+
+#### `treadfi_market_params(instrument="BTCSWP-USDYP")`
+
+Show locally known BTCSWP identifiers and missing live market parameters.
+
+```
+Tool: treadfi_market_params
+Args: { "instrument": "BTCSWP-USDYP" }
+```
+
+Returns JSON with the local `BTCSWP-USDYP` / `yex:BTCSWP` identifiers and the
+TreadFi fields still missing from the live contract.
 
 ### Action Tools (Subprocess, seconds to minutes)
 
@@ -1052,6 +1089,9 @@ else:
 | `wallet_list` | Fast | <100ms | None |
 | `wallet_auto` | Fast | <500ms | Creates keystore file |
 | `setup_check` | Fast | <100ms | None |
+| `treadfi_spec_status` | Fast | <100ms | None |
+| `treadfi_capabilities` | Fast | <100ms | None |
+| `treadfi_market_params` | Fast | <100ms | None |
 | `account` | Subprocess | 1-5s | None |
 | `status` | Subprocess | <1s | None |
 | `trade` | Subprocess | 1-5s | Places order on HL |

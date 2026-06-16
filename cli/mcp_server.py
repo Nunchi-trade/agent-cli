@@ -150,6 +150,31 @@ def create_mcp_server():
         }, indent=2)
 
     @mcp.tool()
+    def treadfi_spec_status() -> str:
+        """Report whether the TreadFi endpoint/MCP contract is present."""
+        from modules import treadfi_contract
+
+        return json.dumps(treadfi_contract.spec_status(), indent=2)
+
+    @mcp.tool()
+    def treadfi_capabilities() -> str:
+        """List local TreadFi placeholders and blocked live capabilities."""
+        from modules import treadfi_contract
+
+        return json.dumps(treadfi_contract.capabilities(), indent=2)
+
+    @mcp.tool()
+    def treadfi_market_params(instrument: str = "BTCSWP-USDYP") -> str:
+        """Show locally known BTCSWP identifiers and missing live params.
+
+        Args:
+            instrument: Requested market identifier (default: BTCSWP-USDYP)
+        """
+        from modules import treadfi_contract
+
+        return json.dumps(treadfi_contract.market_params(instrument=instrument), indent=2)
+
+    @mcp.tool()
     def account(mainnet: bool = False) -> str:
         """Get Hyperliquid account state (balances, positions)."""
         # Account requires live HL connection — use subprocess for isolation

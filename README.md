@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/strategies-14-C9A84C" alt="Strategies" />
   <img src="https://img.shields.io/badge/tests-483%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-16%20tools-8A2BE2" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP-20%20tools-8A2BE2" alt="MCP" />
 </p>
 
 <p align="center">
@@ -481,9 +481,9 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**16 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`
+**20 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`, `treadfi_spec_status`, `treadfi_capabilities`, `treadfi_market_params`
 
-Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
+Fast tools (strategies, builder, wallet, setup, memory, journal, judge, TreadFi status) call Python directly — zero subprocess overhead.
 
 ### HTTP API & SSE
 
@@ -533,7 +533,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 **What you get:**
 - OpenClaw gateway with web UI at `/openclaw`
 - Telegram integration — chat with your bot to start/stop trading, run scans, check status
-- Our 13 MCP trading tools as the agent's primary capabilities
+- Our MCP trading tool catalog as the agent's primary capabilities
 - Persistent state across redeploys via `/data` volume
 - Auto-onboard: bot sends "Agent ready" to Telegram on first deploy
 - REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
@@ -572,7 +572,7 @@ hl run engine_mm -i BTCSWP-USDYP --tick 10
 ```
 cli/           CLI commands and trading engine
   commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
-  mcp_server.py  MCP server (16 tools via FastMCP)
+  mcp_server.py  MCP server (20 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)
