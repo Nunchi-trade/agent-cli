@@ -1,11 +1,37 @@
-# TreadFi Agent/MCP Integration Contract
+# Tread.fi Agent CLI Integration Plan
 
-Status: blocked on TreadFi/Eng endpoint specs.
+Status: public Tread.fi REST docs reviewed; implementation should proceed as a
+REST client integration, not as a native MCP-server integration.
 
-This document is the source-of-truth request for wiring TreadFi capabilities into
-`agent-cli`. It intentionally does not define TreadFi URLs, payloads, tool names,
-or auth headers. Those must come from the TreadFi/Eng contract before live client
-or execution code is added.
+This document specifies how `agent-cli` should wire Tread.fi capabilities into
+the existing `hl` CLI and FastMCP tool catalog. It focuses on the public REST API
+surface documented at `docs.tread.fi` and keeps write operations behind explicit
+safety gates.
+
+## Source Docs
+
+Public Tread.fi docs establish these integration facts:
+
+- API access requires an API token requested from Tread.fi.
+- The REST examples use a configurable `SERVER_URL` with an `/api/` prefix.
+- Examples and API reference cover accounts, balances, single orders,
+  multi-orders, simple orders, algorithmic orders, and risk/admin endpoints.
+- Order lifecycle endpoints include list, active, submit, get, cancel, pause,
+  resume, amend, and cancel/pause/resume-all.
+- Simple orders use `POST /api/orders/` with strategies `Market`, `Limit`,
+  `IOC`, or `Iceberg`.
+- Algorithmic orders use `POST /api/orders/` with strategies such as `TWAP`,
+  `VWAP`, `POV`, `IS`, and `Target Time`.
+- Hyperliquid account linking is performed through Tread.fi Key Management in
+  the web app. Tread.fi supports Hyperliquid, including HIP-3, once the account
+  is connected there.
+- The Market Maker Bot docs describe the product flow but do not clearly expose
+  a dedicated bot-management REST endpoint.
+
+Important ambiguity: most API docs say `Authorization: Token <API_KEY>`, while a
+few example snippets say `Authorization: Bearer <token>`. The client should
+default to `Token` but make the auth scheme configurable until confirmed with
+Tread.fi.
 
 ## Existing Agent CLI Surfaces
 
@@ -15,57 +41,122 @@ or execution code is added.
 - MCP: `hl mcp serve`, implemented by `cli/commands/mcp.py` and the explicit
   FastMCP tool catalog in `cli/mcp_server.py`.
 
-Unlike newer dynamic command exporters, this MCP server does not automatically
-publish every Typer command. Any TreadFi command added under `hl treadfi ...`
-must also be explicitly registered as an MCP tool.
+Unlike dynamic command exporters, this MCP server does not automatically publish
+every Typer command. Any Tread.fi command added under `hl treadfi ...` must also
+be explicitly registered as an MCP tool.
 
-## Required TreadFi Contract
+## Configuration
 
-Eng/TreadFi must provide one source-of-truth contract before live wiring:
+Add a small Tread.fi config module that resolves:
 
-- Transport: native MCP server, REST API, WebSocket, or stdio runner.
-- Environments: production, sandbox/testnet, base URLs, and health checks.
-- Auth: header/query scheme, token scopes, secret names, rotation, and hosted
-  agent handling for Railway/OpenClaw deployments.
-- Discovery: how an agent lists supported TreadFi capabilities, markets, and
-  actions.
-- Market data: BTCSWP oracle/reference price, band definitions, market params,
-  depth snapshots, update cadence, pagination, and sample responses.
-- Campaign reporting: maker attribution, eligible fills, depth-time, leaderboard,
-  cHIP/bounty status, and anti-wash flags if exposed.
-- Execution, if supported: quote/order/cancel endpoints, idempotency keys,
-  cloid/tagging/attribution fields, sandbox behavior, and error schema.
-- Operations: rate limits, retry policy, timeout expectations, and expected
-  failure modes.
-- Fixtures: representative request/response payloads for every supported action.
+- `TREADFI_API_BASE_URL`: required for live calls. No production URL should be
+  hardcoded because the docs use a configurable server URL.
+- `TREADFI_API_TOKEN`: required for live calls.
+- `TREADFI_AUTH_SCHEME`: optional, defaults to `Token`.
+- `TREADFI_TIMEOUT_SECONDS`: optional, defaults to a conservative short timeout.
+- `TREADFI_DRY_RUN`: optional, defaults to true for write commands.
 
-## Initial Agent CLI Shape
+Secrets should be read from environment variables only. Do not reuse
+`HL_PRIVATE_KEY`; Tread.fi auth is a platform API token, not a Hyperliquid
+signing key.
 
-Until the real contract exists, implementation should stay read-only:
+## Client Layer
 
-- `hl treadfi spec-status`: report which contract fields are present or missing.
-- `hl treadfi capabilities`: report known local capability placeholders and mark
-  live discovery unavailable.
-- `hl treadfi market-params`: report only confirmed, locally documented BTCSWP
-  fields and mark unconfirmed values as missing.
+Add a typed REST wrapper, for example `modules/treadfi_client.py`, with:
 
-These commands can be useful to agents because they make the blocked state
-machine-readable without pretending a live TreadFi endpoint exists.
+- `TreadFiConfig.from_env()`
+- `TreadFiClient`
+- `TreadFiError`
+- request helpers for JSON responses and structured error messages
+
+Initial read methods:
+
+- `list_accounts()` -> `GET /api/accounts/`
+- `get_balances(account_names=None)` -> `GET /api/balances/`
+- `list_orders(...)` -> `GET /api/orders/`
+- `list_active_orders()` -> `GET /api/active_orders/`
+- `get_order(order_id)` -> `GET /api/order/{id}`
+- `get_order_summary(order_id)` -> `GET /api/order_summary/{id}`
+- `list_multi_orders(...)` -> `GET /api/multi_orders/`
+- `get_multi_order(order_id, include_child_orders=False)` ->
+  `GET /api/multi_order/{id}`
+
+Write methods should exist only after the read client is covered by tests:
+
+- `submit_order(payload)` -> `POST /api/orders/`
+- `cancel_order(order_id)` -> `DELETE /api/order/{id}`
+- `pause_order(order_id)` -> `POST /api/pause_order/`
+- `resume_order(order_id)` -> `POST /api/resume_order/`
+- `amend_order(payload)` -> `POST /api/amend_order/`
+- `cancel_all_orders(...)` -> `POST /api/cancel_all_orders/`
+
+Do not implement admin/risk-limit endpoints in the first pass. Those require
+staff/admin permissions and should live in a separate operator-only PR.
+
+## CLI Shape
+
+Add `cli/commands/treadfi.py` and register it in `cli/main.py`:
+
+Read-only commands:
+
+- `hl treadfi accounts ls`
+- `hl treadfi balances [--account NAME]`
+- `hl treadfi orders ls [--active] [--status STATUS] [--account NAME]`
+- `hl treadfi orders show ORDER_ID [--summary]`
+- `hl treadfi multi-orders ls`
+- `hl treadfi multi-orders show ORDER_ID [--children]`
+
+Write commands, all dry-run by default:
+
+- `hl treadfi orders submit --payload FILE [--execute]`
+- `hl treadfi orders cancel ORDER_ID [--execute]`
+- `hl treadfi orders pause ORDER_ID [--execute]`
+- `hl treadfi orders resume ORDER_ID [--execute]`
+- `hl treadfi orders amend --payload FILE [--execute]`
+
+The first write interface should accept a JSON payload file rather than many CLI
+flags. Tread.fi order payloads have strategy-specific fields, and a payload file
+keeps the CLI honest while tests lock down validation. Friendly typed flags can
+be added later for common cases like TWAP and Limit.
 
 ## MCP Tool Shape
 
-After the CLI skeleton exists, mirror it in `cli/mcp_server.py` with explicit
-read-only tools:
+Mirror the safe CLI reads in `cli/mcp_server.py`:
 
-- `treadfi_spec_status`
-- `treadfi_capabilities`
-- `treadfi_market_params`
+- `treadfi_accounts`
+- `treadfi_balances`
+- `treadfi_orders`
+- `treadfi_order`
+- `treadfi_multi_orders`
+- `treadfi_multi_order`
 
-Each MCP tool should share the same underlying module as the CLI commands so the
-CLI and agent behavior cannot drift.
+Write tools should not be exposed until we have Tread.fi sandbox credentials and
+can prove dry-run and `execute=true` behavior. If exposed later, each tool should
+require an explicit `execute: bool = False` argument and return the exact payload
+that would be sent when dry-run is active.
 
-## Live Wiring Gate
+## Safety Rules
 
-Do not add a live TreadFi client, credentials, trading adapter, or strategy
-execution path until the contract above is delivered with fixtures. If execution
-is included, add it in a separate PR behind dry-run/sandbox defaults and tests.
+- Default every order-mutating path to dry-run.
+- Require `--execute` for CLI writes and `execute=true` for MCP writes.
+- Require a caller-provided `custom_order_id` for write payloads so Tread.fi
+  orders are traceable back to agent intent.
+- Do not translate `agent-cli` strategy decisions into Tread.fi orders
+  automatically in the first implementation.
+- Do not implement a `VenueAdapter` first. Tread.fi is an OEMS/order router, not
+  a direct venue data/execution adapter in the same shape as Hyperliquid.
+- Do not assume the Tread.fi Market Maker Bot has a REST management endpoint.
+  Use generic order APIs until Tread.fi confirms a bot API.
+
+## PR Path
+
+1. Docs-only PR: this integration plan.
+2. Read-only client PR: config, REST client, account/balance/order reads, tests
+   with mocked HTTP responses.
+3. CLI read PR: `hl treadfi ...` read commands backed by the client.
+4. MCP read PR: explicit FastMCP tools for the same read surfaces.
+5. Write dry-run PR: payload-file submit/cancel/pause/resume/amend commands,
+   dry-run by default, no live network mutation without `--execute`.
+6. Write MCP PR: only after sandbox credentials and a verified test plan exist.
+7. Optional higher-level order builders: TWAP, Limit, and BTCSWP-specific payload
+   templates after Tread.fi confirms production pair naming and account setup.
