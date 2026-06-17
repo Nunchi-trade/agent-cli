@@ -1,13 +1,17 @@
 /**
- * Auto-onboard — configure OpenClaw with AI provider and Telegram on first deploy.
+ * Auto-onboard — resolve Telegram chat ID and send the ready message.
+ *
+ * Hermes loads config.yaml + .env on dashboard startup, so there's no
+ * separate onboard CLI step (unlike OpenClaw). This module exists only to
+ * (a) detect the operator's Telegram chat ID by username and (b) post the
+ * ready message once per fresh credential set.
  */
-const { execSync } = require("child_process");
 const { existsSync, readFileSync, writeFileSync } = require("fs");
 const { join } = require("path");
 const https = require("https");
 
-const STATE_DIR = process.env.OPENCLAW_STATE_DIR || "/data/.openclaw";
-const FINGERPRINT_PATH = join(STATE_DIR, ".env-fingerprint");
+const HERMES_HOME = process.env.HERMES_HOME || "/data/.hermes";
+const FINGERPRINT_PATH = join(HERMES_HOME, ".env-fingerprint");
 
 async function autoOnboard() {
   const aiProvider = process.env.AI_PROVIDER;
@@ -18,7 +22,6 @@ async function autoOnboard() {
     return;
   }
 
-  // Check if already configured with same env
   const fingerprint = computeFingerprint();
   if (existsSync(FINGERPRINT_PATH)) {
     const stored = readFileSync(FINGERPRINT_PATH, "utf-8").trim();
@@ -31,23 +34,6 @@ async function autoOnboard() {
   console.log("[onboard] Running auto-onboard...");
 
   let telegramChatId = null;
-
-  try {
-    // Run OpenClaw onboard
-    execSync("openclaw onboard --non-interactive --accept-risk", {
-      timeout: 60000,
-      stdio: "pipe",
-      env: {
-        ...process.env,
-        OPENCLAW_STATE_DIR: STATE_DIR,
-      },
-    });
-    console.log("[onboard] OpenClaw onboard complete");
-  } catch (err) {
-    console.warn("[onboard] OpenClaw onboard failed (may already be configured):", err.message);
-  }
-
-  // Resolve Telegram chat ID if username provided
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_USERNAME) {
     try {
       telegramChatId = await resolveTelegramChatId(
@@ -56,24 +42,19 @@ async function autoOnboard() {
       );
       if (telegramChatId) {
         console.log(`[onboard] Resolved Telegram chat ID: ${telegramChatId}`);
-        // Write USER.md with chat ID
         const userMd = `# User\n\nTelegram chat ID: ${telegramChatId}\nUsername: ${process.env.TELEGRAM_USERNAME}\n`;
-        writeFileSync(
-          join(process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace", "USER.md"),
-          userMd,
-        );
+        writeFileSync(join(HERMES_HOME, "workspace", "USER.md"), userMd);
       }
     } catch (err) {
       console.warn("[onboard] Could not resolve Telegram chat ID:", err.message);
     }
   }
 
-  // Send ready message to Telegram
   if (process.env.TELEGRAM_BOT_TOKEN) {
     try {
       await sendTelegramMessage(
         process.env.TELEGRAM_BOT_TOKEN,
-        "Nunchi trading agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
+        "Nunchi Hermes agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
         telegramChatId,
       );
       console.log("[onboard] Sent ready message to Telegram");
@@ -82,7 +63,6 @@ async function autoOnboard() {
     }
   }
 
-  // Store fingerprint
   writeFileSync(FINGERPRINT_PATH, fingerprint);
   console.log("[onboard] Onboarding complete");
 }
@@ -115,7 +95,6 @@ async function resolveTelegramChatId(botToken, username) {
 
 async function sendTelegramMessage(botToken, text, chatId = null) {
   if (!chatId) {
-    // Try to find a chat to send to when no username-specific chat was resolved.
     const data = await fetchJson(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
     if (!data.ok || !data.result || data.result.length === 0) return;
     chatId = data.result[0].message?.chat?.id;

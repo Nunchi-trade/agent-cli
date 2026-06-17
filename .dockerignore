@@ -1,5 +1,7 @@
 .git
 .github
+node_modules
+**/node_modules
 __pycache__
 *.pyc
 *.pyo

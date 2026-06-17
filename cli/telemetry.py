@@ -44,6 +44,8 @@ def _detect_deploy_mode() -> str:
         return "railway"
     if os.environ.get("OPENCLAW_STATE_DIR"):
         return "openclaw"
+    if os.environ.get("HERMES_HOME"):
+        return "hermes"
     return "local"
 
 
