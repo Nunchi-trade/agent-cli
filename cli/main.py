@@ -36,6 +36,7 @@ from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.house import house_app
+from cli.commands.policy import policy_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -55,6 +56,7 @@ app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(house_app, name="house", help="HOUSE — fleet launcher for trading subprocesses")
+app.add_typer(policy_app, name="policy", help="Session policy — local guard inspect/validate (no web-auth)")
 
 
 def main():

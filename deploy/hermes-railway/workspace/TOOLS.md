@@ -2,16 +2,7 @@
 
 ## MCP Server: nunchi_trading
 
-The primary tool provider. Reach it through the **mcporter** skill — it is registered
-as an mcporter stdio server (not a native gateway tool). Usage:
-
-```bash
-mcporter list nunchi_trading --schema      # list the server's tools + input schemas
-mcporter call nunchi_trading.account       # call a tool (no args)
-mcporter call nunchi_trading.trade instrument=ETH-PERP side=buy size=0.1
-```
-
-Exposes 13 trading tools via Model Context Protocol:
+The primary tool provider, registered in `config.yaml` under `mcp_servers.nunchi_trading`. Exposes 13 trading tools via Model Context Protocol:
 
 - `account` — Show HL account state (balance, margin, positions)
 - `status` — Current positions, PnL, and risk state
@@ -40,6 +31,17 @@ hl reflect run [--since DATE]
 hl house join <strategy> [--url URL]
 ```
 
+## Hermes Built-in Toolsets
+
+The trading MCP runs alongside Hermes's bundled toolsets. Useful ones:
+- `terminal` — run shell commands (e.g. `hl ...`)
+- `file` — read/write files in the workspace
+- `web` — search and extract live market context
+- `cronjob` — schedule recurring tasks
+- `skills` — list and view installed skills (e.g. trading playbooks)
+
+Toggle via `platform_toolsets` in `config.yaml`. The Telegram channel ships with the `hermes-telegram` preset by default.
+
 ## Shell
 
 Available: `python3`, `node`, `git`, `rg` (ripgrep), `curl`
@@ -52,4 +54,4 @@ APEX has built-in scheduling:
 - REFLECT performance review every 4 hours
 - Auto-parameter adjustment based on REFLECT findings
 
-For custom schedules, use the gateway's cron system.
+For custom schedules, use Hermes's `cronjob` toolset (`cronjob create ...`) or the gateway's cron system.
