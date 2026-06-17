@@ -1,6 +1,7 @@
 """hl apex — APEX autonomous strategy commands."""
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from pathlib import Path
@@ -63,23 +64,63 @@ def apex_once(
 
 
 @apex_app.command("status")
-def apex_status(data_dir: str = typer.Option("data/apex", "--data-dir")):
+def apex_status(
+    data_dir: str = typer.Option("data/apex", "--data-dir"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable status JSON"),
+):
     """Show current APEX state and positions."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
     from modules.apex_state import ApexStateStore
-    import time as _time
 
     store = ApexStateStore(path=f"{data_dir}/state.json")
     state = store.load()
 
     if not state:
+        if json_output:
+            typer.echo(json.dumps({"found": False, "data_dir": data_dir, "slots": [],
+                                   "positions": []}))
+            raise typer.Exit()
         typer.echo("No APEX state found. Run 'hl apex run' first.")
         raise typer.Exit()
 
     active = state.active_slots()
+
+    if json_output:
+        positions = [
+            {
+                "slot_id": s.slot_id,
+                "instrument": s.instrument,
+                "direction": s.direction,
+                "entry_price": s.entry_price,
+                "entry_size": s.entry_size,
+                "current_price": s.current_price,
+                "current_roe": s.current_roe,
+                "high_water_roe": s.high_water_roe,
+                "entry_source": s.entry_source,
+                "margin_allocated": s.margin_allocated,
+            }
+            for s in active
+        ]
+        payload = {
+            "found": True,
+            "data_dir": data_dir,
+            "run_state": "active" if active else "idle",
+            "tick_count": state.tick_count,
+            "max_slots": len(state.slots),
+            "active_slots": len(active),
+            "total_trades": state.total_trades,
+            "daily_pnl": state.daily_pnl,
+            "total_pnl": state.total_pnl,
+            "daily_loss_triggered": state.daily_loss_triggered,
+            "slots": [s.to_dict() for s in state.slots],
+            "positions": positions,
+        }
+        typer.echo(json.dumps(payload, indent=2, default=str))
+        raise typer.Exit()
+
     typer.echo(f"Ticks: {state.tick_count}  |  Active: {len(active)}/{len(state.slots)}  |  "
                f"Trades: {state.total_trades}")
     typer.echo(f"Daily PnL: ${state.daily_pnl:+.2f}  |  Total PnL: ${state.total_pnl:+.2f}")
@@ -95,6 +136,101 @@ def apex_status(data_dir: str = typer.Option("data/apex", "--data-dir")):
                        f"{s.current_roe:+.1f}%{'':>2} {s.entry_source:<16}")
     else:
         typer.echo("\nNo active positions.")
+
+
+@apex_app.command("proof")
+def apex_proof(
+    data_dir: str = typer.Option("data/apex", "--data-dir"),
+    json_output: bool = typer.Option(True, "--json/--no-json",
+                                     help="Emit the proof artifact as JSON to stdout"),
+):
+    """Run the APEX decision pipeline on a fixed fixture — NO live orders.
+
+    Drives the pure ApexEngine over a deterministic state/signal fixture so the
+    output is byte-stable. No venue adapter is constructed, so no order can be
+    placed. Writes the proof artifact to <data_dir>/proof/apex-proof.json and a
+    summary line to <data_dir>/events.jsonl.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from modules.apex_config import ApexConfig
+    from modules.apex_engine import ApexEngine
+    from modules.apex_state import ApexState
+    from modules import proof_fixtures as fx
+    from cli.events import append_event
+
+    cfg = ApexConfig()
+    cfg.margin_per_slot = cfg.total_budget / max(cfg.max_slots, 1)
+    state = ApexState.from_dict(fx.apex_proof_state())
+    engine = ApexEngine(cfg)
+
+    actions = engine.evaluate(
+        state=state,
+        pulse_signals=fx.apex_proof_pulse_signals(),
+        radar_opps=fx.apex_proof_radar_opps(),
+        slot_prices=fx.apex_proof_slot_prices(),
+        slot_guard_results={},
+        now_ms=fx.PROOF_NOW_MS,
+    )
+
+    action_dicts = [
+        {
+            "action": a.action,
+            "slot_id": a.slot_id,
+            "instrument": a.instrument,
+            "direction": a.direction,
+            "source": a.source,
+            "signal_score": a.signal_score,
+            "execution_algo": a.execution_algo,
+            "reason": a.reason,
+        }
+        for a in actions
+    ]
+
+    artifact = {
+        "proof": "apex",
+        "deterministic": True,
+        "live_orders": False,
+        "now_ms": fx.PROOF_NOW_MS,
+        "config": {
+            "max_slots": cfg.max_slots,
+            "leverage": cfg.leverage,
+            "margin_per_slot": cfg.margin_per_slot,
+            "radar_score_threshold": cfg.radar_score_threshold,
+            "max_negative_roe": cfg.max_negative_roe,
+        },
+        "input_summary": {
+            "active_slots": len(state.active_slots()),
+            "pulse_signals": len(fx.apex_proof_pulse_signals()),
+            "radar_opps": len(fx.apex_proof_radar_opps()),
+        },
+        "action_count": len(action_dicts),
+        "actions": action_dicts,
+    }
+
+    proof_dir = Path(data_dir) / "proof"
+    proof_dir.mkdir(parents=True, exist_ok=True)
+    proof_file = proof_dir / "apex-proof.json"
+    proof_file.write_text(json.dumps(artifact, indent=2, sort_keys=True))
+
+    append_event(data_dir, {
+        "type": "apex_proof",
+        "action_count": len(action_dicts),
+        "actions": [a["action"] for a in action_dicts],
+        "live_orders": False,
+        "artifact": str(proof_file),
+    })
+
+    if json_output:
+        typer.echo(json.dumps(artifact, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"APEX proof OK — {len(action_dicts)} action(s), no live orders.")
+        for a in action_dicts:
+            typer.echo(f"  {a['action']:<6} slot={a['slot_id']} {a['instrument']:<10} "
+                       f"{a['direction']:<5} :: {a['reason']}")
+        typer.echo(f"Artifact: {proof_file}")
 
 
 @apex_app.command("reconcile")

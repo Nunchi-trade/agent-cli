@@ -37,12 +37,21 @@ from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.hedge import hedge_app
 from cli.commands.margin import margin_app
+from cli.commands.schedule_cancel import schedule_cancel_cmd
+from cli.commands.emergency import emergency_close_cmd
+from cli.commands.order_status import order_status_cmd
+from cli.commands.funding import funding_cmd
+from cli.commands.policy import policy_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
 app.command("trade", help="Place a single manual order")(trade_cmd)
 app.command("account", help="Show HL account state")(account_cmd)
 app.command("strategies", help="List available strategies")(strategies_cmd)
+app.command("schedule-cancel", help="Arm/clear HL dead-man's switch (auto-cancel all orders)")(schedule_cancel_cmd)
+app.command("emergency-close", help="Cancel all orders and market-close all positions")(emergency_close_cmd)
+app.command("order-status", help="Look up a single order by oid")(order_status_cmd)
+app.command("funding", help="Show current funding rates")(funding_cmd)
 app.add_typer(guard_app, name="guard", help="Guard trailing stop system")
 app.add_typer(radar_app, name="radar", help="Radar — screen HL perps for setups")
 app.add_typer(pulse_app, name="pulse", help="Pulse — detect assets with capital inflow")
@@ -57,6 +66,7 @@ app.add_typer(journal_app, name="journal", help="Trade journal — structured po
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(hedge_app, name="hedge", help="CFI v2 funding-rate hedge — propose, execute, status, backtest, auto")
 app.add_typer(margin_app, name="margin", help="HL collateral — deposits, sub-DEX transfers, isolated margin, auto-topup")
+app.add_typer(policy_app, name="policy", help="Session policy — local guard inspect/validate (no web-auth)")
 
 
 def main():

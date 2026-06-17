@@ -1,0 +1,14 @@
+{
+  "name": "nunchi-hermes-railway",
+  "version": "0.1.0",
+  "description": "One-click Hermes Agent (Nous Research) trading deployment for Hyperliquid — powered by Nunchi agent-cli",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "http-proxy": "^1.18.1",
+    "js-yaml": "^4.1.0"
+  }
+}

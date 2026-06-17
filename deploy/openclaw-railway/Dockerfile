@@ -59,19 +59,22 @@ RUN mv /usr/bin/rg /usr/bin/rg-real \
     > /usr/local/bin/rg && chmod +x /usr/local/bin/rg
 
 # Install agent-cli (our trading CLI)
+# NOTE: build context MUST be the repo root (see deploy/openclaw-railway/railway.toml
+# dockerfilePath + Railway service Root Directory = repo root). All COPY paths below
+# are therefore relative to the repo root, not to deploy/openclaw-railway/.
 WORKDIR /agent-cli
-COPY ../../ .
+COPY . .
 RUN pip install --no-cache-dir --break-system-packages -e ".[mcp]"
 
 # Wrapper app
 WORKDIR /app
-COPY package.json ./
+COPY deploy/openclaw-railway/package.json ./
 RUN npm install --production
 
-COPY src ./src
+COPY deploy/openclaw-railway/src ./src
 
 # Workspace defaults (copied to volume at runtime)
-COPY workspace /opt/workspace-defaults
+COPY deploy/openclaw-railway/workspace /opt/workspace-defaults
 
 # Vendor mcporter skill
 RUN set -eux; \

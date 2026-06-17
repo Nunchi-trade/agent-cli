@@ -230,7 +230,7 @@ class TestIOCSlippage:
         original_send = proxy._send_order
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
@@ -245,7 +245,7 @@ class TestIOCSlippage:
         proxy = _make_proxy()
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
@@ -358,6 +358,7 @@ class TestGetAccountState:
             "withdrawable": "9500",
             "assetPositions": [],
         }
+        proxy._info.post.return_value = {"balances": []}
         state = proxy.get_account_state()
         assert state["account_value"] == 10000.0
         assert state["total_margin"] == 500.0
@@ -374,6 +375,7 @@ class TestGetAccountState:
                 "assetPositions": [],
             }
             proxy._info.base_url = "https://test.api"
+            proxy._info.post.return_value = {"balances": []}
             state = proxy.get_account_state()
             assert state["account_value"] == 5000.0
 
@@ -411,7 +413,7 @@ class TestDirectMockProxy:
 
 class TestConstants:
     def test_slippage_factor(self):
-        assert SLIPPAGE_FACTOR == 1.005
+        assert SLIPPAGE_FACTOR == 1.002
 
     def test_sig_figs(self):
         assert SIG_FIGS == 5
