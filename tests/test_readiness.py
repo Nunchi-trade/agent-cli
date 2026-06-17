@@ -116,6 +116,21 @@ class TestReadinessLogic:
         assert check["status"] == "na"
         assert "only needed" in check["detail"]
 
+    def test_wallet_lookup_error_fails_closed(self, clean_wallet_env, monkeypatch):
+        import cli.keystore as ks
+
+        def raise_permission_error():
+            raise PermissionError("Operation not permitted: '/Users/samb/.hl-agent'")
+
+        monkeypatch.setattr(ks, "list_keystores", raise_permission_error)
+
+        report = build_readiness_report(probe_network=False)
+        ids = {c["id"]: c for c in report["checks"]}
+        assert report["ready"] is False
+        assert ids["wallet_configured"]["status"] == "fail"
+        assert "Operation not permitted" in ids["wallet_configured"]["detail"]
+        assert "wallet_configured" in report["summary"]["blocking_ids"]
+
     def test_builder_configured_by_default(self, clean_wallet_env):
         # BuilderFeeConfig defaults to the Nunchi wallet, so builder_code passes
         # even with no env override.

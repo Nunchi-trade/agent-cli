@@ -46,6 +46,16 @@ HL_TESTNET_ONBOARD_URL = "https://app.hyperliquid-testnet.xyz"
 # Statuses that count as "not ready".
 _BLOCKING = {"fail", "action_needed"}
 
+# Required local checks must fail closed if their implementation raises. A
+# permissions error while locating a wallet is not an unknowable network probe;
+# it means the CLI has not proven it can sign.
+_REQUIRED_LOCAL_CHECK_IDS = {
+    "cli_installed",
+    "hl_sdk_installed",
+    "wallet_configured",
+    "builder_code",
+}
+
 
 def _check(check_id: str, status: str, detail: str) -> Dict[str, Any]:
     return {"id": check_id, "status": status, "detail": detail}
@@ -353,7 +363,9 @@ def build_readiness_report(
                 continue
             result = fn(testnet=testnet) if needs_testnet else fn()
         except Exception as e:  # defensive: a check must never break the report
-            result = _check(_stable_id(fn), "unknown", f"check raised: {e}")
+            check_id = _stable_id(fn)
+            status = "fail" if check_id in _REQUIRED_LOCAL_CHECK_IDS else "unknown"
+            result = _check(check_id, status, f"check raised: {e}")
         checks.append(result)
 
     blocking = [c for c in checks if c["status"] in _BLOCKING]
