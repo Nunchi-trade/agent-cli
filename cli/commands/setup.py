@@ -193,3 +193,132 @@ def setup_claim_usdyp():
     except Exception as e:
         typer.echo(f"ERROR: {e}", err=True)
         raise typer.Exit(1)
+
+
+@setup_app.command("status")
+def setup_status(
+    workspace: str = typer.Option("", "--workspace", "-w",
+                                  help="Workspace id (echoed into the report)"),
+    json_output: bool = typer.Option(False, "--json",
+                                     help="Output the full readiness report as JSON"),
+    mainnet: bool = typer.Option(False, "--mainnet",
+                                 help="Check against mainnet (default: testnet)"),
+    no_probe: bool = typer.Option(False, "--no-probe",
+                                  help="Skip live HL network probes (offline shape)"),
+):
+    """Readiness report: can this workspace get to first attributed fill?
+
+    Aggregates explicit per-check pass/fail/action_needed/na with a human reason
+    for each, plus a top-level `ready` boolean. This command is the backend
+    truth for onboarding state — see cli/readiness.py.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.readiness import build_readiness_report
+
+    report = build_readiness_report(
+        workspace=workspace or None,
+        testnet=not mainnet,
+        probe_network=not no_probe,
+    )
+
+    if json_output:
+        import json
+        typer.echo(json.dumps(report, indent=2))
+        raise typer.Exit(0 if report["ready"] else 1)
+
+    # Human-readable rendering.
+    typer.echo("Readiness Report")
+    typer.echo("=" * 50)
+    if report["workspace"]:
+        typer.echo(f"  Workspace: {report['workspace']}")
+    typer.echo(f"  Network:   {report['network']}")
+    typer.echo("")
+
+    symbol = {"pass": "OK ", "fail": "!! ", "action_needed": "-> ",
+              "na": " . ", "unknown": " ? "}
+    for c in report["checks"]:
+        mark = symbol.get(c["status"], " ? ")
+        typer.echo(f"  [{mark}] {c['id']}: {c['status']}")
+        typer.echo(f"        {c['detail']}")
+
+    s = report["summary"]
+    typer.echo("")
+    typer.echo(f"  {s['total']} checks; {s['blocking']} blocking "
+               f"({', '.join(s['blocking_ids']) or 'none'})")
+    typer.echo("")
+    typer.echo(f"READY: {report['ready']}")
+    raise typer.Exit(0 if report["ready"] else 1)
+
+
+@setup_app.command("hl-onboard")
+def setup_hl_onboard(
+    mainnet: bool = typer.Option(False, "--mainnet",
+                                 help="Check against mainnet (default: testnet)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Helper for the Hyperliquid wallet onboarding (web-action) step.
+
+    Fresh wallets must be "seen" by Hyperliquid once via the web app before
+    deposits/claims work. There is no headless EIP-191 verification endpoint
+    discoverable in this repo, so this command reports the wallet, its current
+    onboarding status (read-only probe), and the REAL browser action URL — it
+    does NOT fabricate an endpoint. The URL is the same one used by
+    'hl setup claim-usdyp'.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    from cli.readiness import (
+        HL_TESTNET_ONBOARD_URL,
+        _resolve_address,
+        check_hl_onboarding,
+    )
+
+    address = _resolve_address()
+    check = check_hl_onboarding(testnet=not mainnet)
+    onboard_url = HL_TESTNET_ONBOARD_URL if not mainnet else None
+
+    if json_output:
+        import json
+        typer.echo(json.dumps({
+            "address": address,
+            "network": "testnet" if not mainnet else "mainnet",
+            "onboarding": check,
+            # Labeled clearly: this is a browser action, NOT an API endpoint.
+            "browser_action_url": onboard_url,
+            "verification_flow": "web-connect",  # no headless EIP-191 path in repo
+        }, indent=2))
+        raise typer.Exit(0 if check["status"] == "pass" else 1)
+
+    typer.echo("Hyperliquid Wallet Onboarding")
+    typer.echo("=" * 40)
+    typer.echo(f"  Wallet:  {address or '(none configured)'}")
+    typer.echo(f"  Network: {'testnet' if not mainnet else 'mainnet'}")
+    typer.echo(f"  Status:  {check['status']} — {check['detail']}")
+    typer.echo("")
+
+    if check["status"] == "pass":
+        typer.echo("Already onboarded. No action needed.")
+        raise typer.Exit(0)
+
+    if not address:
+        typer.echo("Next: run 'hl wallet auto --save-env' to create a wallet, "
+                   "then re-run this command.")
+        raise typer.Exit(1)
+
+    if onboard_url:
+        typer.echo("Action needed (one-time, ~30s, cannot be done headlessly):")
+        typer.echo(f"  1. Open {onboard_url}")
+        typer.echo(f"  2. Connect this wallet: {address}")
+        typer.echo("  3. Deposit/fund, then re-run: hl setup status")
+        typer.echo("")
+        typer.echo("NOTE: no headless EIP-191 verification endpoint exists in this "
+                   "repo; the step above is a browser action.")
+    else:
+        typer.echo("Action needed: deposit funds to this wallet on mainnet, "
+                   "then re-run: hl setup status")
+    raise typer.Exit(1)
