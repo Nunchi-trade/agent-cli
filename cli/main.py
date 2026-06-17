@@ -35,6 +35,7 @@ from cli.commands.mcp import mcp_app
 from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
+from cli.commands.house import house_app
 from cli.commands.schedule_cancel import schedule_cancel_cmd
 from cli.commands.emergency import emergency_close_cmd
 from cli.commands.order_status import order_status_cmd
@@ -62,6 +63,7 @@ app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery"
 app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
+app.add_typer(house_app, name="house", help="HOUSE — fleet launcher for trading subprocesses")
 app.add_typer(policy_app, name="policy", help="Session policy — local guard inspect/validate (no web-auth)")
 
 
