@@ -230,7 +230,7 @@ class TestIOCSlippage:
         original_send = proxy._send_order
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
@@ -245,7 +245,7 @@ class TestIOCSlippage:
         proxy = _make_proxy()
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
