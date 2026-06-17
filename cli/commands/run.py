@@ -55,6 +55,11 @@ def run_cmd(
         None, "--model",
         help="LLM model override for claude_agent strategy",
     ),
+    policy: Optional[Path] = typer.Option(
+        None, "--policy",
+        help="Session policy file (or inline JSON / NUNCHI_SESSION_POLICY env). "
+             "Local guard only — no web-auth, no network.",
+    ),
 ):
     """Start autonomous trading with a strategy."""
     # Add project root to path for imports
@@ -82,6 +87,26 @@ def run_cmd(
     cfg.dry_run = dry_run
     cfg.max_ticks = max_ticks
     cfg.data_dir = data_dir
+
+    # ── Session policy guard (local; permissive if no policy configured) ──
+    from cli.session_policy import ACTION_RUN, guard_or_exit, load_policy_or_exit
+
+    policy_path = str(policy) if policy else None
+    active_policy = load_policy_or_exit(policy_path)
+    signer_wallet = None
+    private_key = None
+    if active_policy and active_policy.wallets:
+        private_key = cfg.get_private_key()
+        signer_wallet = cfg.get_wallet_address(private_key)
+
+    guard_or_exit(
+        ACTION_RUN,
+        policy_path=policy_path,
+        wallet=signer_wallet,
+        network="mainnet" if cfg.mainnet else "testnet",
+        strategy=cfg.strategy,
+        market=cfg.instrument,
+    )
 
     # Setup logging
     logging.basicConfig(
@@ -223,7 +248,7 @@ def run_cmd(
         from cli.hl_adapter import DirectHLProxy
         from parent.hl_proxy import HLProxy
 
-        private_key = cfg.get_private_key()
+        private_key = private_key or cfg.get_private_key()
         raw_hl = HLProxy(private_key=private_key, testnet=not cfg.mainnet)
         hl = DirectHLProxy(raw_hl)
         network = "mainnet" if cfg.mainnet else "testnet"

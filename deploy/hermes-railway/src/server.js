@@ -1,10 +1,11 @@
 /**
- * Railway entrypoint — health check + reverse proxy to OpenClaw gateway.
+ * Railway entrypoint — health check + reverse proxy to Hermes dashboard.
  *
  * Flow:
- *   1. Run bootstrap (auto-configure OpenClaw + MCP + Telegram)
- *   2. Start OpenClaw gateway as child process
- *   3. Serve health checks + proxy all other traffic to gateway
+ *   1. Run bootstrap (write .env + config.yaml, sync workspace defaults)
+ *   2. Auto-onboard if Telegram credentials present
+ *   3. Start `hermes dashboard` as a child process on the internal port
+ *   4. Serve health checks + Nunchi /api/* + proxy everything else to dashboard
  */
 const express = require("express");
 const crypto = require("crypto");
@@ -20,13 +21,12 @@ const { readStatus, readStrategies } = require("./status");
 const app = express();
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST || "127.0.0.1";
-const GATEWAY_PORT = parseInt(process.env.INTERNAL_GATEWAY_PORT || "18789", 10);
+const GATEWAY_PORT = parseInt(process.env.INTERNAL_GATEWAY_PORT || "9119", 10);
 const START_TIME = Date.now();
 const AGENT_CLI_DIR = "/agent-cli";
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const CONTROL_API_TOKEN = process.env.CONTROL_API_TOKEN || "";
 
-// Proxy to OpenClaw gateway
 const proxy = httpProxy.createProxyServer({
   target: `http://${GATEWAY_HOST}:${GATEWAY_PORT}`,
   ws: true,
@@ -40,7 +40,6 @@ proxy.on("error", (err, req, res) => {
   }
 });
 
-// Health check
 app.get("/health", (req, res) => {
   const gw = getGatewayProcess();
   res.json({
@@ -51,7 +50,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-// CORS middleware for /api/* routes
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 app.use("/api", (req, res, next) => {
   res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
@@ -84,14 +82,12 @@ function requireControlAuth(req, res, next) {
   return next();
 }
 
-// Trading status (human-readable, calls hl CLI directly)
 app.get("/status", async (req, res) => {
-  const { execSync } = require("child_process");
   try {
     const output = execSync("python3 -m cli.main apex status", {
       timeout: 10000,
       encoding: "utf-8",
-      cwd: "/agent-cli",
+      cwd: AGENT_CLI_DIR,
     });
     res.type("text/plain").send(output);
   } catch (e) {
@@ -99,17 +95,14 @@ app.get("/status", async (req, res) => {
   }
 });
 
-// API: Agent status (JSON, for UI)
 app.get("/api/status", (req, res) => {
   res.json(readStatus());
 });
 
-// API: Strategy catalog
 app.get("/api/strategies", (req, res) => {
   res.json(readStrategies());
 });
 
-// API: SSE feed — polls status every 2s
 app.get("/api/feed", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -128,22 +121,19 @@ app.get("/api/feed", (req, res) => {
         res.write(`data: ${JSON.stringify(status)}\n\n`);
       }
     } catch {
-      // ignore read errors
+      /* ignore */
     }
   }, 2000);
 
   req.on("close", () => clearInterval(interval));
 });
 
-// API: Install/update Nunchi trading skill
 app.post("/api/skill/install", express.json(), (req, res) => {
-  const { execSync } = require("child_process");
   try {
-    // Verify agent-cli is available by checking strategies
     const output = execSync("python3 -m cli.api.status_reader strategies", {
       timeout: 10000,
       encoding: "utf-8",
-      cwd: "/agent-cli",
+      cwd: AGENT_CLI_DIR,
     });
     const data = JSON.parse(output.trim());
     const count = Object.keys(data.strategies || {}).length;
@@ -153,7 +143,6 @@ app.post("/api/skill/install", express.json(), (req, res) => {
   }
 });
 
-// API: Pause agent
 app.post("/api/pause", requireControlAuth, (req, res) => {
   const gw = getGatewayProcess();
   if (gw && !gw.killed) {
@@ -168,7 +157,6 @@ app.post("/api/pause", requireControlAuth, (req, res) => {
   }
 });
 
-// API: Resume agent
 app.post("/api/resume", requireControlAuth, (req, res) => {
   const gw = getGatewayProcess();
   if (gw && !gw.killed) {
@@ -183,7 +171,6 @@ app.post("/api/resume", requireControlAuth, (req, res) => {
   }
 });
 
-// API: Configure agent (write config override)
 app.post("/api/configure", requireControlAuth, express.json(), (req, res) => {
   const configPath = path.join(DATA_DIR, "apex", "config-override.json");
   try {
@@ -195,7 +182,6 @@ app.post("/api/configure", requireControlAuth, express.json(), (req, res) => {
   }
 });
 
-// API: Trade history
 app.get("/api/trades", (req, res) => {
   const limit = parseInt(req.query.limit || "50", 10);
   try {
@@ -209,7 +195,6 @@ app.get("/api/trades", (req, res) => {
   }
 });
 
-// API: REFLECT reports
 app.get("/api/reflect", (req, res) => {
   try {
     const output = execSync(
@@ -222,7 +207,6 @@ app.get("/api/reflect", (req, res) => {
   }
 });
 
-// API: RADAR (scanner) history
 app.get("/api/scanner", (req, res) => {
   try {
     const output = execSync(
@@ -235,7 +219,6 @@ app.get("/api/scanner", (req, res) => {
   }
 });
 
-// API: Journal entries
 app.get("/api/journal", (req, res) => {
   const limit = parseInt(req.query.limit || "50", 10);
   try {
@@ -249,29 +232,23 @@ app.get("/api/journal", (req, res) => {
   }
 });
 
-// Everything else proxies to OpenClaw gateway
+// Everything else → Hermes dashboard
 app.use((req, res) => {
   proxy.web(req, res);
 });
 
-// WebSocket upgrade
 const server = app.listen(PORT, async () => {
   console.log(`[server] Listening on :${PORT}`);
 
   try {
-    // Step 1: Bootstrap (create dirs, sync workspace, generate configs)
     await bootstrap();
-
-    // Step 2: Auto-onboard if credentials present
     await autoOnboard();
-
-    // Step 3: Start OpenClaw gateway
     startGateway();
     await waitForGatewayReady();
-    console.log("[server] OpenClaw gateway is ready");
+    console.log("[server] Hermes dashboard is ready");
   } catch (err) {
     console.error("[server] Startup error:", err.message);
-    // Keep server running for health checks even if gateway fails
+    // Keep server up so /health stays green and the user can inspect logs
   }
 });
 
@@ -279,7 +256,6 @@ server.on("upgrade", (req, socket, head) => {
   proxy.ws(req, socket, head);
 });
 
-// Graceful shutdown
 function shutdown(signal) {
   console.log(`[server] ${signal} received, shutting down`);
   const gw = getGatewayProcess();
