@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+from typer.testing import CliRunner
 
 # Allow running directly (`python tests/test_hedge_margin_port.py`) without
 # pytest's rootdir insertion.
@@ -17,6 +20,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+from cli.main import app
 from common.models import MarketSnapshot
 from sdk.strategy_sdk.base import StrategyContext
 
@@ -38,6 +42,8 @@ from execution.margin_auto import (
     compute_topup_action,
     today_utc_iso,
 )
+
+runner = CliRunner()
 
 
 def _btc_position(notional_usd: float) -> HLPositionSummary:
@@ -202,6 +208,91 @@ def test_agent_skips_non_cfi_coin():
     snap = MarketSnapshot(instrument="DOGE-PERP", mid_price=0.1, funding_rate=0.0001)
     ctx = StrategyContext(snapshot=snap, position_qty=1e6, position_notional=200_000.0)
     assert agent.on_tick(snap, ctx) == []
+
+
+def test_hedge_execute_dry_run_does_not_place_or_persist(monkeypatch):
+    import cli.commands.hedge as hedge_cmd
+    import cli.config as cfgmod
+    import cli.hl_adapter as adapter_mod
+    import parent.hl_proxy as proxy_mod
+
+    class FakeDirectHLProxy:
+        placed = False
+
+        def __init__(self, raw_hl):
+            self.raw_hl = raw_hl
+
+        def place_order(self, **kwargs):
+            FakeDirectHLProxy.placed = True
+            raise AssertionError("place_order should not be called in dry-run")
+
+    profile = SimpleNamespace(cfi_instrument="yex:BTCSWP", baseline_b0=75_000.0)
+    proposal = SimpleNamespace(
+        profile=profile,
+        hedge_notional_usd=10_000.0,
+        legs=[SimpleNamespace(), SimpleNamespace(side="long")],
+    )
+    snapshot = SimpleNamespace(oracle_px=75_000.0)
+    persisted = False
+
+    def fail_persist(hedges):
+        nonlocal persisted
+        persisted = True
+        raise AssertionError("dry-run should not persist hedge state")
+
+    monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
+    monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
+    monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
+    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin: (proposal, snapshot))
+    monkeypatch.setattr("cli.hedge_display.hedge_proposal_block", lambda proposal, snapshot, mainnet=False: "proposal")
+    monkeypatch.setattr(hedge_cmd, "_save_hedges", fail_persist)
+
+    result = runner.invoke(app, ["hedge", "execute", "BTC", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "DRY-RUN" in result.output
+    assert FakeDirectHLProxy.placed is False
+    assert persisted is False
+
+
+def _assert_margin_dry_run_does_not_open_hl(monkeypatch, args, expected_output):
+    import cli.commands.margin as margin_cmd
+
+    opened = False
+
+    def fail_open(mainnet):
+        nonlocal opened
+        opened = True
+        raise AssertionError("_open_hl should not be called in dry-run")
+
+    monkeypatch.setattr(margin_cmd, "_open_hl", fail_open)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert expected_output in result.output
+    assert opened is False
+
+
+def test_margin_deposit_dry_run_does_not_transfer(monkeypatch):
+    _assert_margin_dry_run_does_not_open_hl(
+        monkeypatch,
+        ["margin", "deposit", "25", "--dry-run", "--mainnet"],
+        "DRY-RUN: no transfer submitted.",
+    )
+
+
+def test_margin_withdraw_dry_run_does_not_transfer(monkeypatch):
+    _assert_margin_dry_run_does_not_open_hl(
+        monkeypatch,
+        ["margin", "withdraw", "25", "--dry-run", "--dex", "yex"],
+        "DRY-RUN: no transfer submitted.",
+    )
+
+
+def test_margin_isolated_dry_run_does_not_update_margin(monkeypatch):
+    _assert_margin_dry_run_does_not_open_hl(
+        monkeypatch,
+        ["margin", "isolated", "BTC", "25", "--dry-run", "--remove"],
+        "DRY-RUN: no isolated-margin update submitted.",
+    )
 
 
 if __name__ == "__main__":

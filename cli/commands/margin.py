@@ -3,10 +3,10 @@
 Feature surface:
 
     hl margin status [--coin COIN]                   show cross + isolated breakdown
-    hl margin deposit AMOUNT [--dex yex]             spot→perp (usdClassTransfer) or
+    hl margin deposit AMOUNT [--dry-run]             spot→perp (usdClassTransfer) or
                                                      perp→yex (sendAsset)
-    hl margin withdraw AMOUNT [--dex yex]            reverse of deposit
-    hl margin isolated COIN AMOUNT [--remove]        updateIsolatedMargin add/remove
+    hl margin withdraw AMOUNT [--dry-run]            reverse of deposit
+    hl margin isolated COIN AMOUNT [--dry-run]       updateIsolatedMargin add/remove
     hl margin dexes                                  list HIP-3 sub-DEXes
     hl margin auto-topup [--dry-run]                 agent-controlled auto-topup loop
 
@@ -94,6 +94,7 @@ def deposit_cmd(
         "--dex",
         help="HIP-3 sub-DEX (e.g. 'yex'). Omit for spot→main-perp.",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
 ):
@@ -108,8 +109,6 @@ def deposit_cmd(
         typer.echo("Amount must be positive", err=True)
         raise typer.Exit(2)
 
-    hl = _open_hl(mainnet)
-    addr = hl.get_account_state().get("address", "")
     network = "mainnet" if mainnet else "testnet"
 
     if dex is None or dex == "":
@@ -118,13 +117,19 @@ def deposit_cmd(
         action_label = f"Deposit ${amount:,.2f} USDC: main perp → {dex}"
 
     typer.echo(f"{action_label} ({network})")
+    if dry_run:
+        typer.echo("DRY-RUN: no transfer submitted.")
+        return
+
     if not yes and not typer.confirm("Sign + submit?"):
         typer.echo("Aborted.")
         raise typer.Exit(0)
 
+    hl = _open_hl(mainnet)
     if dex is None or dex == "":
         result = hl.usd_class_transfer(amount=amount, to_perp=True)
     else:
+        addr = hl.get_account_state().get("address", "")
         result = hl.send_asset(
             destination=addr,
             source_dex="",
@@ -146,6 +151,7 @@ def withdraw_cmd(
         "--dex",
         help="HIP-3 sub-DEX (e.g. 'yex'). Omit for main-perp→spot.",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
 ):
@@ -155,8 +161,6 @@ def withdraw_cmd(
         typer.echo("Amount must be positive", err=True)
         raise typer.Exit(2)
 
-    hl = _open_hl(mainnet)
-    addr = hl.get_account_state().get("address", "")
     network = "mainnet" if mainnet else "testnet"
 
     if dex is None or dex == "":
@@ -165,13 +169,19 @@ def withdraw_cmd(
         action_label = f"Withdraw ${amount:,.2f} USDC: {dex} → main perp"
 
     typer.echo(f"{action_label} ({network})")
+    if dry_run:
+        typer.echo("DRY-RUN: no transfer submitted.")
+        return
+
     if not yes and not typer.confirm("Sign + submit?"):
         typer.echo("Aborted.")
         raise typer.Exit(0)
 
+    hl = _open_hl(mainnet)
     if dex is None or dex == "":
         result = hl.usd_class_transfer(amount=amount, to_perp=False)
     else:
+        addr = hl.get_account_state().get("address", "")
         result = hl.send_asset(
             destination=addr,
             source_dex=dex,
@@ -190,6 +200,7 @@ def isolated_cmd(
     coin: str = typer.Argument(..., help="Position coin (e.g. BTC, yex:BTCSWP)"),
     amount: float = typer.Argument(..., help="USDC amount (decimal)"),
     remove: bool = typer.Option(False, "--remove", help="Remove margin instead of adding"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
 ):
@@ -203,16 +214,20 @@ def isolated_cmd(
         typer.echo("Amount must be positive", err=True)
         raise typer.Exit(2)
 
-    hl = _open_hl(mainnet)
     network = "mainnet" if mainnet else "testnet"
     signed = -amount if remove else amount
     verb = "Remove" if remove else "Add"
 
     typer.echo(f"{verb} ${amount:,.2f} USDC isolated margin on {coin} ({network})")
+    if dry_run:
+        typer.echo("DRY-RUN: no isolated-margin update submitted.")
+        return
+
     if not yes and not typer.confirm("Sign + submit?"):
         typer.echo("Aborted.")
         raise typer.Exit(0)
 
+    hl = _open_hl(mainnet)
     result = hl.update_isolated_margin(amount_usd=signed, coin=coin)
     _echo_result("isolated", result)
 

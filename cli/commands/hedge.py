@@ -3,7 +3,7 @@
 Feature surface:
 
     hl hedge propose [COIN]                  show proposal, no execute
-    hl hedge execute [COIN] [--yes]          interactive confirm + place yex:{COIN}SWP order
+    hl hedge execute [COIN] [--dry-run]      preview yex:{COIN}SWP order without signing
     hl hedge status [--coin C] [--watch]     active hedges + live drift/savings
     hl hedge backtest --coin BTC [--days N]  wrap hedge_calculator.py
     hl hedge auto [--coins ...] [--dry-run]  agent-controlled auto-open loop
@@ -181,10 +181,11 @@ def propose_cmd(
 @hedge_app.command("execute")
 def execute_cmd(
     coin: str = typer.Argument("BTC", help="Coin to hedge (BTC, ETH)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
 ):
-    """Build the proposal, confirm, and sign + submit a real yex:{COIN}SWP long order.
+    """Build the proposal and optionally sign + submit a real yex:{COIN}SWP order.
 
     Persists the resulting HedgeJob to `~/.nunchi/hedges.json`.
     """
@@ -204,11 +205,6 @@ def execute_cmd(
     proposal, snapshot = _build_proposal(hl, coin)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
 
-    if not yes:
-        if not typer.confirm("Sign + submit this hedge?"):
-            typer.echo("Aborted.")
-            raise typer.Exit(0)
-
     # Size the order in CFI v2 (BTCSWP) units. SDK rounds to szDecimals.
     wire_px = snapshot.oracle_px or proposal.profile.baseline_b0
     size = proposal.hedge_notional_usd / wire_px
@@ -221,6 +217,15 @@ def execute_cmd(
         f"\nPlacing {('BUY' if is_buy else 'SELL')} {size:.6f} "
         f"{proposal.profile.cfi_instrument} @ ${price:,.4f} (Ioc)"
     )
+
+    if dry_run:
+        typer.echo("DRY-RUN: no order submitted and no hedge state persisted.")
+        return
+
+    if not yes:
+        if not typer.confirm("Sign + submit this hedge?"):
+            typer.echo("Aborted.")
+            raise typer.Exit(0)
 
     fill = hl.place_order(
         instrument=proposal.profile.cfi_instrument,
