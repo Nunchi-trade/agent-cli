@@ -26,6 +26,10 @@ def builder_approve(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
+    from cli.view_mode import require_not_view_only
+
+    require_not_view_only()
+
     from cli.builder_fee import BuilderFeeConfig
     from cli.config import TradingConfig
 

@@ -67,6 +67,10 @@ def run_cmd(
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
+    from cli.view_mode import require_not_view_only
+
+    require_not_view_only()
+
     from cli.config import TradingConfig
     from cli.strategy_registry import resolve_instrument, resolve_strategy_path
 
