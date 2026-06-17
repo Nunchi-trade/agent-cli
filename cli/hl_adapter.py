@@ -713,6 +713,60 @@ class DirectHLProxy:
                     pass
             raise
 
+    # ─── Margin actions (SDK pass-throughs for `hl margin`) ─────────────────
+
+    def usd_class_transfer(self, amount: float, to_perp: bool) -> Dict:
+        """Move USDC between spot and main perp accounts.
+
+        Delegates to `hyperliquid.exchange.Exchange.usd_class_transfer`.
+        User-signed EIP-712 (no msgpack). Returns the raw exchange response.
+        """
+        return self._exchange.usd_class_transfer(amount=amount, to_perp=to_perp)
+
+    def send_asset(
+        self,
+        destination: str,
+        source_dex: str,
+        destination_dex: str,
+        token: str,
+        amount: float,
+    ) -> Dict:
+        """Cross-DEX asset transfer (main perp ↔ HIP-3 sub-DEX e.g. yex).
+
+        Use "" for the main perp dex name and "spot" for spot. Token must
+        match the collateral token. User-signed EIP-712 envelope per the
+        SDK's `sign_send_asset_action`.
+        """
+        return self._exchange.send_asset(
+            destination=destination,
+            source_dex=source_dex,
+            destination_dex=destination_dex,
+            token=token,
+            amount=amount,
+        )
+
+    def update_isolated_margin(self, amount_usd: float, coin: str) -> Dict:
+        """Add (positive) or remove (negative) isolated margin on a position.
+
+        `coin` is the HL coin name as the user sees it (e.g. "BTC" for main
+        perps or "yex:BTCSWP" for the YEX sub-DEX). SDK resolves the asset
+        index from `info.name_to_asset` so HIP-3 markets work transparently.
+        """
+        return self._exchange.update_isolated_margin(amount=amount_usd, name=coin)
+
+    def list_hip3_dexes(self) -> list:
+        """List HIP-3 sub-DEX names exposed by HL (e.g. ['yex'])."""
+        try:
+            dexes = self._info.perp_dexs()
+        except Exception as e:
+            log.warning("perp_dexs() failed: %s", e)
+            return []
+        out: list = []
+        for entry in dexes or []:
+            if isinstance(entry, dict) and entry.get("name"):
+                out.append(entry["name"])
+        return out
+
     def _to_coin(self, instrument: str) -> str:
         """Map instrument to HL coin symbol."""
         return _to_hl_coin(instrument)
@@ -923,6 +977,32 @@ class DirectMockProxy:
     def get_dex_mids(self, dex: str) -> Dict[str, str]:
         """Return mock HIP-3 DEX mids."""
         return self._mock.get_dex_mids(dex)
+
+    def usd_class_transfer(self, amount: float, to_perp: bool) -> Dict:
+        """Mock USDC perp↔spot transfer."""
+        return {"status": "ok", "response": {"type": "usdClassTransfer", "amount": amount, "toPerp": to_perp}}
+
+    def send_asset(self, destination: str, source_dex: str, destination_dex: str, token: str, amount: float) -> Dict:
+        """Mock cross-dex asset send."""
+        return {
+            "status": "ok",
+            "response": {
+                "type": "sendAsset",
+                "destination": destination,
+                "sourceDex": source_dex,
+                "destinationDex": destination_dex,
+                "token": token,
+                "amount": amount,
+            },
+        }
+
+    def update_isolated_margin(self, amount_usd: float, coin: str) -> Dict:
+        """Mock isolated margin update."""
+        return {"status": "ok", "response": {"type": "updateIsolatedMargin", "coin": coin, "amount": amount_usd}}
+
+    def list_hip3_dexes(self) -> list:
+        """Return the mock HIP-3 dex names — matches the strategy registry."""
+        return ["yex"]
 
     def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
         """Place a mock trigger stop-loss order. Returns OID."""
