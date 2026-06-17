@@ -63,6 +63,65 @@ class TestViewMode:
         require_not_view_only()
 
 
+class TestViewModeWriteGuards:
+    ADDR = "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"
+
+    def _assert_refused(self, result):
+        assert result.exit_code == 1
+        assert "view-only mode is active" in result.output
+        assert "would sign/mutate state" in result.output
+
+    def test_trade_refuses_before_key_load(self, monkeypatch):
+        import cli.config as cfgmod
+
+        called = False
+
+        def mark_key_load(self):
+            nonlocal called
+            called = True
+            return "0x" + "1" * 64
+
+        monkeypatch.setenv("HL_VIEW_AS_USER", self.ADDR)
+        monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", mark_key_load)
+        result = runner.invoke(app, ["trade", "ETH-PERP", "buy", "0.1"])
+        self._assert_refused(result)
+        assert called is False
+
+    def test_run_refuses_before_config_load(self, monkeypatch):
+        import cli.config as cfgmod
+
+        original_init = cfgmod.TradingConfig.__init__
+        called = False
+
+        def mark_init(self, *args, **kwargs):
+            nonlocal called
+            called = True
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setenv("HL_VIEW_AS_USER", self.ADDR)
+        monkeypatch.setattr(cfgmod.TradingConfig, "__init__", mark_init)
+        result = runner.invoke(app, ["run", "engine_mm", "--mock", "--max-ticks", "1"])
+        self._assert_refused(result)
+        assert called is False
+
+    def test_builder_approve_refuses_before_config_load(self, monkeypatch):
+        import cli.config as cfgmod
+
+        original_init = cfgmod.TradingConfig.__init__
+        called = False
+
+        def mark_init(self, *args, **kwargs):
+            nonlocal called
+            called = True
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setenv("HL_VIEW_AS_USER", self.ADDR)
+        monkeypatch.setattr(cfgmod.TradingConfig, "__init__", mark_init)
+        result = runner.invoke(app, ["builder", "approve", "--yes"])
+        self._assert_refused(result)
+        assert called is False
+
+
 # ---------------------------------------------------------------------------
 # account --json / --address (read-only path stubbed)
 # ---------------------------------------------------------------------------
