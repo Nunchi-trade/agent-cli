@@ -358,7 +358,7 @@ class TestGetAccountState:
             "withdrawable": "9500",
             "assetPositions": [],
         }
-        proxy._info.post.return_value = None  # no HIP-3 (yex) dex state to merge
+        proxy._info.post.return_value = {"balances": []}
         state = proxy.get_account_state()
         assert state["account_value"] == 10000.0
         assert state["total_margin"] == 500.0
@@ -375,7 +375,7 @@ class TestGetAccountState:
                 "assetPositions": [],
             }
             proxy._info.base_url = "https://test.api"
-            proxy._info.post.return_value = None  # no HIP-3 (yex) dex state to merge
+            proxy._info.post.return_value = {"balances": []}
             state = proxy.get_account_state()
             assert state["account_value"] == 5000.0
 

@@ -92,3 +92,12 @@ class TradingConfig:
     def get_private_key(self) -> str:
         from common.credentials import resolve_private_key
         return resolve_private_key(venue="hl")
+
+    def get_wallet_address(self, private_key: Optional[str] = None) -> str:
+        """Return the EVM signer address for the configured HL private key."""
+        from eth_account import Account
+
+        key = private_key or self.get_private_key()
+        if not key.startswith("0x"):
+            key = "0x" + key
+        return Account.from_key(key).address

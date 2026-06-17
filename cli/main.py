@@ -39,6 +39,7 @@ from cli.commands.schedule_cancel import schedule_cancel_cmd
 from cli.commands.emergency import emergency_close_cmd
 from cli.commands.order_status import order_status_cmd
 from cli.commands.funding import funding_cmd
+from cli.commands.policy import policy_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
 app.command("status", help="Show positions, PnL, and risk state")(status_cmd)
@@ -61,6 +62,7 @@ app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery"
 app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
+app.add_typer(policy_app, name="policy", help="Session policy — local guard inspect/validate (no web-auth)")
 
 
 def main():
