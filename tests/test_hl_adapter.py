@@ -112,6 +112,28 @@ class TestGetSzDecimals:
 
 
 class TestPlaceOrder:
+    def test_default_builder_fee_is_passed_to_exchange_order(self):
+        proxy = _make_proxy()
+        proxy._exchange.order.return_value = {
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [
+                        {"filled": {"oid": "builder-oid", "avgPx": "2500.0", "totalSz": "1.0"}}
+                    ]
+                },
+            },
+        }
+
+        fill = proxy.place_order("ETH-PERP", "buy", 1.0, 2500.0, tif="Gtc")
+
+        assert fill is not None
+        assert proxy._exchange.order.call_args.kwargs["builder"] == {
+            "b": "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0",
+            "f": 100,
+        }
+
     def test_filled_order_returns_fill(self):
         proxy = _make_proxy()
         proxy._exchange.order.return_value = {
