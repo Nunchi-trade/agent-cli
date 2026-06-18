@@ -91,13 +91,22 @@ class TradingConfig:
 
     def get_private_key(self) -> str:
         from common.credentials import resolve_private_key
-        return resolve_private_key(venue="hl")
+        try:
+            return resolve_private_key(venue="hl")
+        except RuntimeError:
+            from cli.web_auth import pairing_from_env
+            if pairing_from_env() is not None:
+                return ""
+            raise
 
     def get_wallet_address(self, private_key: Optional[str] = None) -> str:
         """Return the EVM signer address for the configured HL private key."""
         from eth_account import Account
 
         key = private_key or self.get_private_key()
+        if not key:
+            from cli.web_auth import require_pairing_from_env
+            return require_pairing_from_env().address
         if not key.startswith("0x"):
             key = "0x" + key
         return Account.from_key(key).address
