@@ -112,3 +112,78 @@ def test_run_hl_applies_env_overrides_only_to_subprocess(monkeypatch):
     assert output == "ok"
     assert captured["env"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
     assert "NUNCHI_WEB_AUTH_PAIR_TOKEN" not in mcp_server.os.environ
+
+
+def test_entrypoint_json_rpc_initialize():
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    status, response = handle_mcp_json_rpc(
+        b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+        {},
+    )
+
+    assert status == 200
+    assert response["result"]["serverInfo"]["name"] == "nunchi-agent-cli-runner"
+
+
+def test_entrypoint_trade_fails_closed_without_signing_context(monkeypatch, tmp_path):
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HL_PRIVATE_KEY", raising=False)
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "trade",
+            "arguments": {"instrument": "ETH-PERP", "side": "buy", "size": 0.1},
+        },
+    }).encode()
+
+    status, response = handle_mcp_json_rpc(body, {})
+
+    assert status == 200
+    assert "requires a signing context" in response["result"]["content"][0]["text"]
+
+
+def test_entrypoint_trade_forwards_trusted_context_to_subprocess(monkeypatch, tmp_path):
+    import cli.mcp_server as mcp_server
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["env_overrides"] = env_overrides
+        return "ok"
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_RUNNER_CONTEXT_SECRET", "shared-secret")
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "trade",
+            "arguments": {"instrument": "ETH-PERP", "side": "buy", "size": 0.1},
+        },
+    }).encode()
+    headers = {
+        "x-nunchi-secret-nunchi-runner-context-secret": "shared-secret",
+        "x-nunchi-secret-nunchi-web-auth-pair-token": "pair-token",
+        "x-nunchi-secret-nunchi-web-auth-address": "0x" + "4" * 40,
+        "x-nunchi-trading-permission-tier": "testnet_trading",
+        "x-nunchi-trading-network": "testnet",
+        "x-nunchi-max-order-size": "0.5",
+    }
+
+    status, response = handle_mcp_json_rpc(body, headers)
+
+    assert status == 200
+    assert response["result"]["content"][0]["text"] == "ok"
+    assert captured["args"] == ("trade", "ETH-PERP", "buy", "0.1", "--yes")
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "4" * 40
