@@ -34,6 +34,10 @@ def trade_cmd(
         "Ioc", "--tif",
         help="Time in force: Ioc, Gtc, or Alo",
     ),
+    yes: bool = typer.Option(
+        False, "--yes",
+        help="Skip interactive confirmation. Intended for trusted automation.",
+    ),
     policy: Optional[Path] = typer.Option(
         None, "--policy",
         help="Session policy file (or inline JSON / NUNCHI_SESSION_POLICY env). "
@@ -111,7 +115,7 @@ def trade_cmd(
 
     typer.echo(f"Placing {side.upper()} {size} {instrument} @ {price} ({tif}) on {network}")
 
-    confirm = typer.confirm("Confirm?")
+    confirm = yes or typer.confirm("Confirm?")
     if not confirm:
         raise typer.Exit(0)
 
