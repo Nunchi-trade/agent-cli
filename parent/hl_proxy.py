@@ -300,7 +300,18 @@ class HLProxy:
             Info, base_url, skip_ws=True, timeout=10, perp_dexs=perp_dexs,
         )
 
-        account = Account.from_key(self.private_key)
+        web_auth_wallet = None
+        if not self.private_key:
+            try:
+                from cli.web_auth import WebAuthWallet, install_hyperliquid_web_auth_signer, pairing_from_env
+                pairing = pairing_from_env()
+                if pairing is not None:
+                    install_hyperliquid_web_auth_signer()
+                    web_auth_wallet = WebAuthWallet(pairing)
+            except Exception as e:
+                log.warning("Failed to initialize web-auth wallet: %s", e)
+
+        account = web_auth_wallet or Account.from_key(self.private_key)
         delegated = self._account_address
         if delegated and delegated.lower() != account.address.lower():
             self._address = delegated
