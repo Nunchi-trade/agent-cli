@@ -1,6 +1,7 @@
 """Tests for quoting-engine-powered strategies."""
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,16 @@ if _root not in sys.path:
 
 from common.models import MarketSnapshot, StrategyDecision
 from sdk.strategy_sdk.base import StrategyContext
+
+
+_QE_ROOT = Path.home() / "Tee-work-" / "quoting_engine"
+requires_quoting_engine = pytest.mark.skipif(
+    not _QE_ROOT.is_dir(),
+    reason=(
+        f"quoting_engine not available at {_QE_ROOT}; "
+        "skip tests that require private quoting_engine module"
+    ),
+)
 
 
 def _snap(mid=2500.0, bid=2499.0, ask=2501.0, funding=0.0001, oi=1e6, ts=1000):
@@ -30,6 +41,7 @@ def _ctx(qty=0.0, dd=0.0, reduce_only=False):
 # EngineMMStrategy
 # ---------------------------------------------------------------------------
 
+@requires_quoting_engine
 class TestEngineMM:
     def test_produces_orders(self):
         from strategies.engine_mm import EngineMMStrategy
@@ -104,6 +116,7 @@ class TestEngineMM:
 # FundingArbStrategy
 # ---------------------------------------------------------------------------
 
+@requires_quoting_engine
 class TestFundingArb:
     def test_produces_orders(self):
         from strategies.funding_arb import FundingArbStrategy
@@ -152,6 +165,7 @@ class TestFundingArb:
 # RegimeMMStrategy
 # ---------------------------------------------------------------------------
 
+@requires_quoting_engine
 class TestRegimeMM:
     def test_produces_orders(self):
         from strategies.regime_mm import RegimeMMStrategy
@@ -196,6 +210,7 @@ class TestRegimeMM:
 # LiquidationMMStrategy
 # ---------------------------------------------------------------------------
 
+@requires_quoting_engine
 class TestLiquidationMM:
     def test_produces_orders(self):
         from strategies.liquidation_mm import LiquidationMMStrategy
