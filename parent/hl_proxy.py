@@ -414,13 +414,18 @@ class HLProxy:
                 price = float(f["fill_price"])  # fallback to clearing price
 
             try:
+                from cli.builder_fee import BuilderFeeConfig
+
+                builder = BuilderFeeConfig.from_env().to_builder_info()
                 coin = self._hl_coin(inst)
+                order_kwargs = {"builder": builder} if builder else {}
                 result = self._exchange.order(
                     coin,
                     is_buy,
                     sz,
                     price,
                     {"limit": {"tif": "Ioc"}},
+                    **order_kwargs,
                 )
 
                 # Handle top-level error
