@@ -2,12 +2,15 @@
 
 ## Starting / Stopping
 
-### Start (Railway)
-```bash
-# Deploy via Railway dashboard or CLI
-railway up
+### Start (Hosted Agent)
+
+Hosted agents are deployed only through web-auth after billing entitlement and wallet binding:
+
+```text
+https://auth.nunchi.trade
 ```
-The entrypoint starts a health server on `$PORT` (default 8080) then launches the configured `RUN_MODE`.
+
+The hosted-agent provisioner creates the Nunchi-owned runtime, injects secrets, and starts the runner. Users should not deploy this repository directly.
 
 ### Start (Local)
 ```bash
@@ -36,7 +39,7 @@ hl apex reconcile
 ### `CRITICAL: API circuit breaker open`
 **Cause**: 5+ consecutive API failures (HL API down or network issue).
 **Impact**: Engine enters safe mode — no new entries, only guard exits.
-**Action**: Check HL API status. If HL is up, check network connectivity from the Railway instance. The circuit breaker resets automatically on the next successful API call.
+**Action**: Check HL API status. If HL is up, check network connectivity from the hosted-agent runtime. The circuit breaker resets automatically on the next successful API call.
 
 ### `CRITICAL: N consecutive tick timeouts`
 **Cause**: Tick execution exceeded 30s three times in a row.
@@ -96,10 +99,9 @@ If the CLI is unavailable, use the Hyperliquid web UI directly.
 
 ## Log Analysis
 
-### JSON logs (Railway)
-```bash
-railway logs | jq '.level, .message'
-```
+### JSON logs
+
+Use the hosted-agent operator logs for the provisioned service.
 
 ### Key log patterns to watch
 - `CRITICAL` — circuit breaker, tick timeouts, unexpected errors
@@ -124,13 +126,14 @@ railway logs | jq '.level, .message'
 
 ---
 
-## Railway Deployment Checklist
+## Hosted Deployment Checklist
 
-- [ ] `HL_PRIVATE_KEY` or keystore credentials configured
-- [ ] `HL_TESTNET=false` for mainnet
-- [ ] `APEX_BUDGET` set to desired capital
-- [ ] `API_AUTH_TOKEN` set for control endpoint security
-- [ ] Persistent volume mounted at `/data`
-- [ ] Health check endpoint `/health` responds with 200
-- [ ] Run `hl apex reconcile` after first deploy to verify clean state
+- [ ] User has active hosted-agent entitlement in web-auth
+- [ ] Agent wallet is bound on the wallet binding page
+- [ ] Hosted deploy is requested from web-auth, not from this repository
+- [ ] Provisioner `/health` reports `railwayConfigured: true`
+- [ ] Provisioner `/health` reports `callbackConfigured: true`
+- [ ] Hosted endpoint `/health` responds with 200
+- [ ] Hosted endpoint `/mcp/trading` responds
+- [ ] Web-auth hosted-agent status refresh shows the provisioned endpoint
 - [ ] Monitor `/metrics` endpoint for tick latency and error counts
