@@ -13,7 +13,7 @@ def test_classification_sets_are_disjoint():
 
 def test_destructive_set_covers_fund_movers():
     from cli.mcp_server import _DESTRUCTIVE_TOOLS
-    for name in ("trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all"):
+    for name in ("trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all", "btcswp_hedge_execute"):
         assert name in _DESTRUCTIVE_TOOLS
 
 

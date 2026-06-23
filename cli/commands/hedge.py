@@ -184,6 +184,134 @@ def quote_cmd(
     typer.echo(json.dumps(quote.as_dict(), indent=2))
 
 
+@hedge_app.command("execute-quote")
+def execute_quote_cmd(
+    primary_side: str = typer.Option(..., "--primary-side", help="BTC trade side: long/short/buy/sell"),
+    primary_notional_usd: float = typer.Option(..., "--primary-notional-usd", help="BTC trade notional in USD"),
+    primary_instrument: str = typer.Option("BTC-PERP", "--primary-instrument", help="Primary Pear trade instrument"),
+    hedge_goal: str = typer.Option("auto", "--hedge-goal", help="auto, funding_spike, or funding_compression"),
+    hedge_strength: float = typer.Option(1.0, "--hedge-strength", help="0..1 multiplier on the 1/L BTCSWP hedge"),
+    btcswp_mid: Optional[float] = typer.Option(None, "--btcswp-mid", help="Optional live BTCSWP mid; defaults to profile baseline"),
+    current_funding_hr: Optional[float] = typer.Option(None, "--current-funding-hr", help="Optional current BTC hourly funding"),
+    k_fixed_hr: Optional[float] = typer.Option(None, "--k-fixed-hr", help="Optional BTCSWP fixed leg hourly rate"),
+    max_hedge_notional_usd: Optional[float] = typer.Option(None, "--max-hedge-notional-usd", help="Optional quote cap"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign, submit, or persist"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
+    mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    policy: Optional[Path] = typer.Option(None, "--policy", help="Session policy file or inline JSON"),
+):
+    """Quote, then submit the accepted Pear BTCSWP hedge order."""
+    _boot_cli()
+    from cli.display import BOLD, GREEN, RESET
+    from cli.session_policy import ACTION_TRADE, current_workspace, guard_or_exit
+    from cli.strategy_registry import resolve_instrument
+    from cli.view_mode import require_not_view_only
+    from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
+
+    require_not_view_only()
+    quote = quote_pear_btcswp_hedge(
+        primary_instrument=primary_instrument,
+        primary_side=primary_side,
+        primary_notional_usd=primary_notional_usd,
+        hedge_goal=hedge_goal,
+        hedge_strength=hedge_strength,
+        btcswp_mid=btcswp_mid,
+        current_funding_hr=current_funding_hr,
+        k_fixed_hr=k_fixed_hr,
+        max_hedge_notional_usd=max_hedge_notional_usd,
+    )
+    payload = quote.as_dict()
+    typer.echo(json.dumps(payload, indent=2))
+    if not quote.eligible:
+        typer.echo(f"{BOLD}No executable hedge quote:{RESET} {quote.reason}", err=True)
+        raise typer.Exit(2)
+
+    order = payload["order"]
+    instrument = resolve_instrument(order["instrument"])
+    network = "mainnet" if mainnet else "testnet"
+    policy_path = str(policy) if policy else None
+
+    guard_or_exit(ACTION_TRADE, policy_path=policy_path, network=network, market=instrument)
+    if dry_run:
+        typer.echo("DRY-RUN: no order submitted and no hedge state persisted.")
+        return
+
+    if not yes and not typer.confirm("Sign + submit this accepted BTCSWP hedge quote?"):
+        typer.echo("Aborted.")
+        raise typer.Exit(0)
+
+    from cli.config import TradingConfig
+    from cli.hl_adapter import DirectHLProxy
+    from parent.hl_proxy import HLProxy
+
+    cfg = TradingConfig()
+    private_key = cfg.get_private_key()
+    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+    hl = DirectHLProxy(raw_hl)
+
+    pol = guard_or_exit(
+        ACTION_TRADE,
+        policy_path=policy_path,
+        wallet=getattr(hl, "_address", None),
+        network=network,
+        market=instrument,
+        notional_usd=quote.hedge_notional_usd,
+    )
+
+    typer.echo(
+        f"\nPlacing {order['side'].upper()} {order['size']:.8f} "
+        f"{instrument} @ ${order['limit_price']:,.4f} ({order['order_type']})"
+    )
+    fill = hl.place_order(
+        instrument=instrument,
+        side=order["side"],
+        size=order["size"],
+        price=order["limit_price"],
+        tif=order["order_type"],
+    )
+    if fill is None:
+        typer.echo(
+            f"{BOLD}No fill{RESET} — order may have been rejected or not matched. Nothing persisted.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    typer.echo(
+        f"{GREEN}{BOLD}Filled:{RESET} {fill.side.upper()} {fill.quantity} "
+        f"{fill.instrument} @ {fill.price} (oid={fill.oid})"
+    )
+    if pol is not None and pol.daily_notional_limit_usd is not None:
+        from cli.session_policy import PolicyCounters
+
+        filled_notional = abs(float(fill.quantity) * float(fill.price))
+        PolicyCounters().record(
+            getattr(hl, "_address", None), network, current_workspace(), filled_notional,
+        )
+
+    job_id = f"PEAR-HEDGE-{int(time.time() * 1000)}"
+    job = {
+        "id": job_id,
+        "source": "pear_btcswp_quote",
+        "primary_instrument": primary_instrument,
+        "primary_side": primary_side,
+        "primary_notional_usd": primary_notional_usd,
+        "instrument": instrument,
+        "hedge_notional_usd": quote.hedge_notional_usd,
+        "hedge_goal": quote.hedge_goal,
+        "oid": str(fill.oid),
+        "fill_price": str(fill.price),
+        "fill_quantity": str(fill.quantity),
+        "submitted_at_ms": int(time.time() * 1000),
+        "status": "active",
+        "network": network,
+        "quote": payload,
+    }
+    hedges = _load_hedges()
+    hedges.insert(0, job)
+    _save_hedges(hedges)
+    typer.echo(f"Persisted {GREEN}{job_id}{RESET} → {_hedges_path()}")
+
+
 @hedge_app.command("propose")
 def propose_cmd(
     coin: str = typer.Argument("BTC", help="Coin to hedge (BTC, ETH)"),

@@ -34,6 +34,7 @@ _READ_ONLY_TOOLS = {
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
     "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
+    "btcswp_hedge_execute",
 }
 # Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
@@ -623,6 +624,58 @@ def create_mcp_server():
             timeout=max(60, (effective_max_ticks or 10) * tick + 30),
             env_overrides=env_overrides,
         )
+
+    @mcp.tool(**_ann("btcswp_hedge_execute", "Execute BTCSWP hedge quote"))
+    def btcswp_hedge_execute(
+        primary_side: str,
+        primary_notional_usd: float,
+        primary_instrument: str = "BTC-PERP",
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        btcswp_mid: Optional[float] = None,
+        current_funding_hr: Optional[float] = None,
+        k_fixed_hr: Optional[float] = None,
+        max_hedge_notional_usd: Optional[float] = None,
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Quote and execute the accepted Pear BTCSWP hedge. WARNING: places an order unless dry_run."""
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "btcswp_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+
+        args = [
+            "hedge", "execute-quote",
+            "--primary-side", primary_side,
+            "--primary-notional-usd", str(primary_notional_usd),
+            "--primary-instrument", primary_instrument,
+            "--hedge-goal", hedge_goal,
+            "--hedge-strength", str(hedge_strength),
+        ]
+        if btcswp_mid is not None:
+            args.extend(["--btcswp-mid", str(btcswp_mid)])
+        if current_funding_hr is not None:
+            args.extend(["--current-funding-hr", str(current_funding_hr)])
+        if k_fixed_hr is not None:
+            args.extend(["--k-fixed-hr", str(k_fixed_hr)])
+        if max_hedge_notional_usd is not None:
+            args.extend(["--max-hedge-notional-usd", str(max_hedge_notional_usd)])
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        if confirmed or env_overrides:
+            args.append("--yes")
+        return _run_hl(*args, timeout=120, env_overrides=env_overrides)
 
     @mcp.tool(**_ann("radar_run", "Run radar scan"))
     def radar_run(mock: bool = False, ctx: FastMCPContext = None) -> str:

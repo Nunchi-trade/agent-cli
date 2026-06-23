@@ -255,6 +255,99 @@ def test_hedge_quote_command_outputs_json_payload():
     assert "needed_from_pear" in payload["pear_requirements"]
 
 
+def test_hedge_execute_quote_dry_run_does_not_open_hl(monkeypatch):
+    import cli.config as cfgmod
+    import cli.hl_adapter as adapter_mod
+    import parent.hl_proxy as proxy_mod
+
+    opened = False
+
+    def fail_open(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("dry-run should not open HL")
+
+    monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", fail_open)
+    monkeypatch.setattr(proxy_mod, "HLProxy", fail_open)
+    monkeypatch.setattr(adapter_mod, "DirectHLProxy", fail_open)
+
+    result = runner.invoke(
+        app,
+        [
+            "hedge",
+            "execute-quote",
+            "--primary-side",
+            "long",
+            "--primary-notional-usd",
+            "150000",
+            "--hedge-goal",
+            "funding_spike",
+            "--btcswp-mid",
+            "75000",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "DRY-RUN" in result.output
+    assert opened is False
+
+
+def test_hedge_execute_quote_submits_and_persists(monkeypatch):
+    import cli.commands.hedge as hedge_cmd
+    import cli.config as cfgmod
+    import cli.hl_adapter as adapter_mod
+    import parent.hl_proxy as proxy_mod
+
+    persisted = {}
+
+    class FakeFill:
+        oid = "oid-pear"
+        side = "buy"
+        quantity = 0.13333333
+        instrument = "BTCSWP-USDYP"
+        price = 75150.0
+
+    class FakeDirectHLProxy:
+        def __init__(self, raw_hl):
+            self.raw_hl = raw_hl
+            self._address = "0x" + "1" * 40
+
+        def place_order(self, **kwargs):
+            assert kwargs["instrument"] == "BTCSWP-USDYP"
+            assert kwargs["side"] == "buy"
+            assert kwargs["tif"] == "Ioc"
+            return FakeFill()
+
+    monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
+    monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
+    monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
+    monkeypatch.setattr(hedge_cmd, "_load_hedges", lambda: [])
+    monkeypatch.setattr(hedge_cmd, "_save_hedges", lambda hedges: persisted.setdefault("hedges", hedges))
+
+    result = runner.invoke(
+        app,
+        [
+            "hedge",
+            "execute-quote",
+            "--primary-side",
+            "long",
+            "--primary-notional-usd",
+            "150000",
+            "--hedge-goal",
+            "funding_spike",
+            "--btcswp-mid",
+            "75000",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Filled" in result.output
+    assert persisted["hedges"][0]["source"] == "pear_btcswp_quote"
+    assert persisted["hedges"][0]["instrument"] == "BTCSWP-USDYP"
+
+
 def test_agent_dedupes_and_respects_trigger():
     agent = CfiHedgeAgent()
     snap = _btc_snap()
