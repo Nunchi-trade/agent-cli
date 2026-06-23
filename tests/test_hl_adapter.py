@@ -5,7 +5,7 @@ import time
 from decimal import Decimal
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from parent.hl_proxy import HLFill, MockHLProxy
+from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
 from common.models import MarketSnapshot
 from cli.hl_adapter import (
     DirectHLProxy,
@@ -215,6 +215,50 @@ class TestPlaceOrder:
         }
         fill = proxy.place_order("ETH-PERP", "buy", 1.0, 2500.0)
         assert fill is None
+
+
+class TestParentHLProxyClearingReplay:
+    def test_place_orders_from_clearing_passes_default_builder_fee(self):
+        raw = HLProxy.__new__(HLProxy)
+        raw._ensure_client = MagicMock()
+        raw._exchange = MagicMock()
+        raw._hl_coin = MagicMock(return_value="ETH")
+        raw.fills = []
+        raw.placed_orders = []
+        raw._exchange.order.return_value = {
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [
+                        {"filled": {"oid": "123", "avgPx": "2500.0", "totalSz": "1.0"}}
+                    ]
+                },
+            },
+        }
+        raw.get_snapshot = MagicMock(return_value=MarketSnapshot(
+            instrument="ETH-PERP",
+            mid_price=2500.0,
+            bid=2499.5,
+            ask=2500.5,
+            spread_bps=4.0,
+            timestamp_ms=int(time.time() * 1000),
+        ))
+
+        placed = raw.place_orders_from_clearing([
+            {
+                "instrument": "ETH-PERP",
+                "side": "buy",
+                "quantity_filled": "1.0",
+                "fill_price": "2500.0",
+            }
+        ])
+
+        assert len(placed) == 1
+        assert raw._exchange.order.call_args.kwargs["builder"] == {
+            "b": "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0",
+            "f": 100,
+        }
 
 
 class TestALOFallback:
