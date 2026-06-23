@@ -20,6 +20,9 @@ SIGN_TIMEOUT_S = 4 * 60
 
 PAIR_TOKEN_ENV = "NUNCHI_WEB_AUTH_PAIR_TOKEN"
 PAIR_ADDRESS_ENV = "NUNCHI_WEB_AUTH_ADDRESS"
+ACCOUNT_ID_ENV = "NUNCHI_ACCOUNT_ID"
+AGENT_ID_ENV = "NUNCHI_AGENT_ID"
+MASTER_ADDRESS_ENV = "NUNCHI_MASTER_WALLET_ADDRESS"
 
 
 class WebAuthMissingError(RuntimeError):
@@ -39,6 +42,8 @@ class WebAuthPairing:
     token: str
     address: str
     account_id: str = ""
+    agent_id: str = ""
+    master_address: str = ""
 
 
 def pairing_from_env() -> Optional[WebAuthPairing]:
@@ -48,10 +53,18 @@ def pairing_from_env() -> Optional[WebAuthPairing]:
         or os.environ.get("HL_WALLET_ADDRESS", "").strip()
         or os.environ.get("HL_VIEW_AS_USER", "").strip()
     )
-    account_id = os.environ.get("NUNCHI_ACCOUNT_ID", "").strip()
+    account_id = os.environ.get(ACCOUNT_ID_ENV, "").strip()
+    agent_id = os.environ.get(AGENT_ID_ENV, "").strip()
+    master_address = os.environ.get(MASTER_ADDRESS_ENV, "").strip()
     if not token or not address:
         return None
-    return WebAuthPairing(token=token, address=address, account_id=account_id)
+    return WebAuthPairing(
+        token=token,
+        address=address,
+        account_id=account_id,
+        agent_id=agent_id,
+        master_address=master_address,
+    )
 
 
 def require_pairing_from_env() -> WebAuthPairing:
@@ -111,6 +124,101 @@ def sign_typed_data_with_pair(
     raise WebAuthTimedOutError()
 
 
+def agent_wallet_binding(pairing: WebAuthPairing) -> Optional[dict[str, Any]]:
+    """Fetch the saved web-auth binding for this hosted agent."""
+    if not pairing.account_id or not pairing.agent_id:
+        return None
+    res = requests.get(
+        f"{PAIR_API_BASE.rstrip('/')}/api/agent-wallets/binding",
+        params={"accountId": pairing.account_id, "agentId": pairing.agent_id},
+        headers={"authorization": f"Bearer {pairing.token}"},
+        timeout=10,
+    )
+    if res.status_code == 404:
+        return None
+    if not res.ok:
+        raise RuntimeError(f"/api/agent-wallets/binding returned {res.status_code}: {res.text[:200]}")
+    body = res.json() if res.content else {}
+    if not body.get("bound"):
+        return None
+    binding = body.get("binding")
+    return binding if isinstance(binding, dict) else None
+
+
+def _int_param(params: dict[str, Any], key: str, default: int = 0) -> int:
+    try:
+        return int(params.get(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def session_policy_typed_data(pairing: WebAuthPairing, binding: dict[str, Any]) -> dict[str, Any]:
+    """Build the policy request; web-auth overlays the latest saved params again."""
+    params = binding.get("params") if isinstance(binding.get("params"), dict) else {}
+    now = int(time.time())
+    master = str(binding.get("masterAddress") or pairing.master_address or pairing.address)
+    agent = str(binding.get("walletAddress") or pairing.address)
+    expiry = _int_param(params, "expiry", now + 30 * 24 * 60 * 60)
+    allowed_methods = params.get("allowedMethods")
+    if not isinstance(allowed_methods, list) or not allowed_methods:
+        allowed_methods = ["hl.order", "hl.cancel"]
+    return {
+        "domain": {
+            "name": "Nunchi",
+            "version": "1",
+            "chainId": 421614 if _int_param(params, "network", 0) == 0 else 42161,
+        },
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+            ],
+            "NunchiSessionPolicy": [
+                {"name": "master", "type": "address"},
+                {"name": "agent", "type": "address"},
+                {"name": "network", "type": "uint8"},
+                {"name": "issuedAt", "type": "uint64"},
+                {"name": "expiry", "type": "uint64"},
+                {"name": "allowedMethods", "type": "string[]"},
+                {"name": "spendLimitUsdc", "type": "uint256"},
+                {"name": "maxPositionSizeUsdc", "type": "uint256"},
+                {"name": "maxPositions", "type": "uint32"},
+                {"name": "maxLeverageX100", "type": "uint32"},
+                {"name": "maxDrawdownPctBps", "type": "uint32"},
+                {"name": "stopLossPctBps", "type": "uint32"},
+                {"name": "dailyLossLimitUsdc", "type": "uint256"},
+                {"name": "maxImpactBps", "type": "uint32"},
+                {"name": "planApprovalRequired", "type": "bool"},
+                {"name": "allowedInstruments", "type": "bytes32[]"},
+                {"name": "agentVersionHash", "type": "bytes32"},
+                {"name": "revocable", "type": "bool"},
+            ],
+        },
+        "primaryType": "NunchiSessionPolicy",
+        "message": {
+            "master": master,
+            "agent": agent,
+            "network": _int_param(params, "network", 0),
+            "issuedAt": now,
+            "expiry": expiry,
+            "allowedMethods": [str(method) for method in allowed_methods],
+            "spendLimitUsdc": _int_param(params, "spendLimitUsdc", 0),
+            "maxPositionSizeUsdc": _int_param(params, "maxPositionSizeUsdc", 0),
+            "maxPositions": _int_param(params, "maxPositions", 0),
+            "maxLeverageX100": _int_param(params, "maxLeverageX100", 0),
+            "maxDrawdownPctBps": _int_param(params, "maxDrawdownPctBps", 0),
+            "stopLossPctBps": _int_param(params, "stopLossPctBps", 0),
+            "dailyLossLimitUsdc": _int_param(params, "dailyLossLimitUsdc", 0),
+            "maxImpactBps": _int_param(params, "maxImpactBps", 0),
+            "planApprovalRequired": bool(params.get("planApprovalRequired", True)),
+            "allowedInstruments": params.get("allowedInstruments") if isinstance(params.get("allowedInstruments"), list) else [],
+            "agentVersionHash": str(params.get("agentVersionHash") or "0x" + ("00" * 32)),
+            "revocable": params.get("revocable") is not False,
+        },
+    }
+
+
 def split_signature(signature: str) -> dict[str, Any]:
     raw = signature[2:] if signature.startswith("0x") else signature
     if len(raw) != 130:
@@ -132,8 +240,26 @@ class WebAuthWallet:
     def __init__(self, pairing: WebAuthPairing):
         self.pairing = pairing
         self.address = pairing.address
+        self._authorized_binding_updated_at: Optional[int] = None
+
+    def ensure_session_policy(self) -> None:
+        binding = agent_wallet_binding(self.pairing)
+        if not binding:
+            return
+        updated_at = _int_param(binding, "updatedAt", 0)
+        if updated_at > 0 and self._authorized_binding_updated_at == updated_at:
+            return
+        policy = session_policy_typed_data(self.pairing, binding)
+        sign_typed_data_with_pair(
+            policy,
+            token=self.pairing.token,
+            summary="Nunchi agent wallet policy update",
+        )
+        self._authorized_binding_updated_at = updated_at or int(time.time())
 
     def sign_typed_data(self, typed_data: dict[str, Any]) -> dict[str, Any]:
+        if typed_data.get("primaryType") != "NunchiSessionPolicy":
+            self.ensure_session_policy()
         signature = sign_typed_data_with_pair(
             typed_data,
             token=self.pairing.token,
