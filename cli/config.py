@@ -8,6 +8,19 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+DEFAULT_PAIR_API_URL = "http://localhost:8422"
+DEFAULT_PAIRING_PATH = "~/.hl-agent/pairing.json"
+NUNCHI_PAIRING_PATH = "~/.nunchi/pairing.json"
+
+ARBITRUM_CHAIN_ID = 42161
+ARBITRUM_SEPOLIA_CHAIN_ID = 421614
+ARBITRUM_USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+ARBITRUM_SEPOLIA_USDC2_ADDRESS = "0x1baAbB04529D43a73232B713C0FE471f7c7334d5"
+HL_BRIDGE2_MAINNET_ADDRESS = "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7"
+HL_BRIDGE2_TESTNET_ADDRESS = "0x08cfc1B6b2dCF36A1480b99353A354AA8AC56f89"
+LIFI_QUOTE_URL = "https://li.quest/v1/quote"
+
+
 @dataclass
 class TradingConfig:
     # Strategy
@@ -46,6 +59,38 @@ class TradingConfig:
 
     # Builder fee
     builder: Dict[str, Any] = field(default_factory=dict)
+
+    # Existing web-auth relay. Pairing is managed by web-auth/nunchi-cli; agent-cli only consumes it.
+    web_auth_api_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "HL_WEB_AUTH_API_URL",
+            os.environ.get("VITE_PAIR_API_URL", DEFAULT_PAIR_API_URL),
+        )
+    )
+    web_auth_pairing_path: str = field(
+        default_factory=lambda: os.environ.get("HL_WEB_AUTH_PAIRING_PATH", DEFAULT_PAIRING_PATH)
+    )
+
+    # Arbitrum -> Hyperliquid Bridge2 deposit config.
+    arbitrum_chain_id: int = field(
+        default_factory=lambda: int(os.environ.get("HL_ARBITRUM_CHAIN_ID", str(ARBITRUM_CHAIN_ID)))
+    )
+    arbitrum_testnet_chain_id: int = field(
+        default_factory=lambda: int(os.environ.get("HL_ARBITRUM_TESTNET_CHAIN_ID", str(ARBITRUM_SEPOLIA_CHAIN_ID)))
+    )
+    arbitrum_usdc_address: str = field(
+        default_factory=lambda: os.environ.get("HL_ARBITRUM_USDC_ADDRESS", ARBITRUM_USDC_ADDRESS)
+    )
+    arbitrum_testnet_usdc_address: str = field(
+        default_factory=lambda: os.environ.get("HL_ARBITRUM_TESTNET_USDC_ADDRESS", ARBITRUM_SEPOLIA_USDC2_ADDRESS)
+    )
+    hl_bridge2_mainnet_address: str = field(
+        default_factory=lambda: os.environ.get("HL_BRIDGE2_MAINNET_ADDRESS", HL_BRIDGE2_MAINNET_ADDRESS)
+    )
+    hl_bridge2_testnet_address: str = field(
+        default_factory=lambda: os.environ.get("HL_BRIDGE2_TESTNET_ADDRESS", HL_BRIDGE2_TESTNET_ADDRESS)
+    )
+    lifi_quote_url: str = field(default_factory=lambda: os.environ.get("HL_LIFI_QUOTE_URL", LIFI_QUOTE_URL))
 
     # Logging
     log_level: str = "INFO"
