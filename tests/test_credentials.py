@@ -195,7 +195,7 @@ class TestRailwayEnvBackend:
     def test_store_key_raises(self):
         from common.credentials import RailwayEnvBackend
         be = RailwayEnvBackend()
-        with pytest.raises(NotImplementedError, match="Railway dashboard"):
+        with pytest.raises(NotImplementedError, match="hosted-agent provisioning"):
             be.store_key("0xaddr", "0xkey")
 
 
