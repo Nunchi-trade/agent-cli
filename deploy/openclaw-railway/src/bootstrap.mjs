@@ -73,9 +73,10 @@ export async function bootstrap() {
 }
 
 function buildConfig() {
-  const aiProvider = (process.env.AI_PROVIDER || "anthropic").toLowerCase();
-  const aiKey = process.env.AI_API_KEY || "";
+  const aiProvider = (process.env.AI_PROVIDER || "openrouter").toLowerCase();
+  const aiKey = process.env.OPENROUTER_API_KEY || process.env.AI_API_KEY || "";
   const providerInfo = PROVIDER_MAP[aiProvider] || PROVIDER_MAP.anthropic;
+  const model = process.env.OPENCLAW_MODEL || process.env.AI_MODEL || (aiProvider === "openrouter" ? "openrouter/auto" : "");
 
   // For blockrun/ClawRouter: use wallet key instead of API key.
   // x402 protocol — payment IS authentication, no API key needed.
@@ -96,6 +97,7 @@ function buildConfig() {
     // AI provider
     provider: providerInfo.provider,
     [providerInfo.key]: credentialValue,
+    ...(model ? { model } : {}),
 
     // MCP servers — our trading CLI is the primary tool provider
     mcpServers: {

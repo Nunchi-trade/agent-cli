@@ -1,4 +1,4 @@
-"""LLM-powered trading agent — supports Claude, Gemini, OpenAI, and ClawRouter.
+"""LLM-powered trading agent — supports Claude, Gemini, OpenAI, OpenRouter, and ClawRouter.
 
 Uses structured tool/function calling to make trading decisions each tick.
 The LLM receives market data, position state, and risk context, then decides
@@ -17,6 +17,9 @@ Usage:
 
     # ClawRouter (x402 — pay with USDC, no API key needed)
     hl run claude_agent -i ETH-PERP --tick 15 --model blockrun/auto
+
+    # OpenRouter (Nunchi hosted default)
+    hl run claude_agent -i ETH-PERP --tick 15 --model openrouter/auto
 """
 from __future__ import annotations
 
@@ -108,6 +111,8 @@ def _detect_provider(model: str) -> str:
     """Detect LLM provider from model name."""
     if model.startswith("blockrun"):
         return "blockrun"
+    if model.startswith("openrouter/") or os.environ.get("AI_PROVIDER", "").lower() == "openrouter":
+        return "openrouter"
     if model.startswith("gemini"):
         return "gemini"
     if model.startswith("claude"):
@@ -124,7 +129,7 @@ def _detect_provider(model: str) -> str:
 
 
 class ClaudeStrategy(BaseStrategy):
-    """LLM-powered trading strategy — supports Claude and Gemini backends."""
+    """LLM-powered trading strategy with multiple hosted/local inference backends."""
 
     def __init__(
         self,
@@ -157,6 +162,7 @@ class ClaudeStrategy(BaseStrategy):
         self._anthropic_client = None
         self._gemini_client = None
         self._openai_client = None
+        self._openrouter_client = None
         self._blockrun_client = None
 
     # ------------------------------------------------------------------
@@ -206,6 +212,27 @@ class ClaudeStrategy(BaseStrategy):
                 raise ValueError("OPENAI_API_KEY environment variable required")
             self._openai_client = openai.OpenAI(api_key=api_key)
         return self._openai_client
+
+    def _get_openrouter_client(self):
+        if self._openrouter_client is None:
+            try:
+                import openai
+            except ImportError:
+                raise ImportError(
+                    "openai package required for OpenRouter. Install: pip3 install openai"
+                )
+            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY or AI_API_KEY environment variable required")
+            self._openrouter_client = openai.OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://agent.nunchi.trade"),
+                    "X-Title": os.environ.get("OPENROUTER_APP_TITLE", "Nunchi Hosted Agent"),
+                },
+            )
+        return self._openrouter_client
 
     # ------------------------------------------------------------------
     # Build prompt
@@ -441,6 +468,43 @@ class ClaudeStrategy(BaseStrategy):
                 decisions.extend(self._parse_tool_call(tc.function.name, args, snapshot))
         return decisions
 
+    def _call_openrouter(self, user_msg: str, snapshot: MarketSnapshot) -> List[StrategyDecision]:
+        import json as _json
+
+        client = self._get_openrouter_client()
+        t0 = time.time()
+
+        response = client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            tools=self._build_openai_tools(),
+            tool_choice="required",
+        )
+
+        elapsed_ms = (time.time() - t0) * 1000
+        self._api_calls += 1
+        usage = response.usage
+        if usage:
+            self._total_input_tokens += usage.prompt_tokens or 0
+            self._total_output_tokens += usage.completion_tokens or 0
+            log.info(
+                "OpenRouter: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
+                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                self._api_calls, self._total_input_tokens, self._total_output_tokens,
+            )
+
+        decisions = []
+        msg = response.choices[0].message
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                args = _json.loads(tc.function.arguments) if tc.function.arguments else {}
+                decisions.extend(self._parse_tool_call(tc.function.name, args, snapshot))
+        return decisions
+
     # ------------------------------------------------------------------
     # ClawRouter / BlockRun backend (x402 — pay with USDC, no API key)
     # ------------------------------------------------------------------
@@ -576,6 +640,8 @@ class ClaudeStrategy(BaseStrategy):
             provider = _detect_provider(self.model)
             if provider == "blockrun":
                 decisions = self._call_blockrun(user_msg, snapshot)
+            elif provider == "openrouter":
+                decisions = self._call_openrouter(user_msg, snapshot)
             elif provider == "gemini":
                 decisions = self._call_gemini(user_msg, snapshot)
             elif provider == "claude":
