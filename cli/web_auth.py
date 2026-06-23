@@ -20,6 +20,7 @@ SIGN_TIMEOUT_S = 4 * 60
 
 PAIR_TOKEN_ENV = "NUNCHI_WEB_AUTH_PAIR_TOKEN"
 PAIR_ADDRESS_ENV = "NUNCHI_WEB_AUTH_ADDRESS"
+AGENT_WALLET_ADDRESS_ENV = "NUNCHI_AGENT_WALLET_ADDRESS"
 ACCOUNT_ID_ENV = "NUNCHI_ACCOUNT_ID"
 AGENT_ID_ENV = "NUNCHI_AGENT_ID"
 MASTER_ADDRESS_ENV = "NUNCHI_MASTER_WALLET_ADDRESS"
@@ -50,6 +51,7 @@ def pairing_from_env() -> Optional[WebAuthPairing]:
     token = os.environ.get(PAIR_TOKEN_ENV, "").strip()
     address = (
         os.environ.get(PAIR_ADDRESS_ENV, "").strip()
+        or os.environ.get(AGENT_WALLET_ADDRESS_ENV, "").strip()
         or os.environ.get("HL_WALLET_ADDRESS", "").strip()
         or os.environ.get("HL_VIEW_AS_USER", "").strip()
     )
@@ -82,18 +84,22 @@ def sign_typed_data_with_pair(
     *,
     token: str,
     summary: str = "",
+    scope: Optional[dict[str, Any]] = None,
     timeout_s: int = SIGN_TIMEOUT_S,
     on_awaiting: Optional[Callable[[], None]] = None,
 ) -> str:
     request_id = secrets.token_urlsafe(16).rstrip("=")
+    payload: dict[str, Any] = {
+        "token": token,
+        "request_id": request_id,
+        "typed_data": typed_data,
+        "summary": summary,
+    }
+    if scope is not None:
+        payload["scope"] = scope
     submit = requests.post(
         f"{PAIR_API_BASE.rstrip('/')}/api/sign",
-        json={
-            "token": token,
-            "request_id": request_id,
-            "typed_data": typed_data,
-            "summary": summary,
-        },
+        json=payload,
         timeout=15,
     )
     if submit.status_code == 401:
@@ -150,6 +156,24 @@ def _int_param(params: dict[str, Any], key: str, default: int = 0) -> int:
         return int(params.get(key, default) or default)
     except (TypeError, ValueError):
         return default
+
+
+def infer_sign_scope(typed_data: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Describe the Hyperliquid action so web-auth can enforce session policy."""
+    if typed_data.get("primaryType") == "NunchiSessionPolicy":
+        return None
+    primary_type = str(typed_data.get("primaryType") or "").lower()
+    message = typed_data.get("message") if isinstance(typed_data.get("message"), dict) else {}
+    action = message.get("action") if isinstance(message.get("action"), dict) else {}
+    action_type = str(action.get("type") or message.get("type") or "").lower()
+    haystack = f"{primary_type} {action_type}"
+    if "cancel" in haystack:
+        method = "hl.cancel"
+    elif "approveagent" in haystack or "approve_agent" in haystack or "approve agent" in haystack:
+        method = "hl.approveAgent"
+    else:
+        method = "hl.order"
+    return {"method": method}
 
 
 def session_policy_typed_data(pairing: WebAuthPairing, binding: dict[str, Any]) -> dict[str, Any]:
@@ -264,6 +288,7 @@ class WebAuthWallet:
             typed_data,
             token=self.pairing.token,
             summary=f"Nunchi trading action for {self.address}",
+            scope=infer_sign_scope(typed_data),
         )
         return split_signature(signature)
 

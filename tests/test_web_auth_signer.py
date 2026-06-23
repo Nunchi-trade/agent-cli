@@ -23,6 +23,19 @@ def test_pairing_from_env_prefers_web_auth_address(monkeypatch):
     assert pairing.master_address == "0x" + "3" * 40
 
 
+def test_pairing_from_env_accepts_hosted_agent_wallet_address(monkeypatch):
+    from cli.web_auth import pairing_from_env
+
+    monkeypatch.setenv("NUNCHI_WEB_AUTH_PAIR_TOKEN", "pair-token")
+    monkeypatch.delenv("NUNCHI_WEB_AUTH_ADDRESS", raising=False)
+    monkeypatch.setenv("NUNCHI_AGENT_WALLET_ADDRESS", "0x" + "4" * 40)
+
+    pairing = pairing_from_env()
+
+    assert pairing is not None
+    assert pairing.address == "0x" + "4" * 40
+
+
 def test_split_signature_normalizes_v():
     from cli.web_auth import split_signature
 
@@ -41,7 +54,7 @@ def test_web_auth_wallet_signs_with_pair(monkeypatch):
     monkeypatch.setattr(
         web_auth,
         "sign_typed_data_with_pair",
-        lambda typed_data, token, summary="", timeout_s=0, on_awaiting=None:
+        lambda typed_data, token, summary="", scope=None, timeout_s=0, on_awaiting=None:
             "0x" + ("aa" * 32) + ("bb" * 32) + "1b",
     )
 
@@ -52,6 +65,61 @@ def test_web_auth_wallet_signs_with_pair(monkeypatch):
     assert sig["r"] == "0x" + "aa" * 32
     assert sig["s"] == "0x" + "bb" * 32
     assert sig["v"] == 27
+
+
+def test_web_auth_wallet_sends_inferred_scope(monkeypatch):
+    import cli.web_auth as web_auth
+
+    submitted = []
+    monkeypatch.setattr(
+        web_auth,
+        "sign_typed_data_with_pair",
+        lambda typed_data, token, summary="", scope=None, timeout_s=0, on_awaiting=None:
+            submitted.append(scope) or "0x" + ("aa" * 32) + ("bb" * 32) + "1b",
+    )
+
+    wallet = web_auth.WebAuthWallet(web_auth.WebAuthPairing(token="tok", address="0x" + "3" * 40))
+    wallet.sign_typed_data({"primaryType": "HyperliquidTransaction:Order", "message": {}})
+    wallet.sign_typed_data({"primaryType": "HyperliquidTransaction:Cancel", "message": {}})
+
+    assert submitted == [{"method": "hl.order"}, {"method": "hl.cancel"}]
+
+
+def test_sign_typed_data_with_pair_includes_scope(monkeypatch):
+    import cli.web_auth as web_auth
+
+    posted = {}
+
+    class Response:
+        ok = True
+        status_code = 200
+        text = ""
+        content = b"{}"
+
+        def __init__(self, body):
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    def post(_url, json, timeout):
+        posted["json"] = json
+        return Response({"ok": True})
+
+    def get(_url, timeout):
+        return Response({"status": "signed", "signature": "0x" + ("aa" * 32) + ("bb" * 32) + "1b"})
+
+    monkeypatch.setattr(web_auth.requests, "post", post)
+    monkeypatch.setattr(web_auth.requests, "get", get)
+    monkeypatch.setattr(web_auth.time, "sleep", lambda _seconds: None)
+
+    web_auth.sign_typed_data_with_pair(
+        {"primaryType": "HyperliquidTransaction:Order", "message": {}},
+        token="tok",
+        scope={"method": "hl.order"},
+    )
+
+    assert posted["json"]["scope"] == {"method": "hl.order"}
 
 
 def test_web_auth_wallet_refreshes_policy_from_binding(monkeypatch):
@@ -91,7 +159,7 @@ def test_web_auth_wallet_refreshes_policy_from_binding(monkeypatch):
     monkeypatch.setattr(
         web_auth,
         "sign_typed_data_with_pair",
-        lambda typed_data, token, summary="", timeout_s=0, on_awaiting=None:
+        lambda typed_data, token, summary="", scope=None, timeout_s=0, on_awaiting=None:
             submitted.append((typed_data, summary)) or "0x" + ("aa" * 32) + ("bb" * 32) + "1b",
     )
 
@@ -145,7 +213,7 @@ def test_web_auth_wallet_does_not_refresh_unchanged_policy(monkeypatch):
     monkeypatch.setattr(
         web_auth,
         "sign_typed_data_with_pair",
-        lambda typed_data, token, summary="", timeout_s=0, on_awaiting=None:
+        lambda typed_data, token, summary="", scope=None, timeout_s=0, on_awaiting=None:
             submitted.append(typed_data) or "0x" + ("aa" * 32) + ("bb" * 32) + "1b",
     )
     wallet = web_auth.WebAuthWallet(
