@@ -713,6 +713,7 @@ def create_mcp_server():
         hedge_strength: float = 1.0,
         slippage: float = 0.01,
         leverage: float = 1.0,
+        venue: str = "direct",
         dry_run: bool = False,
         mainnet: bool = False,
         confirmed: bool = False,
@@ -737,6 +738,7 @@ def create_mcp_server():
             "--hedge-strength", str(hedge_strength),
             "--slippage", str(slippage),
             "--leverage", str(leverage),
+            "--venue", venue,
         ]
         if btc_mid is not None:
             args.extend(["--btc-mid", str(btc_mid)])

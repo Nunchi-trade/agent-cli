@@ -318,6 +318,7 @@ def test_entrypoint_pair_execute_forwards_trusted_context(monkeypatch, tmp_path)
         "--hedge-strength", "1.0",
         "--slippage", "0.01",
         "--leverage", "1.0",
+        "--venue", "direct",
         "--btc-mid", "75000.0",
         "--btcswp-mid", "75000.0",
         "--yes",

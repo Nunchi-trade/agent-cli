@@ -41,7 +41,7 @@ def test_pair_plan_shapes_long_btc_long_btcswp():
     assert body["orders"][0]["side"] == "buy"
     assert body["orders"][1]["instrument"] == "BTCSWP-USDYP"
     assert body["orders"][1]["side"] == "buy"
-    assert body["long_assets"][0]["asset"] == "BTC-PERP"
+    assert body["long_assets"][0]["asset"] == "BTC"
     assert body["builder"] == {"b": "0xBUILDER", "f": 100}
 
 
@@ -143,6 +143,48 @@ def test_pair_execute_submits_two_legs_and_persists(monkeypatch):
     assert len(persisted["positions"][0]["fills"]) == 2
 
 
+def test_pair_execute_pear_uses_pear_position_api(monkeypatch):
+    import cli.commands.pair as pair_cmd
+
+    persisted = {}
+
+    class FakePear:
+        def __init__(self):
+            self.calls = []
+
+        def create_position(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"positionId": "pear-pos-1", "orderId": "pear-order-1"}
+
+    fake_pear = FakePear()
+    monkeypatch.setattr(pair_cmd, "_open_hl", lambda mainnet: (_ for _ in ()).throw(AssertionError("should not open HL")))
+    monkeypatch.setattr(pair_cmd, "_open_pear", lambda: fake_pear)
+    monkeypatch.setattr(pair_cmd, "_load_positions", lambda: [])
+    monkeypatch.setattr(pair_cmd, "_save_positions", lambda positions: persisted.setdefault("positions", positions))
+
+    result = runner.invoke(
+        app,
+        [
+            "pair", "execute",
+            "--venue", "pear",
+            "--primary-side", "long",
+            "--primary-notional-usd", "150000",
+            "--btc-mid", "75000",
+            "--btcswp-mid", "75000",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fake_pear.calls[0]["long_assets"][0]["asset"] == "BTC"
+    assert fake_pear.calls[0]["long_assets"][1]["asset"] == "BTCSWP"
+    asset_notional = sum(asset["notional_usd"] for asset in fake_pear.calls[0]["long_assets"])
+    asset_notional += sum(asset["notional_usd"] for asset in fake_pear.calls[0]["short_assets"])
+    assert fake_pear.calls[0]["usd_value"] == asset_notional
+    assert persisted["positions"][0]["venue"] == "pear"
+    assert persisted["positions"][0]["pear_position_id"] == "pear-pos-1"
+
+
 def test_pair_execute_repairs_primary_when_hedge_fails(monkeypatch):
     import cli.commands.pair as pair_cmd
 
@@ -199,3 +241,32 @@ def test_pair_close_dry_run_builds_reverse_orders(monkeypatch):
     payload = json.loads(result.output.split("\nDRY-RUN", 1)[0])
     assert payload["close_orders"][0]["side"] == "sell"
     assert payload["close_orders"][1]["side"] == "sell"
+
+
+def test_pair_close_pear_calls_close_position(monkeypatch):
+    import cli.commands.pair as pair_cmd
+
+    positions = [{
+        "pair_position_id": "PAIR-PEAR",
+        "pear_position_id": "pear-pos-1",
+        "venue": "pear",
+        "status": "active",
+        "fills": [],
+    }]
+    persisted = {}
+
+    class FakePear:
+        def close_position(self, position_id, **kwargs):
+            assert position_id == "pear-pos-1"
+            assert kwargs == {"execution_type": "MARKET"}
+            return {"positionId": position_id, "status": "CLOSED"}
+
+    monkeypatch.setattr(pair_cmd, "_open_pear", lambda: FakePear())
+    monkeypatch.setattr(pair_cmd, "_load_positions", lambda: positions)
+    monkeypatch.setattr(pair_cmd, "_save_positions", lambda saved: persisted.setdefault("positions", saved))
+
+    result = runner.invoke(app, ["pair", "close", "PAIR-PEAR", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert persisted["positions"][0]["status"] == "closed"
+    assert persisted["positions"][0]["pear_close_response"]["status"] == "CLOSED"

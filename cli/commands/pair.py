@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -67,6 +68,29 @@ def _open_hl(mainnet: bool):
     private_key = cfg.get_private_key()
     raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
     return DirectHLProxy(raw_hl)
+
+
+def _open_pear():
+    from adapters.pear_adapter import BASE_URL, DEFAULT_CLIENT_ID, PearAuth, PearVenueAdapter, RequestsClient
+    from cli.config import TradingConfig
+
+    http = RequestsClient(base_url=os.getenv("PEAR_BASE_URL", BASE_URL))
+    api_key = os.getenv("PEAR_API_KEY")
+    address = os.getenv("PEAR_ADDRESS") or os.getenv("PEAR_WALLET_ADDRESS")
+    if api_key:
+        if not address:
+            raise RuntimeError("PEAR_ADDRESS is required when PEAR_API_KEY is set")
+        auth = PearAuth(
+            http,
+            address=address,
+            client_id=os.getenv("PEAR_CLIENT_ID", DEFAULT_CLIENT_ID),
+        )
+        auth.bootstrap_with_api_key(api_key)
+        return PearVenueAdapter(http=http, auth=auth)
+
+    adapter = PearVenueAdapter(http=http)
+    adapter.connect(TradingConfig().get_private_key())
+    return adapter
 
 
 def _price_inputs(hl, btc_mid: Optional[float], btcswp_mid: Optional[float]) -> tuple[float, float]:
@@ -146,6 +170,7 @@ def execute_cmd(
     leverage: float = typer.Option(1.0, "--leverage", help="Pair-level leverage metadata"),
     builder_address: Optional[str] = typer.Option(None, "--builder-address", help="Override builder address"),
     builder_fee_tenths_bps: Optional[int] = typer.Option(None, "--builder-fee-tenths-bps", help="Override builder fee"),
+    venue: str = typer.Option("direct", "--venue", help="Execution venue: direct or pear"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign, submit, or persist"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet"),
@@ -163,7 +188,12 @@ def execute_cmd(
     guard_or_exit(ACTION_TRADE, policy_path=policy_path, network=network, market="BTC-PERP")
     guard_or_exit(ACTION_TRADE, policy_path=policy_path, network=network, market="BTCSWP-USDYP")
 
-    hl = None if (dry_run and btc_mid is not None and btcswp_mid is not None) else _open_hl(mainnet)
+    venue = venue.lower()
+    if venue not in {"direct", "pear"}:
+        raise typer.BadParameter("venue must be direct or pear")
+
+    has_price_inputs = btc_mid is not None and btcswp_mid is not None
+    hl = None if ((dry_run or venue == "pear") and has_price_inputs) else _open_hl(mainnet)
     live_btc_mid, live_btcswp_mid = _price_inputs(hl, btc_mid, btcswp_mid) if hl else (float(btc_mid), float(btcswp_mid))
     plan = _build_plan(
         primary_side=primary_side,
@@ -185,6 +215,43 @@ def execute_cmd(
         return
     if not yes and not typer.confirm("Sign + submit both pair legs?"):
         raise typer.Exit(0)
+
+    if venue == "pear":
+        pear = _open_pear()
+        total_notional = float(payload["usd_value"])
+        guard_or_exit(
+            ACTION_TRADE,
+            policy_path=policy_path,
+            network=network,
+            market="PEAR:BTC-BTCSWP",
+            notional_usd=total_notional,
+        )
+        response = pear.create_position(
+            long_assets=payload["long_assets"],
+            short_assets=payload["short_assets"],
+            usd_value=total_notional,
+            execution_type="MARKET",
+            leverage=max(1, int(round(float(payload["leverage"])))),
+            slippage=float(payload["slippage"]),
+        )
+        record = {
+            "pair_position_id": plan.pair_position_id,
+            "pear_position_id": _pear_position_id(response),
+            "source": "agent_cli_pair_execute",
+            "venue": "pear",
+            "status": "active",
+            "network": network,
+            "created_at_ms": int(time.time() * 1000),
+            "quote": payload,
+            "pear_response": response,
+            "fills": [],
+        }
+        positions = _load_positions()
+        positions.insert(0, record)
+        _save_positions(positions)
+        typer.echo(f"Persisted {plan.pair_position_id} -> {_positions_path()}")
+        return
+
     if hl is None:
         hl = _open_hl(mainnet)
 
@@ -222,6 +289,7 @@ def execute_cmd(
     record = {
         "pair_position_id": plan.pair_position_id,
         "source": "agent_cli_pair_execute",
+        "venue": "direct",
         "status": "active",
         "network": network,
         "created_at_ms": int(time.time() * 1000),
@@ -251,6 +319,30 @@ def close_cmd(
     if record is None:
         typer.echo("No matching active pair position found.", err=True)
         raise typer.Exit(1)
+    if record.get("venue") == "pear":
+        payload = {
+            "pair_position_id": record["pair_position_id"],
+            "venue": "pear",
+            "pear_position_id": record.get("pear_position_id"),
+            "action": "close_position",
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        if dry_run:
+            typer.echo("DRY-RUN: no close orders submitted.")
+            return
+        if not yes and not typer.confirm("Close Pear position?"):
+            raise typer.Exit(0)
+        pear_position_id = record.get("pear_position_id")
+        if not pear_position_id:
+            typer.echo("Pear position id missing from persisted record.", err=True)
+            raise typer.Exit(1)
+        response = _open_pear().close_position(str(pear_position_id), execution_type="MARKET")
+        record["status"] = "closed"
+        record["closed_at_ms"] = int(time.time() * 1000)
+        record["pear_close_response"] = response
+        _save_positions(positions)
+        typer.echo(f"Closed Pear position {pear_position_id}.")
+        return
     close_orders = [_close_order_from_fill(fill) for fill in record.get("fills", []) if fill.get("role") in {"primary", "funding_hedge"}]
     typer.echo(json.dumps({"pair_position_id": record["pair_position_id"], "close_orders": close_orders}, indent=2))
     if dry_run:
@@ -307,6 +399,20 @@ def _fill_dict(fill, *, role: str) -> dict[str, Any]:
         "timestamp_ms": fill.timestamp_ms,
         "fee": str(getattr(fill, "fee", "0")),
     }
+
+
+def _pear_position_id(response: dict[str, Any]) -> Optional[str]:
+    for key in ("positionId", "position_id", "id"):
+        value = response.get(key)
+        if value:
+            return str(value)
+    position = response.get("position")
+    if isinstance(position, dict):
+        for key in ("positionId", "position_id", "id"):
+            value = position.get(key)
+            if value:
+                return str(value)
+    return None
 
 
 def _find_position(positions: list[dict[str, Any]], pair_position_id: Optional[str]) -> Optional[dict[str, Any]]:

@@ -119,7 +119,7 @@ def build_btc_btcswp_pair_plan(
     }
     risk = {
         "partial_fill_policy": "If leg 1 fills and leg 2 fails, Agent CLI attempts an IOC reduce-only repair close of leg 1.",
-        "execution_note": "Hyperliquid orders are submitted back-to-back from Agent CLI; this is near-synchronous, not Pear's internal same-block orchestration.",
+        "execution_note": "Use venue=pear for Pear-native basket execution; direct Hyperliquid execution submits back-to-back Agent CLI-managed legs.",
     }
 
     if primary_side not in {"long", "short", "buy", "sell"}:
@@ -207,7 +207,7 @@ def _assets_from_legs(*legs: PairLegPlan) -> tuple[list[Dict[str, Any]], list[Di
     shorts: list[Dict[str, Any]] = []
     for leg in legs:
         asset = {
-            "asset": leg.instrument,
+            "asset": _pear_asset_symbol(leg.instrument),
             "weight": leg.target_weight,
             "role": leg.role,
             "notional_usd": leg.notional_usd,
@@ -217,6 +217,14 @@ def _assets_from_legs(*legs: PairLegPlan) -> tuple[list[Dict[str, Any]], list[Di
         else:
             shorts.append(asset)
     return longs, shorts
+
+
+def _pear_asset_symbol(instrument: str) -> str:
+    if instrument == BTC_PERP_INSTRUMENT:
+        return "BTC"
+    if instrument == BTCSWP_INSTRUMENT:
+        return "BTCSWP"
+    return instrument.split("-", 1)[0]
 
 
 def _ineligible(
