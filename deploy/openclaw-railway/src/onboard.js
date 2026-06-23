@@ -30,6 +30,8 @@ async function autoOnboard() {
 
   console.log("[onboard] Running auto-onboard...");
 
+  let telegramChatId = null;
+
   try {
     // Run OpenClaw onboard
     execSync("openclaw onboard --non-interactive --accept-risk", {
@@ -48,14 +50,14 @@ async function autoOnboard() {
   // Resolve Telegram chat ID if username provided
   if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_USERNAME) {
     try {
-      const chatId = await resolveTelegramChatId(
+      telegramChatId = await resolveTelegramChatId(
         process.env.TELEGRAM_BOT_TOKEN,
         process.env.TELEGRAM_USERNAME,
       );
-      if (chatId) {
-        console.log(`[onboard] Resolved Telegram chat ID: ${chatId}`);
+      if (telegramChatId) {
+        console.log(`[onboard] Resolved Telegram chat ID: ${telegramChatId}`);
         // Write USER.md with chat ID
-        const userMd = `# User\n\nTelegram chat ID: ${chatId}\nUsername: ${process.env.TELEGRAM_USERNAME}\n`;
+        const userMd = `# User\n\nTelegram chat ID: ${telegramChatId}\nUsername: ${process.env.TELEGRAM_USERNAME}\n`;
         writeFileSync(
           join(process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace", "USER.md"),
           userMd,
@@ -72,6 +74,7 @@ async function autoOnboard() {
       await sendTelegramMessage(
         process.env.TELEGRAM_BOT_TOKEN,
         "Nunchi trading agent is ready. Say 'hl apex run' to start autonomous trading, or 'hl radar once' to scan for opportunities.",
+        telegramChatId,
       );
       console.log("[onboard] Sent ready message to Telegram");
     } catch (err) {
@@ -110,12 +113,13 @@ async function resolveTelegramChatId(botToken, username) {
   return null;
 }
 
-async function sendTelegramMessage(botToken, text) {
-  // Try to find a chat to send to
-  const data = await fetchJson(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
-  if (!data.ok || !data.result || data.result.length === 0) return;
-
-  const chatId = data.result[0].message?.chat?.id;
+async function sendTelegramMessage(botToken, text, chatId = null) {
+  if (!chatId) {
+    // Try to find a chat to send to when no username-specific chat was resolved.
+    const data = await fetchJson(`https://api.telegram.org/bot${botToken}/getUpdates?limit=1`);
+    if (!data.ok || !data.result || data.result.length === 0) return;
+    chatId = data.result[0].message?.chat?.id;
+  }
   if (!chatId) return;
 
   await fetchJson(`https://api.telegram.org/bot${botToken}/sendMessage`, {

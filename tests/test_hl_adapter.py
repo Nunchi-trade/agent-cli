@@ -112,6 +112,28 @@ class TestGetSzDecimals:
 
 
 class TestPlaceOrder:
+    def test_default_builder_fee_is_passed_to_exchange_order(self):
+        proxy = _make_proxy()
+        proxy._exchange.order.return_value = {
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [
+                        {"filled": {"oid": "builder-oid", "avgPx": "2500.0", "totalSz": "1.0"}}
+                    ]
+                },
+            },
+        }
+
+        fill = proxy.place_order("ETH-PERP", "buy", 1.0, 2500.0, tif="Gtc")
+
+        assert fill is not None
+        assert proxy._exchange.order.call_args.kwargs["builder"] == {
+            "b": "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0",
+            "f": 100,
+        }
+
     def test_filled_order_returns_fill(self):
         proxy = _make_proxy()
         proxy._exchange.order.return_value = {
@@ -230,7 +252,7 @@ class TestIOCSlippage:
         original_send = proxy._send_order
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
@@ -245,7 +267,7 @@ class TestIOCSlippage:
         proxy = _make_proxy()
         sent_prices = []
 
-        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder):
+        def spy_send(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only=False):
             sent_prices.append(price)
             return None
 
@@ -358,6 +380,7 @@ class TestGetAccountState:
             "withdrawable": "9500",
             "assetPositions": [],
         }
+        proxy._info.post.return_value = {"balances": []}
         state = proxy.get_account_state()
         assert state["account_value"] == 10000.0
         assert state["total_margin"] == 500.0
@@ -374,6 +397,7 @@ class TestGetAccountState:
                 "assetPositions": [],
             }
             proxy._info.base_url = "https://test.api"
+            proxy._info.post.return_value = {"balances": []}
             state = proxy.get_account_state()
             assert state["account_value"] == 5000.0
 
@@ -411,7 +435,7 @@ class TestDirectMockProxy:
 
 class TestConstants:
     def test_slippage_factor(self):
-        assert SLIPPAGE_FACTOR == 1.005
+        assert SLIPPAGE_FACTOR == 1.002
 
     def test_sig_figs(self):
         assert SIG_FIGS == 5

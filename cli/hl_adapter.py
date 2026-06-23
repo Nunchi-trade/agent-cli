@@ -111,6 +111,145 @@ def _default_builder() -> Optional[dict]:
 ZERO = Decimal("0")
 
 
+def _assemble_account_state(info, address: str) -> Dict:
+    """Build the unified account-state dict from an HL Info client + address.
+
+    Pure read path: only calls public Info endpoints (user_state /
+    clearinghouseState / spotClearinghouseState). No key or signing involved,
+    so this is reused by both the authenticated proxy (DirectHLProxy) and the
+    keyless read-only path (read_only_account_state).
+
+    Merges perps, HIP-3 DEX clearinghouses (e.g. YEX) and spot balances into a
+    single dict with the same shape get_account_state has always returned.
+    """
+    try:
+        state = info.user_state(address)
+        margin_summary = state.get("marginSummary", {})
+        result = {
+            "account_value": float(margin_summary.get("accountValue", 0)),
+            "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
+            "withdrawable": float(state.get("withdrawable", 0)),
+            "address": address,
+            "positions": state.get("assetPositions", []),
+            "spot_balances": [],
+        }
+    except IndexError:
+        # SDK bug: spot metadata parsing can trigger IndexError.
+        log.warning("SDK IndexError in user_state (spot metadata); trying clearinghouse fallback")
+        try:
+            result = _fetch_perps_via_http(info, address)
+        except Exception as e2:
+            log.error("Clearinghouse fallback also failed: %s", e2)
+            return {}
+    except Exception as e:
+        log.error("Failed to get account state: %s", e)
+        return {}
+
+    # Merge HIP-3 DEX state (asset positions + account value/margin/withdrawable).
+    for dex_id in HIP3_DEXS:
+        try:
+            dex_state = info.post("/info", {
+                "type": "clearinghouseState", "user": address, "dex": dex_id,
+            })
+            if not dex_state:
+                continue
+            if dex_state.get("assetPositions"):
+                result["positions"].extend(dex_state["assetPositions"])
+            dex_margin = dex_state.get("marginSummary", {}) or {}
+            try:
+                result["account_value"] += float(dex_margin.get("accountValue", 0) or 0)
+                result["total_margin"] += float(dex_margin.get("totalMarginUsed", 0) or 0)
+                result["withdrawable"] += float(dex_state.get("withdrawable", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+        except Exception as e:
+            log.warning("Failed to fetch %s state: %s", dex_id, e)
+
+    # Fetch spot balances (separate endpoint).
+    spot_balances = _fetch_spot_balances(info, address)
+    if spot_balances:
+        result["spot_balances"] = spot_balances
+        spot_total = sum(
+            float(b.get("total", 0)) for b in spot_balances
+            if b.get("coin") == "USDC"
+        )
+        result["spot_usdc"] = spot_total
+    return result
+
+
+def _fetch_perps_via_http(info, address: str) -> Dict:
+    """Fallback: fetch perps state via direct HTTP POST (no key)."""
+    import requests
+    base_url = info.base_url
+    resp = requests.post(
+        f"{base_url}/info",
+        json={"type": "clearinghouseState", "user": address},
+        timeout=10,
+    )
+    data = resp.json()
+    margin_summary = data.get("marginSummary", {})
+    return {
+        "account_value": float(margin_summary.get("accountValue", 0)),
+        "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
+        "withdrawable": float(data.get("withdrawable", 0)),
+        "address": address,
+        "positions": data.get("assetPositions", []),
+        "spot_balances": [],
+    }
+
+
+def _fetch_spot_balances(info, address: str) -> List[Dict]:
+    """Fetch spot/unified balances from HL spotClearinghouseState (no key)."""
+    try:
+        import requests
+        base_url = info.base_url
+        resp = requests.post(
+            f"{base_url}/info",
+            json={"type": "spotClearinghouseState", "user": address},
+            timeout=10,
+        )
+        data = resp.json()
+        balances = data.get("balances", [])
+        return [
+            {
+                "coin": b.get("coin", ""),
+                "total": b.get("total", "0"),
+                "hold": b.get("hold", "0"),
+            }
+            for b in balances
+            if float(b.get("total", 0)) != 0
+        ]
+    except Exception as e:
+        log.warning("Failed to fetch spot balances: %s", e)
+        return []
+
+
+def read_only_account_state(address: str, testnet: bool = True) -> Dict:
+    """Fetch account state for ANY address using only public Info endpoints.
+
+    No private key is loaded and nothing is signed — this is the read-only
+    ``--address`` / ``HL_VIEW_AS_USER`` path. Returns the same dict shape as
+    DirectHLProxy.get_account_state(), or {} on failure.
+    """
+    from hyperliquid.info import Info
+    from hyperliquid.utils import constants
+    from parent.hl_proxy import _retry_on_429
+    from parent.sdk_patches import patch_spot_meta_indexing
+
+    patch_spot_meta_indexing()
+    base_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
+    # Construct with the default perp universe only (perp_dexs=[""]). We do NOT
+    # pass HIP3_DEXS here: the Info constructor validates each requested dex
+    # against the network's live perp_dexs() and KeyErrors on dexes that aren't
+    # registered (e.g. a testnet-only HIP-3 dex when reading a mainnet address).
+    # HIP-3 clearinghouse state is merged separately in _assemble_account_state
+    # via explicit POSTs, which already tolerate absent dexes.
+    info = _retry_on_429(
+        Info, base_url, skip_ws=True, timeout=10,
+    )
+    return _assemble_account_state(info, address)
+
+
 def _to_hl_coin(instrument: str) -> str:
     """Map instrument name to HL coin for API calls.
 
@@ -119,6 +258,33 @@ def _to_hl_coin(instrument: str) -> str:
                      US3M-USDYP -> yex:US3M
     """
     return instrument_to_coin(instrument)
+
+
+def _funding_rates_from_markets(data: Any, coin: Optional[str] = None) -> Dict[str, float]:
+    """Extract {coin: hourly_funding_rate} from a meta_and_asset_ctxs payload.
+
+    `data` is the [meta, asset_ctxs] pair returned by get_all_markets(); the
+    nth asset context lines up with the nth universe entry. Best-effort: any
+    malformed entry is treated as 0.0 funding rather than raising.
+    """
+    rates: Dict[str, float] = {}
+    try:
+        universe = (data[0] or {}).get("universe", []) if data else []
+        ctxs = data[1] if data and len(data) > 1 else []
+        for asset, ctx in zip(universe, ctxs):
+            name = asset.get("name", "")
+            if not name:
+                continue
+            try:
+                rates[name] = float(ctx.get("funding", 0) or 0)
+            except (TypeError, ValueError):
+                rates[name] = 0.0
+    except Exception as e:
+        log.debug("funding parse failed: %s", e)
+    if coin:
+        c = _to_hl_coin(coin)
+        return {c: rates.get(c, 0.0)}
+    return rates
 
 
 class DirectHLProxy:
@@ -214,119 +380,17 @@ class DirectHLProxy:
     def get_account_state(self) -> Dict:
         """Fetch account state directly from HL Info API.
 
-        Fetches both perps (clearinghouseState) and spot (spotClearinghouseState)
-        balances so `hl account` shows the full unified balance.
+        Fetches perps (clearinghouseState), HIP-3 DEX clearinghouses (e.g.
+        YEX) and spot (spotClearinghouseState) balances so `hl account` shows
+        the full unified balance. Delegates to the shared, key-free assembler
+        so the read-only `--address` path produces identical output.
+
+        The account-value merge matters: agents in PR 3 mode (dedicated agent
+        wallets, funded by treasury into yex) would otherwise report
+        "** NO FUNDS DETECTED **" at preflight even though they hold $1000
+        USDYP in yex, because the universal clearinghouse query returns $0.
         """
-        try:
-            state = self._info.user_state(self._address)
-            margin_summary = state.get("marginSummary", {})
-            result = {
-                "account_value": float(margin_summary.get("accountValue", 0)),
-                "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
-                "withdrawable": float(state.get("withdrawable", 0)),
-                "address": self._address,
-                "positions": state.get("assetPositions", []),
-                "spot_balances": [],
-            }
-        except IndexError:
-            # SDK bug: spot metadata parsing can trigger IndexError.
-            log.warning("SDK IndexError in user_state (spot metadata); trying clearinghouse fallback")
-            try:
-                result = self._fetch_perps_via_http()
-            except Exception as e2:
-                log.error("Clearinghouse fallback also failed: %s", e2)
-                return {}
-        except Exception as e:
-            log.error("Failed to get account state: %s", e)
-            return {}
-
-        # Merge HIP-3 DEX state (e.g. YEX). Two things to merge:
-        #   1. Asset positions (so watchdog/reconciliation can see open trades)
-        #   2. accountValue / margin / withdrawable (so preflight, budget
-        #      calculations, and any other code reading account_value can see
-        #      funds held inside the HIP-3 clearinghouse)
-        #
-        # Without merging the account value, agents in PR 3 mode (dedicated
-        # agent wallets, funded by treasury into yex) report
-        # "** NO FUNDS DETECTED **" at preflight even though they hold
-        # $1000 USDYP in yex, because the universal clearinghouse query
-        # returns $0.
-        for dex_id in HIP3_DEXS:
-            try:
-                dex_state = self._info.post("/info", {
-                    "type": "clearinghouseState", "user": self._address, "dex": dex_id,
-                })
-                if not dex_state:
-                    continue
-                if dex_state.get("assetPositions"):
-                    result["positions"].extend(dex_state["assetPositions"])
-                dex_margin = dex_state.get("marginSummary", {}) or {}
-                try:
-                    result["account_value"] += float(dex_margin.get("accountValue", 0) or 0)
-                    result["total_margin"] += float(dex_margin.get("totalMarginUsed", 0) or 0)
-                    result["withdrawable"] += float(dex_state.get("withdrawable", 0) or 0)
-                except (TypeError, ValueError):
-                    pass
-            except Exception as e:
-                log.warning("Failed to fetch %s state: %s", dex_id, e)
-
-        # Fetch spot balances (separate endpoint).
-        spot_balances = self._fetch_spot_balances()
-        if spot_balances:
-            result["spot_balances"] = spot_balances
-            # Add spot total to account_value so the headline number is accurate.
-            spot_total = sum(
-                float(b.get("total", 0)) for b in spot_balances
-                if b.get("coin") == "USDC"
-            )
-            result["spot_usdc"] = spot_total
-        return result
-
-    def _fetch_perps_via_http(self) -> Dict:
-        """Fallback: fetch perps state via direct HTTP POST."""
-        import requests
-        base_url = self._hl._info.base_url
-        resp = requests.post(
-            f"{base_url}/info",
-            json={"type": "clearinghouseState", "user": self._address},
-            timeout=10,
-        )
-        data = resp.json()
-        margin_summary = data.get("marginSummary", {})
-        return {
-            "account_value": float(margin_summary.get("accountValue", 0)),
-            "total_margin": float(margin_summary.get("totalMarginUsed", 0)),
-            "withdrawable": float(data.get("withdrawable", 0)),
-            "address": self._address,
-            "positions": data.get("assetPositions", []),
-            "spot_balances": [],
-        }
-
-    def _fetch_spot_balances(self) -> List[Dict]:
-        """Fetch spot/unified balances from HL spotClearinghouseState."""
-        try:
-            import requests
-            base_url = self._hl._info.base_url
-            resp = requests.post(
-                f"{base_url}/info",
-                json={"type": "spotClearinghouseState", "user": self._address},
-                timeout=10,
-            )
-            data = resp.json()
-            balances = data.get("balances", [])
-            # Each balance: {"coin": "USDC", "hold": "0.0", "total": "1000.0", "token": 0}
-            return [
-                {
-                    "coin": b.get("coin", ""),
-                    "total": b.get("total", "0"),
-                    "hold": b.get("hold", "0"),
-                }
-                for b in balances
-                if float(b.get("total", 0)) != 0
-            ]
-        except Exception as e:
-            log.warning("Failed to fetch spot balances: %s", e)
-            return []
+        return _assemble_account_state(self._info, self._address)
 
     def _get_price_tick(self, coin: str, price: float) -> float:
         """Get the price tick size for an asset.
@@ -394,11 +458,15 @@ class DirectHLProxy:
         price: float,
         tif: str = "Ioc",
         builder: Optional[dict] = None,
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         """Place a single order directly on HL. Returns HLFill if filled.
 
         For ALO (tif="Alo"): if the order would cross the book (rejected),
         automatically falls back to Gtc with a warning log.
+
+        When reduce_only is True the order can only shrink an existing
+        position (used to safely close/reduce, never to open or flip).
         """
         # REVENUE-CRITICAL: Enforce builder fee on every order.
         # Default: 10 bps to Nunchi wallet (0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0).
@@ -428,13 +496,13 @@ class DirectHLProxy:
             except Exception:
                 pass  # use original price if snapshot fails
 
-        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder)
+        fill = self._send_order(coin, instrument, side, is_buy, size, price, tif, builder, reduce_only)
 
         # ALO fallback: if ALO was rejected (would cross), retry with Gtc
         if fill is None and tif == "Alo":
             log.warning("ALO rejected for %s %s %s @ %s — falling back to Gtc",
                         side, size, instrument, price)
-            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder)
+            fill = self._send_order(coin, instrument, side, is_buy, size, price, "Gtc", builder, reduce_only)
 
         return fill
 
@@ -448,6 +516,7 @@ class DirectHLProxy:
         price: float,
         tif: str,
         builder: Optional[dict],
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         """Low-level order send with retry on rate-limit. Returns HLFill or None."""
         try:
@@ -455,10 +524,15 @@ class DirectHLProxy:
             result = None
             for attempt in range(MAX_RATE_LIMIT_RETRIES):
                 try:
+                    order_kwargs = {"builder": builder}
+                    # Only pass reduce_only when set so the common path keeps the
+                    # exact call signature existing callers/tests rely on.
+                    if reduce_only:
+                        order_kwargs["reduce_only"] = True
                     result = self._exchange.order(
                         coin, is_buy, size, price,
                         {"limit": {"tif": tif}},
-                        builder=builder,
+                        **order_kwargs,
                     )
                     self._api_consecutive_429s = 0  # reset on success
                     break
@@ -639,6 +713,60 @@ class DirectHLProxy:
                     pass
             raise
 
+    # ─── Margin actions (SDK pass-throughs for `hl margin`) ─────────────────
+
+    def usd_class_transfer(self, amount: float, to_perp: bool) -> Dict:
+        """Move USDC between spot and main perp accounts.
+
+        Delegates to `hyperliquid.exchange.Exchange.usd_class_transfer`.
+        User-signed EIP-712 (no msgpack). Returns the raw exchange response.
+        """
+        return self._exchange.usd_class_transfer(amount=amount, to_perp=to_perp)
+
+    def send_asset(
+        self,
+        destination: str,
+        source_dex: str,
+        destination_dex: str,
+        token: str,
+        amount: float,
+    ) -> Dict:
+        """Cross-DEX asset transfer (main perp ↔ HIP-3 sub-DEX e.g. yex).
+
+        Use "" for the main perp dex name and "spot" for spot. Token must
+        match the collateral token. User-signed EIP-712 envelope per the
+        SDK's `sign_send_asset_action`.
+        """
+        return self._exchange.send_asset(
+            destination=destination,
+            source_dex=source_dex,
+            destination_dex=destination_dex,
+            token=token,
+            amount=amount,
+        )
+
+    def update_isolated_margin(self, amount_usd: float, coin: str) -> Dict:
+        """Add (positive) or remove (negative) isolated margin on a position.
+
+        `coin` is the HL coin name as the user sees it (e.g. "BTC" for main
+        perps or "yex:BTCSWP" for the YEX sub-DEX). SDK resolves the asset
+        index from `info.name_to_asset` so HIP-3 markets work transparently.
+        """
+        return self._exchange.update_isolated_margin(amount=amount_usd, name=coin)
+
+    def list_hip3_dexes(self) -> list:
+        """List HIP-3 sub-DEX names exposed by HL (e.g. ['yex'])."""
+        try:
+            dexes = self._info.perp_dexs()
+        except Exception as e:
+            log.warning("perp_dexs() failed: %s", e)
+            return []
+        out: list = []
+        for entry in dexes or []:
+            if isinstance(entry, dict) and entry.get("name"):
+                out.append(entry["name"])
+        return out
+
     def _to_coin(self, instrument: str) -> str:
         """Map instrument to HL coin symbol."""
         return _to_hl_coin(instrument)
@@ -688,6 +816,98 @@ class DirectHLProxy:
             log.warning("Failed to cancel trigger order %s: %s", oid, e)
             return False
 
+    def schedule_cancel(self, time_ms: Optional[int]) -> bool:
+        """Arm or clear Hyperliquid's dead-man's switch (scheduleCancel).
+
+        Pass an epoch-ms timestamp to tell HL to cancel ALL of this account's
+        open orders at that time unless refreshed before then; pass None to
+        clear it. Returns True if HL accepted the request. Intended to be
+        refreshed each tick by long-running agents so a crashed process never
+        leaves resting orders unattended.
+        """
+        try:
+            result = self._exchange.schedule_cancel(time_ms)
+            ok = isinstance(result, dict) and result.get("status") == "ok"
+            if not ok:
+                log.warning("schedule_cancel rejected: %s", result)
+            return ok
+        except Exception as e:
+            log.error("schedule_cancel failed: %s", e)
+            return False
+
+    def get_order_status(self, oid) -> Optional[Dict]:
+        """Look up a single order by oid via HL Info. Returns the status dict or None."""
+        try:
+            return self._info.query_order_by_oid(self._address, int(oid))
+        except Exception as e:
+            log.error("get_order_status failed for oid=%s: %s", oid, e)
+            return None
+
+    def get_funding_rates(self, coin: Optional[str] = None) -> Dict[str, float]:
+        """Return current hourly funding rate per coin (or one coin if given).
+
+        Sourced from the cached meta+asset-contexts payload so it adds no extra
+        API load beyond get_all_markets()'s shared cache.
+        """
+        try:
+            return _funding_rates_from_markets(self.get_all_markets(), coin)
+        except Exception as e:
+            log.error("get_funding_rates failed: %s", e)
+            return {}
+
+    def emergency_close_all(self) -> Dict:
+        """Cancel ALL open orders and market-close ALL positions (reduce-only).
+
+        Safety kill-switch. Every step is best-effort and isolated so one
+        failure never aborts the rest. No builder fee is attached to the
+        closes — reliability is worth more than a few bps on a panic exit.
+        Returns a summary: cancelled order count, per-position close results,
+        and any errors encountered.
+        """
+        summary: Dict[str, Any] = {"cancelled_orders": 0, "closed_positions": [], "errors": []}
+
+        # 1. Cancel every open order across all instruments.
+        try:
+            for o in self.get_open_orders():
+                coin = o.get("coin", "")
+                oid = o.get("oid", "")
+                if not coin or oid == "":
+                    continue
+                try:
+                    self._exchange.cancel(coin, int(oid))
+                    summary["cancelled_orders"] += 1
+                except Exception as e:
+                    summary["errors"].append(f"cancel {coin}#{oid}: {e}")
+        except Exception as e:
+            summary["errors"].append(f"list_orders: {e}")
+
+        # 2. Market-close every open position.
+        try:
+            state = self.get_account_state()
+            positions = state.get("positions", []) if state else []
+        except Exception as e:
+            summary["errors"].append(f"account_state: {e}")
+            positions = []
+
+        for p in positions:
+            pos = p.get("position", {}) if isinstance(p, dict) else {}
+            coin = pos.get("coin", "")
+            try:
+                szi = float(pos.get("szi", 0) or 0)
+            except (TypeError, ValueError):
+                szi = 0.0
+            if not coin or szi == 0:
+                continue
+            try:
+                result = self._exchange.market_close(coin)
+                ok = isinstance(result, dict) and result.get("status") == "ok"
+            except Exception as e:
+                ok = False
+                summary["errors"].append(f"close {coin}: {e}")
+            summary["closed_positions"].append({"coin": coin, "size": szi, "ok": ok})
+
+        return summary
+
 
 class DirectMockProxy:
     """Mock adapter for dry-run / testing — no real HL connection."""
@@ -717,8 +937,10 @@ class DirectMockProxy:
         price: float,
         tif: str = "Ioc",
         builder: Optional[dict] = None,
+        reduce_only: bool = False,
     ) -> Optional[HLFill]:
         self._last_tif = tif  # expose for testing
+        self._last_reduce_only = reduce_only  # expose for testing
         fill = HLFill(
             oid=f"mock-{int(time.time()*1000)}",
             instrument=instrument,
@@ -756,6 +978,32 @@ class DirectMockProxy:
         """Return mock HIP-3 DEX mids."""
         return self._mock.get_dex_mids(dex)
 
+    def usd_class_transfer(self, amount: float, to_perp: bool) -> Dict:
+        """Mock USDC perp↔spot transfer."""
+        return {"status": "ok", "response": {"type": "usdClassTransfer", "amount": amount, "toPerp": to_perp}}
+
+    def send_asset(self, destination: str, source_dex: str, destination_dex: str, token: str, amount: float) -> Dict:
+        """Mock cross-dex asset send."""
+        return {
+            "status": "ok",
+            "response": {
+                "type": "sendAsset",
+                "destination": destination,
+                "sourceDex": source_dex,
+                "destinationDex": destination_dex,
+                "token": token,
+                "amount": amount,
+            },
+        }
+
+    def update_isolated_margin(self, amount_usd: float, coin: str) -> Dict:
+        """Mock isolated margin update."""
+        return {"status": "ok", "response": {"type": "updateIsolatedMargin", "coin": coin, "amount": amount_usd}}
+
+    def list_hip3_dexes(self) -> list:
+        """Return the mock HIP-3 dex names — matches the strategy registry."""
+        return ["yex"]
+
     def place_trigger_order(self, instrument: str, side: str, size: float, trigger_price: float) -> Optional[str]:
         """Place a mock trigger stop-loss order. Returns OID."""
         oid = str(self._next_trigger_oid)
@@ -769,3 +1017,20 @@ class DirectMockProxy:
     def cancel_trigger_order(self, instrument: str, oid: str) -> bool:
         """Cancel a mock trigger order. Returns True if found and removed."""
         return self._trigger_orders.pop(oid, None) is not None
+
+    def schedule_cancel(self, time_ms: Optional[int]) -> bool:
+        """Record a mock dead-man's switch. Always succeeds."""
+        self._scheduled_cancel_ms = time_ms
+        return True
+
+    def get_order_status(self, oid) -> Optional[Dict]:
+        """Return a mock order-status payload."""
+        return {"oid": str(oid), "status": "mock"}
+
+    def get_funding_rates(self, coin: Optional[str] = None) -> Dict[str, float]:
+        """Derive mock funding rates from the mock market contexts."""
+        return _funding_rates_from_markets(self.get_all_markets(), coin)
+
+    def emergency_close_all(self) -> Dict:
+        """Mock kill-switch — no real positions, returns an empty summary."""
+        return {"cancelled_orders": 0, "closed_positions": [], "errors": []}
