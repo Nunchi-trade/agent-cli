@@ -265,3 +265,62 @@ def test_entrypoint_btcswp_execute_forwards_trusted_context(monkeypatch, tmp_pat
     )
     assert captured["timeout"] == 120
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
+
+
+def test_entrypoint_pair_execute_forwards_trusted_context(monkeypatch, tmp_path):
+    import cli.mcp_server as mcp_server
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        captured["env_overrides"] = env_overrides
+        return "pair-executed"
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_RUNNER_CONTEXT_SECRET", "shared-secret")
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+            "name": "pair_trade_execute",
+            "arguments": {
+                "primary_side": "long",
+                "primary_notional_usd": 150000,
+                "btc_mid": 75000,
+                "btcswp_mid": 75000,
+                "confirmed": True,
+            },
+        },
+    }).encode()
+    headers = {
+        "x-nunchi-secret-nunchi-runner-context-secret": "shared-secret",
+        "x-nunchi-secret-nunchi-web-auth-pair-token": "pair-token",
+        "x-nunchi-secret-nunchi-web-auth-address": "0x" + "4" * 40,
+        "x-nunchi-trading-permission-tier": "testnet_trading",
+        "x-nunchi-trading-network": "testnet",
+    }
+
+    status, response = handle_mcp_json_rpc(body, headers)
+
+    assert status == 200
+    assert response["result"]["content"][0]["text"] == "pair-executed"
+    assert captured["args"] == (
+        "pair", "execute",
+        "--primary-side", "long",
+        "--primary-notional-usd", "150000.0",
+        "--hedge-goal", "auto",
+        "--hedge-strength", "1.0",
+        "--slippage", "0.01",
+        "--leverage", "1.0",
+        "--btc-mid", "75000.0",
+        "--btcswp-mid", "75000.0",
+        "--yes",
+    )
+    assert captured["timeout"] == 120
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"

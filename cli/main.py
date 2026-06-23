@@ -36,6 +36,7 @@ from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.hedge import hedge_app
+from cli.commands.pair import pair_app
 from cli.commands.margin import margin_app
 from cli.commands.trading import trading_app
 from cli.commands.house import house_app
@@ -67,6 +68,7 @@ app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(hedge_app, name="hedge", help="CFI v2 funding-rate hedge — propose, execute, status, backtest, auto")
+app.add_typer(pair_app, name="pair", help="Pear-style pair positions — quote, execute, close")
 app.add_typer(margin_app, name="margin", help="HL collateral — deposits, sub-DEX transfers, isolated margin, auto-topup")
 app.add_typer(trading_app, name="trading", help="Trading data surfaces — joined JSON contracts for UIs/bridges")
 app.add_typer(house_app, name="house", help="HOUSE — fleet launcher for trading subprocesses")
