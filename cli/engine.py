@@ -142,7 +142,10 @@ class TradingEngine:
             return
 
         # 2. Pre-tick risk check
-        mark_prices = {self.instrument: Decimal(str(snapshot.mid_price))}
+        mark_prices = self._collect_mark_prices(
+            {self.instrument, *self.position_tracker.get_all_instruments()},
+            primary_snapshot=snapshot,
+        )
 
         # 2a. Risk gate auto-expiry (check every tick, no-op if not in COOLDOWN)
         self.risk_manager.check_auto_expiry()
@@ -192,9 +195,23 @@ class TradingEngine:
         managed_decisions = self.managed_orders.on_tick(snapshot)
         decisions.extend(managed_decisions)
 
+        decision_instruments = {
+            d.instrument or self.instrument
+            for d in decisions
+            if d.action == "place_order"
+        }
+        if decision_instruments:
+            mark_prices.update(self._collect_mark_prices(decision_instruments, primary_snapshot=snapshot))
+
         # 5. Filter through risk manager
         order_dicts = [
-            {"side": d.side, "size": d.size, "quantity": d.size, "limit_price": d.limit_price}
+            {
+                "instrument": d.instrument or self.instrument,
+                "side": d.side,
+                "size": d.size,
+                "quantity": d.size,
+                "limit_price": d.limit_price,
+            }
             for d in decisions if d.action == "place_order"
         ]
         valid_dicts = self.risk_manager.validate_orders(
@@ -203,23 +220,24 @@ class TradingEngine:
         # Rebuild filtered decisions list
         valid_set = set()
         for vd in valid_dicts:
-            valid_set.add((vd["side"], vd["size"], vd["limit_price"]))
+            valid_set.add((vd.get("instrument", self.instrument), vd["side"], vd["size"], vd["limit_price"]))
         valid_decisions = [
             d for d in decisions
             if d.action == "place_order"
-            and (d.side, d.size, d.limit_price) in valid_set
+            and (d.instrument or self.instrument, d.side, d.size, d.limit_price) in valid_set
         ]
 
         # 5b. Risk gate — in COOLDOWN, block new entries (exits still allowed)
         if not self.risk_manager.can_open_position():
-            pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
             # Only allow reduce-size orders (exits)
             pre_count = len(valid_decisions)
-            valid_decisions = [
-                d for d in valid_decisions
-                if (d.side == "sell" and pos.net_qty > ZERO)
-                or (d.side == "buy" and pos.net_qty < ZERO)
-            ]
+            filtered = []
+            for d in valid_decisions:
+                inst = d.instrument or self.instrument
+                pos = self.position_tracker.get_agent_position(agent_id, inst)
+                if (d.side == "sell" and pos.net_qty > ZERO) or (d.side == "buy" and pos.net_qty < ZERO):
+                    filtered.append(d)
+            valid_decisions = filtered
             blocked = pre_count - len(valid_decisions)
             if blocked > 0:
                 log.warning("T%d: risk gate COOLDOWN — blocked %d new entries",
@@ -231,7 +249,7 @@ class TradingEngine:
         # 7. Apply fills to position tracker
         for fill in fills:
             self.position_tracker.apply_fill(
-                agent_id, self.instrument, fill.side,
+                agent_id, fill.instrument, fill.side,
                 fill.quantity, fill.price,
             )
             self.trade_log.append({
@@ -422,15 +440,23 @@ class TradingEngine:
     def _close_all_positions(self) -> None:
         """Close all open positions on shutdown to avoid orphaned exposure."""
         agent_id = self.strategy.strategy_id
-        pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
-        if pos.net_qty == ZERO:
-            return
+        positions = self.position_tracker.get_wallet_positions(agent_id)
+        if not positions:
+            positions = {self.instrument: self.position_tracker.get_agent_position(agent_id, self.instrument)}
+
+        for instrument, pos in list(positions.items()):
+            if pos.net_qty == ZERO:
+                continue
+            self._close_position(instrument, pos)
+
+    def _close_position(self, instrument: str, pos: Position) -> None:
+        """Close one tracked position."""
 
         close_side = "sell" if pos.net_qty > ZERO else "buy"
         size = float(abs(pos.net_qty))
 
         try:
-            snapshot = self.hl.get_snapshot(self.instrument)
+            snapshot = self.hl.get_snapshot(instrument)
             if close_side == "sell":
                 price = round(float(snapshot.bid) * 0.995, 6)
             else:
@@ -440,13 +466,13 @@ class TradingEngine:
             price = float(pos.avg_entry_price)
 
         if self.dry_run:
-            log.info("[DRY RUN] Shutdown close: %s %.6f @ %.4f", close_side, size, price)
+            log.info("[DRY RUN] Shutdown close: %s %.6f %s @ %.4f", close_side, size, instrument, price)
             return
 
         log.info("Closing position on shutdown: %s %.6f %s @ %.4f",
-                 close_side, size, self.instrument, price)
+                 close_side, size, instrument, price)
         fill = self.hl.place_order(
-            instrument=self.instrument,
+            instrument=instrument,
             side=close_side,
             size=size,
             price=price,
@@ -455,7 +481,7 @@ class TradingEngine:
         )
         if fill:
             self.position_tracker.apply_fill(
-                agent_id, self.instrument, fill.side,
+                self.strategy.strategy_id, fill.instrument, fill.side,
                 fill.quantity, fill.price,
             )
             self.trade_log.append({
@@ -473,6 +499,23 @@ class TradingEngine:
             log.info("Shutdown close filled: %s %s @ %s", fill.side, fill.quantity, fill.price)
         else:
             log.warning("Shutdown close did not fill — position may remain open on exchange")
+
+    def _collect_mark_prices(self, instruments: set[str], *, primary_snapshot: MarketSnapshot) -> Dict[str, Decimal]:
+        mark_prices: Dict[str, Decimal] = {}
+        for inst in instruments:
+            if not inst:
+                continue
+            if inst == self.instrument:
+                snap = primary_snapshot
+            else:
+                try:
+                    snap = self.hl.get_snapshot(inst)
+                except Exception as exc:
+                    log.debug("mark price fetch failed for %s: %s", inst, exc)
+                    continue
+            if snap.mid_price > 0:
+                mark_prices[inst] = Decimal(str(snap.mid_price))
+        return mark_prices
 
     def _log_tick(self, snapshot, decisions, fills, ok: bool) -> None:
         agent_id = self.strategy.strategy_id

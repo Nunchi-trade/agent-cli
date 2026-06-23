@@ -34,6 +34,16 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
             "min_interval_seconds": 300,
         },
     },
+    "pear_btcswp_hedge": {
+        "path": "strategies.cfi_hedge_agent:CfiHedgeAgent",
+        "description": "Pear BTC trade + BTCSWP funding-rate hedge agent",
+        "params": {
+            "notional_trigger": 100_000.0,
+            "max_hedge_notional": 50_000.0,
+            "max_per_day": 5,
+            "min_interval_seconds": 300,
+        },
+    },
     "rfq_agent": {
         "path": "strategies.rfq_agent:RFQAgent",
         "description": "Block-size liquidity for dark RFQ flow",

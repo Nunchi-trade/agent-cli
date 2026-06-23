@@ -9,6 +9,7 @@ Asserts the load-bearing math survives the port from nunchi-cli:
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +31,7 @@ from strategies.cfi_hedge import (
     build_cfi_hedge_proposal,
 )
 from strategies.cfi_hedge_agent import CfiHedgeAgent
+from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
 from execution.margin_math import (
     free_collateral_usd,
     margin_utilization,
@@ -188,6 +190,69 @@ def test_agent_emits_cfi_leg_at_one_over_L():
     # hedge notional = 150000 / 15 = 10000; size = 10000 / baseline_b0 (75000).
     assert d.meta["hedge_notional_usd"] == 10_000.0
     assert abs(d.size - 10_000.0 / BTCSWP_PROFILE.baseline_b0) < 1e-6
+
+
+def test_agent_emits_short_cfi_leg_for_short_btc():
+    agent = CfiHedgeAgent()
+    snap = _btc_snap()
+    ctx = StrategyContext(snapshot=snap, position_qty=-2.0, position_notional=150_000.0)
+    decisions = agent.on_tick(snap, ctx)
+    assert len(decisions) == 1
+    d = decisions[0]
+    assert d.instrument == "BTCSWP-USDYP"
+    assert d.side == "sell"
+    assert d.meta["hedge_notional_usd"] == 10_000.0
+
+
+def test_pear_btcswp_quote_long_btc_buys_hedge():
+    quote = quote_pear_btcswp_hedge(
+        primary_side="long",
+        primary_notional_usd=150_000.0,
+        hedge_goal="funding_spike",
+        btcswp_mid=75_000.0,
+    )
+    body = quote.as_dict()
+    assert body["eligible"] is True
+    assert body["hedge_side"] == "buy"
+    assert body["hedge_notional_usd"] == 10_000.0
+    assert abs(body["hedge_size"] - (10_000.0 / 75_000.0)) < 1e-8
+    assert body["order"]["instrument"] == "BTCSWP-USDYP"
+    assert body["execution"]["strategy"] == "pear_btcswp_hedge"
+    assert "docs.google.com/document" in body["pear_requirements"]["pear_docs"]
+
+
+def test_pear_btcswp_quote_short_btc_sells_hedge():
+    quote = quote_pear_btcswp_hedge(
+        primary_side="short",
+        primary_notional_usd=150_000.0,
+        hedge_goal="auto",
+        btcswp_mid=75_000.0,
+    )
+    assert quote.eligible is True
+    assert quote.hedge_side == "sell"
+
+
+def test_hedge_quote_command_outputs_json_payload():
+    result = runner.invoke(
+        app,
+        [
+            "hedge",
+            "quote",
+            "--primary-side",
+            "long",
+            "--primary-notional-usd",
+            "150000",
+            "--hedge-goal",
+            "funding_spike",
+            "--btcswp-mid",
+            "75000",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["eligible"] is True
+    assert payload["order"]["instrument"] == "BTCSWP-USDYP"
+    assert "needed_from_pear" in payload["pear_requirements"]
 
 
 def test_agent_dedupes_and_respects_trigger():

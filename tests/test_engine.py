@@ -119,6 +119,31 @@ class TestTickCycle:
         assert len(records) == 1
         assert records[0]["side"] == "buy"
 
+    def test_multi_instrument_decision_tracks_fill_in_decision_instrument(self):
+        decisions = [
+            StrategyDecision(
+                action="place_order",
+                instrument="BTCSWP-USDYP",
+                side="buy",
+                size=0.1,
+                limit_price=75000.0,
+            )
+        ]
+        hl = MockHL(mid=75000.0)
+        strat = StubStrategy(decisions=decisions)
+        tmp = tempfile.mkdtemp()
+        engine = TradingEngine(
+            hl=hl, strategy=strat, instrument="BTC-PERP",
+            tick_interval=0, dry_run=False, data_dir=tmp,
+        )
+
+        engine._tick()
+
+        btcswp_pos = engine.position_tracker.get_agent_position("test_stub", "BTCSWP-USDYP")
+        btc_pos = engine.position_tracker.get_agent_position("test_stub", "BTC-PERP")
+        assert btcswp_pos.net_qty == Decimal("0.1")
+        assert btc_pos.net_qty == Decimal("0")
+
     def test_run_respects_max_ticks(self):
         engine = _make_engine()
         engine.run(max_ticks=3, resume=False)

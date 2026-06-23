@@ -29,7 +29,7 @@ _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
     "account", "status", "apex_status",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
-    "order_status", "funding_rates",
+    "order_status", "funding_rates", "btcswp_hedge_quote",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
@@ -795,6 +795,34 @@ def create_mcp_server():
         if mainnet:
             args.append("--mainnet")
         return _run_hl(*args, env_overrides=_request_env(ctx))
+
+    @mcp.tool(**_ann("btcswp_hedge_quote", "BTCSWP hedge quote"))
+    def btcswp_hedge_quote(
+        primary_side: str,
+        primary_notional_usd: float,
+        primary_instrument: str = "BTC-PERP",
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        btcswp_mid: Optional[float] = None,
+        current_funding_hr: Optional[float] = None,
+        k_fixed_hr: Optional[float] = None,
+        max_hedge_notional_usd: Optional[float] = None,
+    ) -> str:
+        """Return a Pear-ready BTCSWP quote payload without signing or submitting."""
+        from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
+
+        quote = quote_pear_btcswp_hedge(
+            primary_instrument=primary_instrument,
+            primary_side=primary_side,
+            primary_notional_usd=primary_notional_usd,
+            hedge_goal=hedge_goal,
+            hedge_strength=hedge_strength,
+            btcswp_mid=btcswp_mid,
+            current_funding_hr=current_funding_hr,
+            k_fixed_hr=k_fixed_hr,
+            max_hedge_notional_usd=max_hedge_notional_usd,
+        )
+        return json.dumps(quote.as_dict(), indent=2)
 
     # ------------------------------------------------------------------
     # Self-improvement tools — memory, journal, judge, obsidian

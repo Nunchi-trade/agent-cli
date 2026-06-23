@@ -4,6 +4,7 @@ Feature surface:
 
     hl hedge propose [COIN]                  show proposal, no execute
     hl hedge execute [COIN] [--dry-run]      preview yex:{COIN}SWP order without signing
+    hl hedge quote                           Pear-ready BTCSWP quote payload
     hl hedge status [--coin C] [--watch]     active hedges + live drift/savings
     hl hedge backtest --coin BTC [--days N]  wrap hedge_calculator.py
     hl hedge auto [--coins ...] [--dry-run]  agent-controlled auto-open loop
@@ -151,6 +152,36 @@ def _build_proposal(hl, coin: str):
 
 
 # ─── propose ─────────────────────────────────────────────────────────────────
+
+
+@hedge_app.command("quote")
+def quote_cmd(
+    primary_side: str = typer.Option(..., "--primary-side", help="BTC trade side: long/short/buy/sell"),
+    primary_notional_usd: float = typer.Option(..., "--primary-notional-usd", help="BTC trade notional in USD"),
+    primary_instrument: str = typer.Option("BTC-PERP", "--primary-instrument", help="Primary Pear trade instrument"),
+    hedge_goal: str = typer.Option("auto", "--hedge-goal", help="auto, funding_spike, or funding_compression"),
+    hedge_strength: float = typer.Option(1.0, "--hedge-strength", help="0..1 multiplier on the 1/L BTCSWP hedge"),
+    btcswp_mid: Optional[float] = typer.Option(None, "--btcswp-mid", help="Optional live BTCSWP mid; defaults to profile baseline"),
+    current_funding_hr: Optional[float] = typer.Option(None, "--current-funding-hr", help="Optional current BTC hourly funding"),
+    k_fixed_hr: Optional[float] = typer.Option(None, "--k-fixed-hr", help="Optional BTCSWP fixed leg hourly rate"),
+    max_hedge_notional_usd: Optional[float] = typer.Option(None, "--max-hedge-notional-usd", help="Optional quote cap"),
+):
+    """Emit a Pear-ready BTCSWP quote payload without signing or submitting."""
+    _boot_cli()
+    from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
+
+    quote = quote_pear_btcswp_hedge(
+        primary_instrument=primary_instrument,
+        primary_side=primary_side,
+        primary_notional_usd=primary_notional_usd,
+        hedge_goal=hedge_goal,
+        hedge_strength=hedge_strength,
+        btcswp_mid=btcswp_mid,
+        current_funding_hr=current_funding_hr,
+        k_fixed_hr=k_fixed_hr,
+        max_hedge_notional_usd=max_hedge_notional_usd,
+    )
+    typer.echo(json.dumps(quote.as_dict(), indent=2))
 
 
 @hedge_app.command("propose")

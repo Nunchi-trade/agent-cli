@@ -19,7 +19,7 @@ def test_destructive_set_covers_fund_movers():
 
 def test_read_only_set_covers_reads():
     from cli.mcp_server import _READ_ONLY_TOOLS
-    for name in ("account", "status", "strategies", "order_status", "funding_rates"):
+    for name in ("account", "status", "strategies", "order_status", "funding_rates", "btcswp_hedge_quote"):
         assert name in _READ_ONLY_TOOLS
 
 
