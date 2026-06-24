@@ -6,7 +6,6 @@ from decimal import Decimal
 from typer.testing import CliRunner
 
 from cli.main import app
-from cli.pear_config import PEAR_BUILDER_ADDRESS, PEAR_BUILDER_FEE_TENTHS_BPS
 from strategies.cfi_hedge import BTCSWP_PROFILE
 from strategies.pear_pair_trade import build_btc_btcswp_pair_plan
 
@@ -61,6 +60,22 @@ def test_pair_plan_auto_short_btc_sells_btcswp():
     assert body["orders"][0]["side"] == "sell"
     assert body["orders"][1]["side"] == "sell"
     assert len(body["short_assets"]) == 2
+
+
+def test_pair_plan_uses_configured_pear_btcswp_asset(monkeypatch):
+    monkeypatch.setenv("PEAR_BTCSWP_ASSET", "nunchi:BTCSWP")
+
+    plan = build_btc_btcswp_pair_plan(
+        primary_side="long",
+        primary_notional_usd=150_000,
+        btc_mid=75_000,
+        btcswp_mid=75_000,
+        hedge_goal="funding_spike",
+        now_ms=1,
+    )
+
+    body = plan.as_dict()
+    assert [asset["asset"] for asset in body["long_assets"]] == ["BTC", "nunchi:BTCSWP"]
 
 
 def test_pair_quote_command_outputs_json():
@@ -184,10 +199,9 @@ def test_pair_execute_pear_uses_pear_position_api(monkeypatch):
     asset_notional = sum(asset["notional_usd"] for asset in fake_pear.calls[0]["long_assets"])
     asset_notional += sum(asset["notional_usd"] for asset in fake_pear.calls[0]["short_assets"])
     assert fake_pear.calls[0]["usd_value"] == asset_notional
-    assert fake_pear.calls[0]["builder"] == {"b": PEAR_BUILDER_ADDRESS, "f": PEAR_BUILDER_FEE_TENTHS_BPS}
+    assert "builder" not in fake_pear.calls[0]
     assert persisted["positions"][0]["venue"] == "pear"
     assert persisted["positions"][0]["pear_position_id"] == "pear-pos-1"
-    assert persisted["positions"][0]["builder"] == {"b": PEAR_BUILDER_ADDRESS, "f": PEAR_BUILDER_FEE_TENTHS_BPS}
 
 
 def test_worked_example_long_btc_long_btcswp_hedges_funding_spike(monkeypatch):

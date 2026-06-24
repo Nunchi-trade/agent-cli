@@ -55,10 +55,8 @@ def _builder_payload(
     *,
     venue: str = "pear",
 ) -> Optional[dict[str, Any]]:
-    if builder_address is None and builder_fee_tenths_bps is None and venue == "pear":
-        from cli.pear_config import pear_builder_info
-
-        return pear_builder_info()
+    if venue == "pear":
+        return None
     if builder_address is None and builder_fee_tenths_bps is None:
         from cli.builder_fee import BuilderFeeConfig
 
@@ -250,7 +248,6 @@ def execute_cmd(
             execution_type="MARKET",
             leverage=max(1, int(round(float(payload["leverage"])))),
             slippage=float(payload["slippage"]),
-            builder=builder,
         )
         record = {
             "pair_position_id": plan.pair_position_id,
@@ -262,7 +259,6 @@ def execute_cmd(
             "created_at_ms": int(time.time() * 1000),
             "quote": payload,
             "pear_response": response,
-            "builder": builder,
             "fills": [],
         }
         positions = _load_positions()

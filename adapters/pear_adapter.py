@@ -470,6 +470,10 @@ class PearVenueAdapter(VenueAdapter):
     def get_account_state(self) -> Dict:
         return self._http.request("GET", "/accounts", headers=self._auth_headers())
 
+    def get_agent_wallet(self) -> Dict:
+        """Pear-managed agent wallet used for Hyperliquid extra-agent approval checks."""
+        return self._http.request("GET", "/agent-wallet", headers=self._auth_headers())
+
     def get_positions(self, instrument: str = "") -> List[Dict]:
         """Open pair positions (GET /positions). Optional pair filter, both directions.
 

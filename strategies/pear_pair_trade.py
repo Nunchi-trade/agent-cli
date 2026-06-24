@@ -223,12 +223,12 @@ def _assets_from_legs(*legs: PairLegPlan) -> tuple[list[Dict[str, Any]], list[Di
 
 
 def _pear_asset_symbol(instrument: str) -> str:
-    from cli.pear_config import PEAR_BTCSWP_ASSET
+    from cli.pear_config import pear_btcswp_asset
 
     if instrument == BTC_PERP_INSTRUMENT:
         return "BTC"
     if instrument == BTCSWP_INSTRUMENT:
-        return PEAR_BTCSWP_ASSET
+        return pear_btcswp_asset()
     return instrument.split("-", 1)[0]
 
 
