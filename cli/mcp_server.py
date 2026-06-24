@@ -713,7 +713,7 @@ def create_mcp_server():
         hedge_strength: float = 1.0,
         slippage: float = 0.01,
         leverage: float = 1.0,
-        venue: str = "direct",
+        venue: str = "pear",
         dry_run: bool = False,
         mainnet: bool = False,
         confirmed: bool = False,

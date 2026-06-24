@@ -597,7 +597,7 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
             "--hedge-strength", str(_float_arg(arguments, "hedge_strength") or 1.0),
             "--slippage", str(_float_arg(arguments, "slippage") or 0.01),
             "--leverage", str(_float_arg(arguments, "leverage") or 1.0),
-            "--venue", _str_arg(arguments, "venue") or "direct",
+            "--venue", _str_arg(arguments, "venue") or "pear",
         ]
         btc_mid = _float_arg(arguments, "btc_mid")
         if btc_mid is not None:

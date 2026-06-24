@@ -49,7 +49,16 @@ def _save_positions(positions: list[dict[str, Any]]) -> None:
     _positions_path().write_text(json.dumps(positions, indent=2, default=str))
 
 
-def _builder_payload(builder_address: Optional[str], builder_fee_tenths_bps: Optional[int]) -> Optional[dict[str, Any]]:
+def _builder_payload(
+    builder_address: Optional[str],
+    builder_fee_tenths_bps: Optional[int],
+    *,
+    venue: str = "pear",
+) -> Optional[dict[str, Any]]:
+    if builder_address is None and builder_fee_tenths_bps is None and venue == "pear":
+        from cli.pear_config import pear_builder_info
+
+        return pear_builder_info()
     if builder_address is None and builder_fee_tenths_bps is None:
         from cli.builder_fee import BuilderFeeConfig
 
@@ -140,10 +149,12 @@ def quote_cmd(
     leverage: float = typer.Option(1.0, "--leverage", help="Pair-level leverage metadata"),
     builder_address: Optional[str] = typer.Option(None, "--builder-address", help="Override builder address"),
     builder_fee_tenths_bps: Optional[int] = typer.Option(None, "--builder-fee-tenths-bps", help="Override builder fee"),
+    venue: str = typer.Option("pear", "--venue", help="Execution venue for defaults: pear or direct"),
 ):
     """Quote a BTC + BTCSWP pair position without executing."""
     _boot_cli()
-    builder = _builder_payload(builder_address, builder_fee_tenths_bps)
+    venue = _normalize_venue(venue)
+    builder = _builder_payload(builder_address, builder_fee_tenths_bps, venue=venue)
     plan = _build_plan(
         primary_side=primary_side,
         primary_notional_usd=primary_notional_usd,
@@ -170,7 +181,7 @@ def execute_cmd(
     leverage: float = typer.Option(1.0, "--leverage", help="Pair-level leverage metadata"),
     builder_address: Optional[str] = typer.Option(None, "--builder-address", help="Override builder address"),
     builder_fee_tenths_bps: Optional[int] = typer.Option(None, "--builder-fee-tenths-bps", help="Override builder fee"),
-    venue: str = typer.Option("direct", "--venue", help="Execution venue: direct or pear"),
+    venue: str = typer.Option("pear", "--venue", help="Execution venue: pear or direct"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign, submit, or persist"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet"),
@@ -182,15 +193,12 @@ def execute_cmd(
     from cli.view_mode import require_not_view_only
 
     require_not_view_only()
-    builder = _builder_payload(builder_address, builder_fee_tenths_bps)
+    venue = _normalize_venue(venue)
+    builder = _builder_payload(builder_address, builder_fee_tenths_bps, venue=venue)
     network = "mainnet" if mainnet else "testnet"
     policy_path = str(policy) if policy else None
     guard_or_exit(ACTION_TRADE, policy_path=policy_path, network=network, market="BTC-PERP")
     guard_or_exit(ACTION_TRADE, policy_path=policy_path, network=network, market="BTCSWP-USDYP")
-
-    venue = venue.lower()
-    if venue not in {"direct", "pear"}:
-        raise typer.BadParameter("venue must be direct or pear")
 
     has_price_inputs = btc_mid is not None and btcswp_mid is not None
     hl = None if ((dry_run or venue == "pear") and has_price_inputs) else _open_hl(mainnet)
@@ -213,7 +221,16 @@ def execute_cmd(
     if dry_run:
         typer.echo("DRY-RUN: no orders submitted and no pair position persisted.")
         return
-    if not yes and not typer.confirm("Sign + submit both pair legs?"):
+    if venue == "pear":
+        typer.echo(
+            "Pear-native campaign route: orders execute through Pear backend so "
+            "synthetic positions, PnL, history, and competition tracking stay in Pear."
+        )
+        typer.echo(
+            "Pear recommends a dedicated wallet because subaccounts are not supported; "
+            "avoid mixing Pear basket trades and normal perps in the same wallet."
+        )
+    if not yes and not typer.confirm(_confirm_prompt(venue)):
         raise typer.Exit(0)
 
     if venue == "pear":
@@ -233,6 +250,7 @@ def execute_cmd(
             execution_type="MARKET",
             leverage=max(1, int(round(float(payload["leverage"])))),
             slippage=float(payload["slippage"]),
+            builder=builder,
         )
         record = {
             "pair_position_id": plan.pair_position_id,
@@ -244,6 +262,7 @@ def execute_cmd(
             "created_at_ms": int(time.time() * 1000),
             "quote": payload,
             "pear_response": response,
+            "builder": builder,
             "fills": [],
         }
         positions = _load_positions()
@@ -373,6 +392,19 @@ def _submit_leg(hl, order: dict[str, Any], *, builder: Optional[dict[str, Any]],
         builder=builder,
         reduce_only=reduce_only,
     )
+
+
+def _normalize_venue(venue: str) -> str:
+    venue = venue.lower()
+    if venue not in {"direct", "pear"}:
+        raise typer.BadParameter("venue must be direct or pear")
+    return venue
+
+
+def _confirm_prompt(venue: str) -> str:
+    if venue == "pear":
+        return "Sign + submit via Pear backend using a dedicated wallet?"
+    return "Sign + submit direct Hyperliquid legs? This is not Pear campaign-tracked."
 
 
 def _repair_close(hl, order: dict[str, Any], fill, *, builder: Optional[dict[str, Any]]):
