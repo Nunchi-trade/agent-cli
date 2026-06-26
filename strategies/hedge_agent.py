@@ -1,8 +1,11 @@
-"""Hedge agent — reduces excess exposure per deterministic mandate.
+"""Hedge agent — reduces inventory exposure per deterministic mandate.
 
 From KorAI spec: "reduces exposure per deterministic mandate."
 Only acts when |inventory| exceeds a configurable threshold,
 then places aggressive orders to bring inventory back toward zero.
+
+This is not the BTCSWP funding-rate hedge. Use `hl hedge propose` or
+`hl hedge backtest` for the public funding hedge tooling.
 """
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 
 class HedgeAgent(BaseStrategy):
-    """Deterministic hedge agent that reduces inventory when overexposed."""
+    """Deterministic inventory hedge agent that reduces overexposure."""
 
     def __init__(
         self,

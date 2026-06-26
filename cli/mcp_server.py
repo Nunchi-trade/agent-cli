@@ -25,7 +25,10 @@ def create_mcp_server():
     """Create and configure the FastMCP server."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("yex-trader", instructions="Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, REFLECT reviews.")
+    mcp = FastMCP(
+        "yex-trader",
+        instructions="Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, REFLECT reviews, BTCSWP funding hedge proposals.",
+    )
 
     # ------------------------------------------------------------------
     # Fast tools — call Python directly (no subprocess overhead)
@@ -113,6 +116,7 @@ def create_mcp_server():
 
         issues = []
         ok_items = []
+        warnings = []
 
         # SDK
         try:
@@ -124,12 +128,22 @@ def create_mcp_server():
         # Key
         has_env_key = bool(os.environ.get("HL_PRIVATE_KEY"))
         keystores = list_keystores()
+        from cli.web_auth import get_stored_pairing
+        pairing = get_stored_pairing()
         if has_env_key:
             ok_items.append("HL_PRIVATE_KEY set")
+            if pairing is None:
+                warnings.append(
+                    "Raw-key mode active. Prefer hl pair connect or hosted Nunchi Auth for MCP/agent use."
+                )
         elif keystores:
             ok_items.append(f"Keystore found ({len(keystores)} keys)")
         else:
             issues.append("No private key: set HL_PRIVATE_KEY or run wallet_auto")
+        if pairing is not None:
+            ok_items.append(f"Paired wallet active ({pairing.selected_or_master_address})")
+        else:
+            warnings.append("No paired wallet found. Run hl pair connect to enable browser-approved signing.")
 
         # Network
         testnet = os.environ.get("HL_TESTNET", "true").lower()
@@ -145,9 +159,79 @@ def create_mcp_server():
 
         return json.dumps({
             "ok": ok_items,
+            "warnings": warnings,
             "issues": issues,
             "passed": len(issues) == 0,
         }, indent=2)
+
+    @mcp.tool()
+    def funding_hedge_propose(
+        asset: str = "BTC",
+        perp_side: str = "long",
+        perp_notional_usd: float = 100_000.0,
+        funding_apr: Optional[float] = None,
+        funding_rate_8h: Optional[float] = None,
+        vol_multiplier: float = 15.0,
+    ) -> str:
+        """Propose a read-only BTCSWP funding-rate hedge.
+
+        Args:
+            asset: Underlying perp exposure. BTC is deployed today.
+            perp_side: Perp exposure side — "long" or "short".
+            perp_notional_usd: Absolute perp notional in USD.
+            funding_apr: Annualized funding APR. Accepts 0.42 or 42 for 42%.
+            funding_rate_8h: 8h funding rate as a decimal, used if funding_apr is omitted.
+            vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
+        """
+        from modules.funding_hedge import propose_funding_hedge
+
+        try:
+            proposal = propose_funding_hedge(
+                asset=asset,
+                perp_side=perp_side,
+                perp_notional_usd=perp_notional_usd,
+                funding_apr=funding_apr,
+                funding_rate_8h=funding_rate_8h,
+                vol_multiplier=vol_multiplier,
+            )
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)}, indent=2)
+        return json.dumps(proposal.to_dict(), indent=2)
+
+    @mcp.tool()
+    def funding_hedge_backtest(
+        csv_path: str,
+        asset: str = "BTC",
+        perp_side: str = "long",
+        perp_notional_usd: float = 100_000.0,
+        vol_multiplier: float = 15.0,
+    ) -> str:
+        """Backtest BTCSWP funding hedge cashflows from a local CSV.
+
+        The CSV must include funding_rate_8h, perp_funding_rate_8h, funding_rate,
+        or rate. It may also include hedge_rate_8h, btcswp_rate_8h, or
+        btcswp_funding_rate_8h for realized hedge residuals.
+
+        Args:
+            csv_path: Local CSV path readable by the MCP server process.
+            asset: Underlying perp exposure. BTC is deployed today.
+            perp_side: Perp exposure side — "long" or "short".
+            perp_notional_usd: Absolute perp notional in USD.
+            vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
+        """
+        from modules.funding_hedge import backtest_funding_hedge_csv
+
+        try:
+            backtest = backtest_funding_hedge_csv(
+                csv_path=csv_path,
+                asset=asset,
+                perp_side=perp_side,
+                perp_notional_usd=perp_notional_usd,
+                vol_multiplier=vol_multiplier,
+            )
+        except (OSError, ValueError) as exc:
+            return json.dumps({"error": str(exc)}, indent=2)
+        return json.dumps(backtest.to_dict(), indent=2)
 
     @mcp.tool()
     def account(mainnet: bool = False) -> str:

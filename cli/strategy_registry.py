@@ -21,7 +21,7 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "hedge_agent": {
         "path": "strategies.hedge_agent:HedgeAgent",
-        "description": "Reduces excess exposure per deterministic mandate",
+        "description": "Inventory exposure reducer; not the BTCSWP funding-rate hedge",
         "params": {"notional_threshold": 15000.0},
     },
     "rfq_agent": {
