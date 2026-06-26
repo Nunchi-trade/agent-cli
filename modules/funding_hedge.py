@@ -21,6 +21,12 @@ BTCSWP_PROFILE = {
     "status": "deployed",
 }
 
+ROADMAP_PROFILES = [
+    {"asset": "ETH", "hedge_market": "ETHSWP-USDYP", "status": "roadmap"},
+    {"asset": "HYPE", "hedge_market": "HYPESWP-USDYP", "status": "roadmap"},
+    {"asset": "SPCX", "hedge_market": "SPCXSWP-USDYP", "status": "roadmap"},
+]
+
 
 @dataclass(frozen=True)
 class FundingHedgeProposal:
@@ -88,6 +94,36 @@ class FundingHedgeBacktest:
         payload = asdict(self)
         payload["rows"] = [row.to_dict() for row in self.rows]
         return payload
+
+
+def funding_hedge_info() -> dict[str, object]:
+    """Return agent-discoverable metadata for the public hedge slice."""
+    return {
+        "name": "BTCSWP funding-rate hedge",
+        "summary": (
+            "Pure sizing and local cashflow backtesting for Nunchi's public BTC "
+            "funding-rate hedge surface."
+        ),
+        "deployed_profiles": [dict(BTCSWP_PROFILE)],
+        "roadmap_profiles": [dict(profile) for profile in ROADMAP_PROFILES],
+        "default_vol_multiplier": BTCSWP_PROFILE["vol_multiplier"],
+        "sizing_rule": "same-side BTCSWP, hedge_notional = perp_notional / vol_multiplier",
+        "supported_cli": [
+            "hl hedge propose --perp-notional ... --funding-apr ...",
+            "hl hedge backtest --csv ... --perp-notional ...",
+        ],
+        "mcp_tools": ["funding_hedge_info", "funding_hedge_propose", "funding_hedge_backtest"],
+        "csv_required_columns": ["funding_rate_8h", "perp_funding_rate_8h", "funding_rate", "rate"],
+        "csv_optional_columns": ["hedge_rate_8h", "btcswp_rate_8h", "btcswp_funding_rate_8h"],
+        "hedge_agent_distinction": (
+            "strategy hedge_agent is an inventory/delta reducer. The BTCSWP "
+            "funding-rate hedge lives under hl hedge and the funding_hedge_* MCP tools."
+        ),
+        "execution_boundary": (
+            "funding_hedge_info/propose/backtest do not place orders, sign payloads, "
+            "fetch private account state, or expose private rate methodology."
+        ),
+    }
 
 
 def normalize_side(side: str) -> Side:
@@ -332,6 +368,34 @@ def format_proposal(proposal: FundingHedgeProposal) -> str:
             f"Assumption:     {proposal.assumption}",
             f"Status:         {proposal.status}",
             f"Disclaimer:     {proposal.disclaimer}",
+        ]
+    )
+
+
+def format_info(info: dict[str, object]) -> str:
+    profiles = info.get("deployed_profiles", [])
+    deployed = profiles[0] if isinstance(profiles, list) and profiles else {}
+    if not isinstance(deployed, dict):
+        deployed = {}
+    return "\n".join(
+        [
+            "Funding Hedge Info",
+            "=" * 40,
+            f"Name:          {info['name']}",
+            f"Summary:       {info['summary']}",
+            f"Deployed:      {deployed.get('asset', 'BTC')} -> {deployed.get('hedge_market', 'BTCSWP-USDYP')}",
+            f"Multiplier:    {info['default_vol_multiplier']}x",
+            f"Sizing rule:   {info['sizing_rule']}",
+            "",
+            "CLI:",
+            *[f"  {cmd}" for cmd in info["supported_cli"]],  # type: ignore[index]
+            "",
+            "MCP:",
+            *[f"  {tool}" for tool in info["mcp_tools"]],  # type: ignore[index]
+            "",
+            f"CSV required: {', '.join(info['csv_required_columns'])}",  # type: ignore[arg-type]
+            f"CSV optional: {', '.join(info['csv_optional_columns'])}",  # type: ignore[arg-type]
+            f"Note:         {info['hedge_agent_distinction']}",
         ]
     )
 

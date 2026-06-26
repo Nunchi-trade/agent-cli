@@ -29,7 +29,7 @@ _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
     "account", "status", "apex_status",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
-    "order_status", "funding_rates", "funding_hedge_propose", "funding_hedge_backtest",
+    "order_status", "funding_rates", "funding_hedge_info", "funding_hedge_propose", "funding_hedge_backtest",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
@@ -530,6 +530,13 @@ def create_mcp_server():
             "issues": issues,
             "passed": len(issues) == 0,
         }, indent=2)
+
+    @mcp.tool(**_ann("funding_hedge_info", "Funding hedge info"))
+    def funding_hedge_info() -> str:
+        """Describe deployed funding hedge profiles and input schemas."""
+        from modules.funding_hedge import funding_hedge_info as build_info
+
+        return json.dumps(build_info(), indent=2)
 
     @mcp.tool(**_ann("funding_hedge_propose", "Funding hedge proposal"))
     def funding_hedge_propose(

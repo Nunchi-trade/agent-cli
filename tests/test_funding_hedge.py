@@ -8,7 +8,12 @@ import types
 from typer.testing import CliRunner
 
 from cli.main import app
-from modules.funding_hedge import annualize_funding_rate_8h, backtest_funding_hedge_csv, propose_funding_hedge
+from modules.funding_hedge import (
+    annualize_funding_rate_8h,
+    backtest_funding_hedge_csv,
+    funding_hedge_info,
+    propose_funding_hedge,
+)
 
 
 runner = CliRunner()
@@ -69,6 +74,16 @@ def test_propose_annualizes_8h_funding_rate():
     assert proposal.unhedged_funding_cashflow_usd_per_year == 29_565
 
 
+def test_funding_hedge_info_describes_deployed_profile():
+    info = funding_hedge_info()
+
+    assert info["deployed_profiles"][0]["asset"] == "BTC"  # type: ignore[index]
+    assert info["deployed_profiles"][0]["hedge_market"] == "BTCSWP-USDYP"  # type: ignore[index]
+    assert "funding_hedge_info" in info["mcp_tools"]
+    assert "funding_rate_8h" in info["csv_required_columns"]
+    assert "hedge_agent is an inventory/delta reducer" in info["hedge_agent_distinction"]
+
+
 def test_hedge_propose_cli_json():
     result = runner.invoke(
         app,
@@ -80,6 +95,15 @@ def test_hedge_propose_cli_json():
     assert payload["hedge_market"] == "BTCSWP-USDYP"
     assert payload["hedge_notional_usd"] == 10_000
     assert payload["disclaimer"].startswith("Sizing proposal only.")
+
+
+def test_hedge_info_cli_json():
+    result = runner.invoke(app, ["hedge", "info", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["deployed_profiles"][0]["hedge_market"] == "BTCSWP-USDYP"
+    assert "funding_hedge_backtest" in payload["mcp_tools"]
 
 
 def test_mcp_funding_hedge_propose(monkeypatch):
@@ -101,6 +125,18 @@ def test_mcp_funding_hedge_propose(monkeypatch):
     assert payload["hedge_side"] == "long"
     assert payload["hedge_notional_usd"] == 10_000
     assert payload["coverage_pct"] == 100
+
+
+def test_mcp_funding_hedge_info(monkeypatch):
+    install_fake_mcp(monkeypatch)
+
+    from cli.mcp_server import create_mcp_server
+
+    server = create_mcp_server()
+    payload = json.loads(server.tools["funding_hedge_info"]())
+
+    assert payload["deployed_profiles"][0]["asset"] == "BTC"
+    assert "funding_hedge_propose" in payload["mcp_tools"]
 
 
 def test_mcp_funding_hedge_rejects_roadmap_assets(monkeypatch):

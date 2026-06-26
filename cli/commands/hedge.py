@@ -150,6 +150,23 @@ def _build_proposal(hl, coin: str):
     return proposal, snapshot
 
 
+# ─── info ────────────────────────────────────────────────────────────────────
+
+
+@hedge_app.command("info")
+def info_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON."),
+):
+    """Show deployed funding hedge capabilities and agent-facing schemas."""
+    from modules.funding_hedge import format_info, funding_hedge_info
+
+    info = funding_hedge_info()
+    if json_output:
+        typer.echo(json.dumps(info, indent=2))
+    else:
+        typer.echo(format_info(info))
+
+
 # ─── propose ─────────────────────────────────────────────────────────────────
 
 
