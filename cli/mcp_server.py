@@ -8,12 +8,24 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 
 def _run_hl(*args: str, timeout: int = 30) -> str:
     """Run an hl CLI command via subprocess and return stdout."""
     cmd = [sys.executable, "-m", "cli.main", *args]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    output = result.stdout.strip()
+    if result.returncode != 0 and result.stderr:
+        output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
+    return output or "(no output)"
+
+
+def _run_script(script_name: str, *args: str, timeout: int = 300) -> str:
+    """Run a repository script via subprocess and return stdout/stderr."""
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
+    cmd = [sys.executable, str(script_path), *args]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     output = result.stdout.strip()
     if result.returncode != 0 and result.stderr:
@@ -209,6 +221,63 @@ def create_mcp_server():
         if mainnet:
             args.append("--mainnet")
         return _run_hl(*args, timeout=max(60, (max_ticks or 10) * tick + 30))
+
+    @mcp.tool()
+    def hedge_agent_smoke_test(
+        instrument: str = "ETH-PERP",
+        position_qty: float = 5.0,
+        inventory_threshold: float = 3.0,
+        notional_threshold: Optional[float] = None,
+        urgency_factor: float = 0.5,
+        max_hedge_size: float = 5.0,
+        slippage_bps: float = 10.0,
+        mainnet_account_check: bool = False,
+        sam_address: Optional[str] = None,
+        send_testnet_usdc: Optional[str] = None,
+        confirm_send_testnet_usdc: bool = False,
+    ) -> str:
+        """Run Sam's hedge_agent CLI smoke test through MCP.
+
+        Exercises the real `hl run hedge_agent` path in mock mode with seeded
+        long and short positions, then validates the first hedge fill. Optional
+        mainnet verification is read-only (`hl account --mainnet`). Optional
+        testnet USDC transfer requires confirm_send_testnet_usdc=true.
+
+        Args:
+            instrument: Trading instrument for the mock hedge run.
+            position_qty: Absolute seeded position size for long/short cases.
+            inventory_threshold: Quantity threshold used unless notional_threshold is set.
+            notional_threshold: Optional USD notional threshold.
+            urgency_factor: Hedge sizing multiplier.
+            max_hedge_size: Maximum hedge order size.
+            slippage_bps: IOC slippage budget in basis points.
+            mainnet_account_check: Also run read-only mainnet account verification.
+            sam_address: Destination address for optional testnet USDC transfer.
+            send_testnet_usdc: Optional testnet USDC amount to transfer to sam_address.
+            confirm_send_testnet_usdc: Must be true to submit the testnet transfer.
+        """
+        if send_testnet_usdc and not confirm_send_testnet_usdc:
+            return "Refusing to move testnet USDC without confirm_send_testnet_usdc=true."
+        if send_testnet_usdc and not sam_address:
+            return "Refusing to move testnet USDC without sam_address."
+
+        args = [
+            "--instrument", instrument,
+            "--position-qty", str(position_qty),
+            "--urgency-factor", str(urgency_factor),
+            "--max-hedge-size", str(max_hedge_size),
+            "--slippage-bps", str(slippage_bps),
+        ]
+        if notional_threshold is None:
+            args.extend(["--inventory-threshold", str(inventory_threshold)])
+        else:
+            args.extend(["--notional-threshold", str(notional_threshold)])
+        if mainnet_account_check:
+            args.append("--mainnet-account-check")
+        if send_testnet_usdc:
+            args.extend(["--sam-address", sam_address or "", "--send-testnet-usdc", send_testnet_usdc])
+
+        return _run_script("test_hedge_agent.py", *args, timeout=600)
 
     @mcp.tool()
     def radar_run(mock: bool = False) -> str:

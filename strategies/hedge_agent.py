@@ -19,12 +19,14 @@ class HedgeAgent(BaseStrategy):
         self,
         strategy_id: str = "hedge_agent",
         inventory_threshold: float = 3.0,
+        notional_threshold: float | None = None,
         urgency_factor: float = 0.5,
         max_hedge_size: float = 5.0,
         slippage_bps: float = 10.0,
     ):
         super().__init__(strategy_id=strategy_id)
         self.inventory_threshold = inventory_threshold
+        self.notional_threshold = notional_threshold
         self.urgency_factor = urgency_factor
         self.max_hedge_size = max_hedge_size
         self.slippage_bps = slippage_bps
@@ -38,12 +40,19 @@ class HedgeAgent(BaseStrategy):
             return []
 
         q = context.position_qty if context else 0.0
+        threshold_qty = self.inventory_threshold
 
-        # Only hedge when inventory exceeds threshold
-        if abs(q) <= self.inventory_threshold:
+        # The CLI registry documents hedge_agent in notional terms; keep the
+        # original inventory threshold as the default for existing configs.
+        if self.notional_threshold is not None:
+            notional = abs(q) * snapshot.mid_price
+            if notional <= self.notional_threshold:
+                return []
+            threshold_qty = self.notional_threshold / snapshot.mid_price
+        elif abs(q) <= self.inventory_threshold:
             return []
 
-        excess = abs(q) - self.inventory_threshold
+        excess = abs(q) - threshold_qty
         hedge_size = min(excess * self.urgency_factor, self.max_hedge_size)
         hedge_size = round(hedge_size, 6)
 
