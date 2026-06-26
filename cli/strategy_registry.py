@@ -21,7 +21,7 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "hedge_agent": {
         "path": "strategies.hedge_agent:HedgeAgent",
-        "description": "inventory reducer (delta control)",
+        "description": "inventory reducer (delta control), not the BTCSWP funding-rate hedge",
         "params": {"notional_threshold": 15000.0},
     },
     "cfi_hedge": {
