@@ -169,6 +169,7 @@ Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is
 | **[Pulse](#pulse--emerging-pulse-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/pulse/SKILL.md) |
 | **[Guard (Dynamic Stop Loss)](#guard--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/guard/SKILL.md) |
 | **[REFLECT](#reflect--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/reflect/SKILL.md) |
+| **[BTCSWP Funding Hedge](#btcswp-funding-hedge)** | Thin wrapper over the MCP-exposed BTCSWP funding hedge calculator for BTC perp hedge proposals and backtests. | [`SKILL.md`](skills/btcswp-funding-hedge/SKILL.md) |
 
 ### Install a skill (agents)
 
@@ -181,6 +182,7 @@ https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/pulse/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/guard/SKILL.md
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
+https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/btcswp-funding-hedge/SKILL.md
 ```
 
 ### Install a skill (OpenClaw / ClawHub)
@@ -363,6 +365,20 @@ All adjustments have guardrail bounds — parameters can't swing wildly. Disable
 **Scheduled tasks** (built into APEX tick loop):
 - **Daily PnL reset** at UTC midnight — clears daily loss tracking
 - **REFLECT comprehensive report** at UTC 04:00 — full performance review with markdown report saved to `data/apex/reflect/`
+
+---
+
+### BTCSWP Funding Hedge
+
+Agent skill wrapper for the existing read-only BTCSWP funding hedge calculator exposed over MCP. It sizes BTC perp funding hedges without duplicating the math or placing orders.
+
+```bash
+hl hedge propose --asset BTC --side long --perp-notional 150000 --funding-apr 42 --json
+```
+
+MCP tools: `funding_hedge_info`, `funding_hedge_propose`, `funding_hedge_backtest`
+
+**[Download SKILL.md](skills/btcswp-funding-hedge/SKILL.md)**
 
 ---
 
