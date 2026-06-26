@@ -119,3 +119,14 @@ class TestHedgeAgent:
         strat = HedgeAgent(inventory_threshold=1.0)
         orders = strat.on_tick(_snap(), _ctx(pos_qty=5.0))
         assert orders[0].order_type == "Ioc"
+
+    def test_notional_threshold_uses_snapshot_price(self):
+        from strategies.hedge_agent import HedgeAgent
+        strat = HedgeAgent(notional_threshold=7500.0, urgency_factor=1.0)
+
+        assert strat.on_tick(_snap(mid=2500.0), _ctx(pos_qty=3.0)) == []
+
+        orders = strat.on_tick(_snap(mid=2500.0), _ctx(pos_qty=4.0))
+        assert len(orders) == 1
+        assert orders[0].side == "sell"
+        assert orders[0].size == 1.0
