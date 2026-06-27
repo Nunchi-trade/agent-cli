@@ -245,6 +245,11 @@ def execute_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    max_hedge_notional: Optional[float] = typer.Option(
+        None,
+        "--max-hedge-notional",
+        help="Reject execution if proposed BTCSWP hedge notional exceeds this USD cap.",
+    ),
 ):
     """Build the proposal and optionally sign + submit a real yex:{COIN}SWP order.
 
@@ -265,6 +270,14 @@ def execute_cmd(
 
     proposal, snapshot = _build_proposal(hl, coin)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
+
+    if max_hedge_notional is not None and proposal.hedge_notional_usd > max_hedge_notional:
+        typer.echo(
+            f"Refusing hedge: proposed notional ${proposal.hedge_notional_usd:,.2f} "
+            f"exceeds cap ${max_hedge_notional:,.2f}.",
+            err=True,
+        )
+        raise typer.Exit(2)
 
     # Size the order in CFI v2 (BTCSWP) units. SDK rounds to szDecimals.
     wire_px = snapshot.oracle_px or proposal.profile.baseline_b0

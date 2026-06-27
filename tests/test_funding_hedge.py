@@ -137,6 +137,7 @@ def test_mcp_funding_hedge_info(monkeypatch):
 
     assert payload["deployed_profiles"][0]["asset"] == "BTC"
     assert "funding_hedge_propose" in payload["mcp_tools"]
+    assert "funding_hedge_execute" in payload["mcp_tools"]
 
 
 def test_mcp_funding_hedge_rejects_roadmap_assets(monkeypatch):
@@ -231,3 +232,60 @@ def test_mcp_funding_hedge_backtest(monkeypatch, tmp_path):
     assert payload["periods"] == 1
     assert payload["unhedged_cashflow_usd"] == -45
     assert payload["hedge_cashflow_usd"] == 45
+
+
+def test_mcp_funding_hedge_execute_requires_confirmation(monkeypatch, tmp_path):
+    install_fake_mcp(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_SCOPED_TOKEN_PATH", str(tmp_path / "missing-token.json"))
+    monkeypatch.setenv("NUNCHI_WEB_AUTH_PAIR_TOKEN", "pair-token")
+    monkeypatch.setenv("NUNCHI_WEB_AUTH_ADDRESS", "0x" + "9" * 40)
+
+    from cli.mcp_server import create_mcp_server
+
+    server = create_mcp_server()
+    payload = json.loads(server.tools["funding_hedge_execute"](dry_run=False, confirmed=False))
+
+    assert "confirmed=true" in payload["error"]
+
+
+def test_mcp_funding_hedge_execute_uses_local_scoped_token(monkeypatch, tmp_path):
+    install_fake_mcp(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_SCOPED_TOKEN_PATH", str(tmp_path / "scoped-token.json"))
+
+    from cli.web_auth import ScopedToken, save_scoped_token
+
+    save_scoped_token(
+        ScopedToken(
+            token="stored-token",
+            address="0x" + "a" * 40,
+            permission_tier="testnet_trading",
+            network="testnet",
+            max_hedge_notional=12_000,
+            require_confirmation=True,
+        )
+    )
+
+    import cli.mcp_server as mcp_server
+    from cli.mcp_server import create_mcp_server
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        captured["env_overrides"] = env_overrides
+        return "executed"
+
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    server = create_mcp_server()
+    output = server.tools["funding_hedge_execute"](coin="BTC", dry_run=False, confirmed=True)
+
+    assert output == "executed"
+    assert captured["args"] == ("hedge", "execute", "BTC", "--yes", "--max-hedge-notional", "12000.0")
+    assert captured["timeout"] == 300
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "stored-token"
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "a" * 40
+    assert captured["env_overrides"]["NUNCHI_MAX_HEDGE_NOTIONAL"] == "12000.0"

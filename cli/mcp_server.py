@@ -34,6 +34,7 @@ _READ_ONLY_TOOLS = {
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
     "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
+    "funding_hedge_execute",
 }
 # Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
@@ -61,6 +62,8 @@ _CONTEXT_ENV_HEADERS = {
     "x-nunchi-secret-nunchi-allow-mainnet": "NUNCHI_ALLOW_MAINNET",
     "x-nunchi-max-order-size": "NUNCHI_MAX_ORDER_SIZE",
     "x-nunchi-secret-nunchi-max-order-size": "NUNCHI_MAX_ORDER_SIZE",
+    "x-nunchi-max-hedge-notional": "NUNCHI_MAX_HEDGE_NOTIONAL",
+    "x-nunchi-secret-nunchi-max-hedge-notional": "NUNCHI_MAX_HEDGE_NOTIONAL",
     "x-nunchi-max-strategy-ticks": "NUNCHI_MAX_STRATEGY_TICKS",
     "x-nunchi-secret-nunchi-max-strategy-ticks": "NUNCHI_MAX_STRATEGY_TICKS",
     "x-nunchi-require-confirmation": "NUNCHI_REQUIRE_CONFIRMATION",
@@ -356,24 +359,32 @@ def create_mcp_server():
         "yex-trader",
         instructions=(
             "Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, "
-            "REFLECT reviews, BTCSWP funding hedge proposals. Always confirm details with the user before calling "
+            "REFLECT reviews, BTCSWP funding hedge proposal and execution. Use `hl auth import` locally "
+            "or trusted Nunchi gateway context for scoped-token keyless signing. Always confirm details with the user before calling "
             "destructive tools (trade, run_strategy, apex_run, schedule_cancel, "
-            "emergency_close_all). "
-            "emergency_close_all requires confirm=true."
+            "emergency_close_all, funding_hedge_execute). "
+            "emergency_close_all requires confirm=true; funding_hedge_execute requires confirmed=true for live execution."
         ),
     )
 
     def _request_env(ctx: Any = None) -> dict[str, str]:
+        def _local_scoped_env() -> dict[str, str]:
+            try:
+                from cli.web_auth import scoped_token_env
+                return scoped_token_env()
+            except Exception:
+                return {}
+
         if ctx is not None:
-            return _trusted_context_env_overrides(ctx)
+            return _trusted_context_env_overrides(ctx) or _local_scoped_env()
         try:
             get_context = getattr(mcp, "get_context")
         except AttributeError:
-            return {}
+            return _local_scoped_env()
         try:
-            return _trusted_context_env_overrides(get_context())
+            return _trusted_context_env_overrides(get_context()) or _local_scoped_env()
         except Exception:
-            return {}
+            return _local_scoped_env()
 
     # ------------------------------------------------------------------
     # Fast tools — call Python directly (no subprocess overhead)
@@ -493,7 +504,7 @@ def create_mcp_server():
             ok_items.append("HL_PRIVATE_KEY set")
             if pairing is None and not has_web_auth:
                 warnings.append(
-                    "Raw-key mode active. Prefer hl pair connect or hosted Nunchi Auth for MCP/agent use."
+                    "Raw-key mode active. Prefer hl auth import or hosted Nunchi Auth for MCP/agent use."
                 )
         elif has_web_auth:
             ok_items.append("web-auth pairing context provided")
@@ -509,7 +520,7 @@ def create_mcp_server():
         elif not has_web_auth:
             warnings.append(
                 "No web-auth pairing context found. Hosted/keyless signing uses "
-                "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS."
+                "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS, or hl auth import locally."
             )
 
         # Network
@@ -547,7 +558,7 @@ def create_mcp_server():
         funding_rate_8h: Optional[float] = None,
         vol_multiplier: float = 15.0,
     ) -> str:
-        """Propose a read-only BTCSWP funding-rate hedge.
+        """Propose a BTCSWP funding-rate hedge without placing orders.
 
         Args:
             asset: Underlying perp exposure. BTC is deployed today.
@@ -606,6 +617,53 @@ def create_mcp_server():
         except (OSError, ValueError) as exc:
             return json.dumps({"error": str(exc)}, indent=2)
         return json.dumps(backtest.to_dict(), indent=2)
+
+    @mcp.tool(**_ann("funding_hedge_execute", "Execute funding hedge"))
+    def funding_hedge_execute(
+        coin: str = "BTC",
+        dry_run: bool = True,
+        mainnet: bool = False,
+        max_hedge_notional_usd: Optional[float] = None,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Execute the live CFI v2 hedge path through MCP.
+
+        This wraps `hl hedge execute`. Live execution requires confirmed=true
+        and a signing context from trusted MCP headers, environment, keystore,
+        private key, or local `hl auth import` scoped-token storage.
+        """
+        if not dry_run and not confirmed:
+            return _json_error("funding_hedge_execute requires confirmed=true unless dry_run=true.")
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "funding_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=True,
+        )
+        if error:
+            return _json_error(error)
+        hedge_cap = max_hedge_notional_usd
+        env_cap = _effective_env("NUNCHI_MAX_HEDGE_NOTIONAL", env_overrides)
+        if hedge_cap is None and env_cap:
+            try:
+                hedge_cap = float(env_cap)
+            except ValueError:
+                return _json_error("invalid NUNCHI_MAX_HEDGE_NOTIONAL in scoped context.")
+        if hedge_cap is not None and hedge_cap <= 0:
+            return _json_error("max_hedge_notional_usd must be positive.")
+        args = ["hedge", "execute", coin]
+        if dry_run:
+            args.append("--dry-run")
+        else:
+            args.append("--yes")
+        if hedge_cap is not None:
+            args.extend(["--max-hedge-notional", str(hedge_cap)])
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=300, env_overrides=env_overrides)
 
     @mcp.tool(**_ann("account", "Account state"))
     def account(mainnet: bool = False, ctx: FastMCPContext = None) -> str:

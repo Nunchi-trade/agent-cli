@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import secrets
 import time
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
@@ -20,6 +22,7 @@ SIGN_TIMEOUT_S = 4 * 60
 
 PAIR_TOKEN_ENV = "NUNCHI_WEB_AUTH_PAIR_TOKEN"
 PAIR_ADDRESS_ENV = "NUNCHI_WEB_AUTH_ADDRESS"
+SCOPED_TOKEN_PATH_ENV = "NUNCHI_SCOPED_TOKEN_PATH"
 
 
 class WebAuthMissingError(RuntimeError):
@@ -41,6 +44,118 @@ class WebAuthPairing:
     account_id: str = ""
 
 
+@dataclass(frozen=True)
+class ScopedToken:
+    token: str
+    address: str
+    account_id: str = ""
+    permission_tier: str = "testnet_trading"
+    network: str = "testnet"
+    allow_mainnet: bool = False
+    max_order_size: Optional[float] = None
+    max_hedge_notional: Optional[float] = None
+    max_strategy_ticks: Optional[int] = None
+    require_confirmation: bool = True
+    created_at_ms: int = 0
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> "ScopedToken":
+        def _bool(value: Any, default: bool = False) -> bool:
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+        return cls(
+            token=str(raw["token"]),
+            address=str(raw["address"]),
+            account_id=str(raw.get("account_id", "")),
+            permission_tier=str(raw.get("permission_tier", "testnet_trading")),
+            network=str(raw.get("network", "testnet")),
+            allow_mainnet=_bool(raw.get("allow_mainnet"), False),
+            max_order_size=(
+                float(raw["max_order_size"])
+                if raw.get("max_order_size") not in (None, "")
+                else None
+            ),
+            max_hedge_notional=(
+                float(raw["max_hedge_notional"])
+                if raw.get("max_hedge_notional") not in (None, "")
+                else None
+            ),
+            max_strategy_ticks=(
+                int(raw["max_strategy_ticks"])
+                if raw.get("max_strategy_ticks") not in (None, "")
+                else None
+            ),
+            require_confirmation=_bool(raw.get("require_confirmation"), True),
+            created_at_ms=int(raw.get("created_at_ms") or int(time.time() * 1000)),
+        )
+
+    def to_pairing(self) -> WebAuthPairing:
+        return WebAuthPairing(token=self.token, address=self.address, account_id=self.account_id)
+
+    def to_env(self) -> dict[str, str]:
+        env = {
+            PAIR_TOKEN_ENV: self.token,
+            PAIR_ADDRESS_ENV: self.address,
+            "NUNCHI_TRADING_PERMISSION_TIER": self.permission_tier,
+            "NUNCHI_TRADING_NETWORK": self.network,
+            "NUNCHI_ALLOW_MAINNET": "true" if self.allow_mainnet else "false",
+            "NUNCHI_REQUIRE_CONFIRMATION": "true" if self.require_confirmation else "false",
+        }
+        if self.account_id:
+            env["NUNCHI_ACCOUNT_ID"] = self.account_id
+        if self.max_order_size is not None:
+            env["NUNCHI_MAX_ORDER_SIZE"] = str(self.max_order_size)
+        if self.max_hedge_notional is not None:
+            env["NUNCHI_MAX_HEDGE_NOTIONAL"] = str(self.max_hedge_notional)
+        if self.max_strategy_ticks is not None:
+            env["NUNCHI_MAX_STRATEGY_TICKS"] = str(self.max_strategy_ticks)
+        return env
+
+
+def scoped_token_path() -> Path:
+    return Path(os.environ.get(SCOPED_TOKEN_PATH_ENV, "~/.hl-agent/scoped-token.json")).expanduser()
+
+
+def load_scoped_token() -> Optional[ScopedToken]:
+    path = scoped_token_path()
+    if not path.exists():
+        return None
+    try:
+        return ScopedToken.from_json(json.loads(path.read_text("utf-8")))
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def save_scoped_token(token: ScopedToken) -> Path:
+    path = scoped_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(token.to_json(), indent=2) + "\n", "utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return path
+
+
+def clear_scoped_token() -> None:
+    try:
+        scoped_token_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
+def scoped_token_env() -> dict[str, str]:
+    token = load_scoped_token()
+    return token.to_env() if token is not None else {}
+
+
 def pairing_from_env() -> Optional[WebAuthPairing]:
     token = os.environ.get(PAIR_TOKEN_ENV, "").strip()
     address = (
@@ -50,7 +165,8 @@ def pairing_from_env() -> Optional[WebAuthPairing]:
     )
     account_id = os.environ.get("NUNCHI_ACCOUNT_ID", "").strip()
     if not token or not address:
-        return None
+        scoped = load_scoped_token()
+        return scoped.to_pairing() if scoped is not None else None
     return WebAuthPairing(token=token, address=address, account_id=account_id)
 
 
