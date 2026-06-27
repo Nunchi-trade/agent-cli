@@ -6,6 +6,7 @@ from decimal import Decimal
 from typer.testing import CliRunner
 
 from cli.main import app
+from strategies.cfi_hedge import BTCSWP_PROFILE
 from strategies.pear_pair_trade import build_btc_btcswp_pair_plan
 
 
@@ -61,6 +62,22 @@ def test_pair_plan_auto_short_btc_sells_btcswp():
     assert len(body["short_assets"]) == 2
 
 
+def test_pair_plan_uses_configured_pear_btcswp_asset(monkeypatch):
+    monkeypatch.setenv("PEAR_BTCSWP_ASSET", "nunchi:BTCSWP")
+
+    plan = build_btc_btcswp_pair_plan(
+        primary_side="long",
+        primary_notional_usd=150_000,
+        btc_mid=75_000,
+        btcswp_mid=75_000,
+        hedge_goal="funding_spike",
+        now_ms=1,
+    )
+
+    body = plan.as_dict()
+    assert [asset["asset"] for asset in body["long_assets"]] == ["BTC", "nunchi:BTCSWP"]
+
+
 def test_pair_quote_command_outputs_json():
     result = runner.invoke(
         app,
@@ -89,6 +106,7 @@ def test_pair_execute_dry_run_does_not_open_hl(monkeypatch):
         app,
         [
             "pair", "execute",
+            "--venue", "direct",
             "--primary-side", "long",
             "--primary-notional-usd", "150000",
             "--btc-mid", "75000",
@@ -126,6 +144,7 @@ def test_pair_execute_submits_two_legs_and_persists(monkeypatch):
         app,
         [
             "pair", "execute",
+            "--venue", "direct",
             "--primary-side", "long",
             "--primary-notional-usd", "150000",
             "--btc-mid", "75000",
@@ -166,7 +185,6 @@ def test_pair_execute_pear_uses_pear_position_api(monkeypatch):
         app,
         [
             "pair", "execute",
-            "--venue", "pear",
             "--primary-side", "long",
             "--primary-notional-usd", "150000",
             "--btc-mid", "75000",
@@ -181,8 +199,69 @@ def test_pair_execute_pear_uses_pear_position_api(monkeypatch):
     asset_notional = sum(asset["notional_usd"] for asset in fake_pear.calls[0]["long_assets"])
     asset_notional += sum(asset["notional_usd"] for asset in fake_pear.calls[0]["short_assets"])
     assert fake_pear.calls[0]["usd_value"] == asset_notional
+    assert "builder" not in fake_pear.calls[0]
     assert persisted["positions"][0]["venue"] == "pear"
     assert persisted["positions"][0]["pear_position_id"] == "pear-pos-1"
+
+
+def test_worked_example_long_btc_long_btcswp_hedges_funding_spike(monkeypatch):
+    import cli.commands.pair as pair_cmd
+
+    persisted = {}
+
+    class FakePear:
+        def __init__(self):
+            self.calls = []
+
+        def create_position(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"positionId": "pear-long-long", "orderId": "pear-order"}
+
+    fake_pear = FakePear()
+    monkeypatch.setattr(pair_cmd, "_open_hl", lambda mainnet: (_ for _ in ()).throw(AssertionError("should not open HL")))
+    monkeypatch.setattr(pair_cmd, "_open_pear", lambda: fake_pear)
+    monkeypatch.setattr(pair_cmd, "_load_positions", lambda: [])
+    monkeypatch.setattr(pair_cmd, "_save_positions", lambda positions: persisted.setdefault("positions", positions))
+
+    result = runner.invoke(
+        app,
+        [
+            "pair", "execute",
+            "--primary-side", "long",
+            "--primary-notional-usd", "150000",
+            "--btc-mid", "75000",
+            "--btcswp-mid", "75000",
+            "--hedge-goal", "funding_spike",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    pear_order = fake_pear.calls[0]
+    assert pear_order["short_assets"] == []
+    assert [asset["asset"] for asset in pear_order["long_assets"]] == ["BTC", "BTCSWP"]
+
+    btc_leg, btcswp_leg = pear_order["long_assets"]
+    assert btc_leg["role"] == "primary"
+    assert btc_leg["notional_usd"] == 150_000.0
+    assert btcswp_leg["role"] == "funding_hedge"
+    assert btcswp_leg["notional_usd"] == 10_000.0
+
+    # Worked one-hour funding spike:
+    # long BTC pays floating funding, long BTCSWP receives the excess over K.
+    funding_hr = 0.00002
+    fixed_hr = BTCSWP_PROFILE.fixed_leg_initial
+    hedge_multiplier = BTCSWP_PROFILE.vol_mult_l
+
+    unhedged_btc_funding_cost = btc_leg["notional_usd"] * funding_hr
+    btcswp_excess_receipt = btcswp_leg["notional_usd"] * hedge_multiplier * (funding_hr - fixed_hr)
+    hedged_net_cost = unhedged_btc_funding_cost - btcswp_excess_receipt
+    fixed_leg_cost = btc_leg["notional_usd"] * fixed_hr
+
+    assert abs(hedged_net_cost - fixed_leg_cost) < 1e-12
+    assert btcswp_excess_receipt > 0
+    assert hedged_net_cost < unhedged_btc_funding_cost
+    assert persisted["positions"][0]["pear_position_id"] == "pear-long-long"
 
 
 def test_pair_execute_repairs_primary_when_hedge_fails(monkeypatch):
@@ -209,6 +288,7 @@ def test_pair_execute_repairs_primary_when_hedge_fails(monkeypatch):
         app,
         [
             "pair", "execute",
+            "--venue", "direct",
             "--primary-side", "long",
             "--primary-notional-usd", "150000",
             "--btc-mid", "75000",

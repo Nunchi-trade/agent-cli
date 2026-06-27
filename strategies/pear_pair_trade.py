@@ -111,10 +111,13 @@ def build_btc_btcswp_pair_plan(
 
     pear_requirements = {
         "pear_docs": "https://docs.google.com/document/d/1eIswq_dB6TSK8hS6mxqwJZ_cJTJ8LaU_Z4OBYFqdxo8/edit",
-        "needed_from_pear": [
-            "Confirm whether Pear wants to register externally executed Agent CLI positions in Pear's position system.",
-            "Confirm final builder attribution: Nunchi builder, Pear builder, or partner-specific builder config.",
-            "Confirm dedicated wallet/subaccount guidance for users to avoid Pear/HL position accounting confusion.",
+        "campaign_decisions": [
+            "Execute campaign trades through Pear backend so Pear synthetic positions, UI, PnL, history, and competition tracking stay correct.",
+            "Use Pear builder attribution by default for Pear-native campaign trades.",
+            "Use a dedicated wallet because Pear does not support subaccounts and mixed basket/perp trading can confuse position display.",
+        ],
+        "remaining_questions": [
+            "Confirm the exact BTCSWP asset identifier Pear expects in longAssets / shortAssets.",
         ],
     }
     risk = {
@@ -220,10 +223,12 @@ def _assets_from_legs(*legs: PairLegPlan) -> tuple[list[Dict[str, Any]], list[Di
 
 
 def _pear_asset_symbol(instrument: str) -> str:
+    from cli.pear_config import pear_btcswp_asset
+
     if instrument == BTC_PERP_INSTRUMENT:
         return "BTC"
     if instrument == BTCSWP_INSTRUMENT:
-        return "BTCSWP"
+        return pear_btcswp_asset()
     return instrument.split("-", 1)[0]
 
 

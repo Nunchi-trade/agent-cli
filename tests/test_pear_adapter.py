@@ -370,6 +370,18 @@ class TestAccount:
         assert st["agentWalletAddress"] == "0x1"
         assert st["totalClosedTrades"] == 7
 
+    def test_get_agent_wallet(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("GET", "/agent-wallet", {"agentWalletAddress": "0x2"})
+
+        st = a.get_agent_wallet()
+
+        assert st == {"agentWalletAddress": "0x2"}
+        sent = http.calls[-1]
+        assert sent[0] == "GET"
+        assert sent[1] == "/agent-wallet"
+        assert sent[2]["headers"] == {"Authorization": "Bearer access-tok"}
+
     def test_set_leverage_out_of_range(self, authed_adapter):
         a, _ = authed_adapter
         with pytest.raises(ValueError):
