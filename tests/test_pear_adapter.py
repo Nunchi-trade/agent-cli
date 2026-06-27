@@ -279,6 +279,51 @@ class TestPlaceOrder:
         assert http.calls[-1][2]["json"]["leverage"] == 5
 
 
+class TestCreatePosition:
+    def test_create_position_posts_explicit_basket(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("POST", "/positions", {"positionId": "pos-1", "orderId": "ord-1"})
+
+        resp = a.create_position(
+            long_assets=[{"asset": "BTC", "weight": 0.75}],
+            short_assets=[{"asset": "BTCSWP", "weight": 0.25}],
+            usd_value=200_000,
+            leverage=2,
+            slippage=0.01,
+        )
+
+        assert resp["positionId"] == "pos-1"
+        sent = http.calls[-1]
+        assert sent[0] == "POST"
+        assert sent[1] == "/positions"
+        assert sent[2]["json"] == {
+            "executionType": "MARKET",
+            "usdValue": 200_000.0,
+            "leverage": 2,
+            "slippage": 0.01,
+            "longAssets": [{"asset": "BTC", "weight": 0.75}],
+            "shortAssets": [{"asset": "BTCSWP", "weight": 0.25}],
+        }
+        assert sent[2]["headers"] == {"Authorization": "Bearer access-tok"}
+
+    def test_create_position_rejects_empty_basket(self, authed_adapter):
+        a, _ = authed_adapter
+        with pytest.raises(ValueError, match="at least one"):
+            a.create_position(long_assets=[], short_assets=[], usd_value=100)
+
+    def test_close_position_posts_close_endpoint(self, authed_adapter):
+        a, http = authed_adapter
+        http.add("POST", "/positions/pos-1/close", {"positionId": "pos-1", "status": "CLOSED"})
+
+        resp = a.close_position("pos-1", execution_type="MARKET")
+
+        assert resp["status"] == "CLOSED"
+        sent = http.calls[-1]
+        assert sent[0] == "POST"
+        assert sent[1] == "/positions/pos-1/close"
+        assert sent[2]["json"] == {"executionType": "MARKET"}
+
+
 class TestCancelOrder:
     def test_cancel_success(self, authed_adapter):
         a, http = authed_adapter

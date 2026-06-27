@@ -351,6 +351,38 @@ class PearVenueAdapter(VenueAdapter):
 
     # --- Execution ------------------------------------------------------
 
+    def create_position(
+        self,
+        *,
+        long_assets: List[Dict[str, Any]],
+        short_assets: List[Dict[str, Any]],
+        usd_value: float,
+        execution_type: str = "MARKET",
+        leverage: Optional[int] = None,
+        slippage: Optional[float] = None,
+        **extra: Any,
+    ) -> Dict[str, Any]:
+        """Create a Pear position using the documented POST /positions schema.
+
+        This is the lower-level basket API used when callers already have
+        explicit longAssets / shortAssets arrays rather than a simple A-B pair
+        instrument. It preserves Pear-native position accounting.
+        """
+        if not long_assets and not short_assets:
+            raise ValueError("create_position requires at least one long or short asset")
+        if usd_value < 1.0:
+            raise ValueError(f"usdValue {usd_value:.4f} below Pear minimum of 1")
+        body: Dict[str, Any] = {
+            "executionType": execution_type,
+            "usdValue": round(float(usd_value), 4),
+            "leverage": int(leverage if leverage is not None else self._defaults.leverage),
+            "slippage": float(slippage if slippage is not None else self._defaults.slippage),
+            "longAssets": long_assets,
+            "shortAssets": short_assets,
+        }
+        body.update({k: v for k, v in extra.items() if v is not None})
+        return self._http.request("POST", "/positions", json=body, headers=self._auth_headers())
+
     def place_order(
         self,
         instrument: str,
@@ -386,6 +418,22 @@ class PearVenueAdapter(VenueAdapter):
             "POST", "/positions", json=body, headers=self._auth_headers()
         )
         return _position_response_to_fill(resp, instrument, side)
+
+    def close_position(
+        self,
+        position_id: str,
+        *,
+        execution_type: str = "MARKET",
+        **extra: Any,
+    ) -> Dict[str, Any]:
+        """Close a Pear position via POST /positions/{positionId}/close."""
+        if not position_id:
+            raise ValueError("position_id is required")
+        body: Dict[str, Any] = {"executionType": execution_type}
+        body.update({k: v for k, v in extra.items() if v is not None})
+        return self._http.request(
+            "POST", f"/positions/{position_id}/close", json=body, headers=self._auth_headers()
+        )
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
         if instrument:

@@ -238,10 +238,10 @@ class RiskManager:
                         positions: PositionTracker) -> List[Dict]:
         """Filter orders that violate risk limits. Returns valid orders."""
         valid = []
-        pos = positions.get_house_position(instrument)
-        is_reduce_only = self.check_reduce_only(instrument, positions)
-
         for order in orders:
+            order_instrument = order.get("instrument") or instrument
+            pos = positions.get_house_position(order_instrument)
+            is_reduce_only = self.check_reduce_only(order_instrument, positions)
             qty = Decimal(str(order.get("quantity", order.get("size", "0"))))
             side = order.get("side", "")
 

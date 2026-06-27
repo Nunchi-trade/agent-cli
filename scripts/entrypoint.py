@@ -44,6 +44,8 @@ MCP_READ_TOOLS = {
     "obsidian_context",
     "order_status",
     "funding_rates",
+    "btcswp_hedge_quote",
+    "pair_trade_quote",
 }
 MCP_WRITE_TOOLS = {
     "wallet_auto",
@@ -52,6 +54,9 @@ MCP_WRITE_TOOLS = {
     "apex_run",
     "schedule_cancel",
     "emergency_close_all",
+    "btcswp_hedge_execute",
+    "pair_trade_execute",
+    "pair_trade_close",
 }
 MCP_ALL_TOOLS = sorted(MCP_READ_TOOLS | MCP_WRITE_TOOLS)
 
@@ -449,6 +454,45 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
         if _bool_arg(arguments, "mainnet"):
             cmd.append("--mainnet")
         return _run_hl(*cmd, env_overrides=env_overrides)
+    if name == "btcswp_hedge_quote":
+        from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
+
+        primary_side = _str_arg(arguments, "primary_side")
+        primary_notional_usd = _float_arg(arguments, "primary_notional_usd")
+        if not primary_side or primary_notional_usd is None:
+            return _json_error("btcswp_hedge_quote requires primary_side and primary_notional_usd")
+        quote = quote_pear_btcswp_hedge(
+            primary_instrument=_str_arg(arguments, "primary_instrument") or "BTC-PERP",
+            primary_side=primary_side,
+            primary_notional_usd=primary_notional_usd,
+            hedge_goal=_str_arg(arguments, "hedge_goal") or "auto",
+            hedge_strength=_float_arg(arguments, "hedge_strength") or 1.0,
+            btcswp_mid=_float_arg(arguments, "btcswp_mid"),
+            current_funding_hr=_float_arg(arguments, "current_funding_hr"),
+            k_fixed_hr=_float_arg(arguments, "k_fixed_hr"),
+            max_hedge_notional_usd=_float_arg(arguments, "max_hedge_notional_usd"),
+        )
+        return json.dumps(quote.as_dict(), indent=2)
+    if name == "pair_trade_quote":
+        from strategies.pear_pair_trade import build_btc_btcswp_pair_plan
+
+        primary_side = _str_arg(arguments, "primary_side")
+        primary_notional_usd = _float_arg(arguments, "primary_notional_usd")
+        btc_mid = _float_arg(arguments, "btc_mid")
+        btcswp_mid = _float_arg(arguments, "btcswp_mid")
+        if not primary_side or primary_notional_usd is None or btc_mid is None or btcswp_mid is None:
+            return _json_error("pair_trade_quote requires primary_side, primary_notional_usd, btc_mid, and btcswp_mid")
+        plan = build_btc_btcswp_pair_plan(
+            primary_side=primary_side,
+            primary_notional_usd=primary_notional_usd,
+            btc_mid=btc_mid,
+            btcswp_mid=btcswp_mid,
+            hedge_goal=_str_arg(arguments, "hedge_goal") or "auto",
+            hedge_strength=_float_arg(arguments, "hedge_strength") or 1.0,
+            slippage=_float_arg(arguments, "slippage") or 0.01,
+            leverage=_float_arg(arguments, "leverage") or 1.0,
+        )
+        return json.dumps(plan.as_dict(), indent=2)
     if name == "agent_memory":
         return _agent_memory_text(arguments)
     if name == "trade_journal":
@@ -482,6 +526,117 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
         if confirmed or env_overrides:
             cmd.append("--yes")
         return _run_hl(*cmd, env_overrides=env_overrides)
+
+    if name == "btcswp_hedge_execute":
+        primary_side = _str_arg(arguments, "primary_side")
+        primary_notional_usd = _float_arg(arguments, "primary_notional_usd")
+        if not primary_side or primary_notional_usd is None:
+            return _json_error("btcswp_hedge_execute requires primary_side and primary_notional_usd")
+        dry_run = _bool_arg(arguments, "dry_run")
+        mainnet = _bool_arg(arguments, "mainnet")
+        confirmed = _bool_arg(arguments, "confirmed")
+        error = _context_limit_error(
+            "btcswp_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        cmd = [
+            "hedge", "execute-quote",
+            "--primary-side", primary_side,
+            "--primary-notional-usd", str(primary_notional_usd),
+            "--primary-instrument", _str_arg(arguments, "primary_instrument") or "BTC-PERP",
+            "--hedge-goal", _str_arg(arguments, "hedge_goal") or "auto",
+            "--hedge-strength", str(_float_arg(arguments, "hedge_strength") or 1.0),
+        ]
+        btcswp_mid = _float_arg(arguments, "btcswp_mid")
+        if btcswp_mid is not None:
+            cmd.extend(["--btcswp-mid", str(btcswp_mid)])
+        current_funding_hr = _float_arg(arguments, "current_funding_hr")
+        if current_funding_hr is not None:
+            cmd.extend(["--current-funding-hr", str(current_funding_hr)])
+        k_fixed_hr = _float_arg(arguments, "k_fixed_hr")
+        if k_fixed_hr is not None:
+            cmd.extend(["--k-fixed-hr", str(k_fixed_hr)])
+        max_hedge_notional_usd = _float_arg(arguments, "max_hedge_notional_usd")
+        if max_hedge_notional_usd is not None:
+            cmd.extend(["--max-hedge-notional-usd", str(max_hedge_notional_usd)])
+        if dry_run:
+            cmd.append("--dry-run")
+        if mainnet:
+            cmd.append("--mainnet")
+        if confirmed or env_overrides:
+            cmd.append("--yes")
+        return _run_hl(*cmd, timeout=120, env_overrides=env_overrides)
+
+    if name == "pair_trade_execute":
+        primary_side = _str_arg(arguments, "primary_side")
+        primary_notional_usd = _float_arg(arguments, "primary_notional_usd")
+        if not primary_side or primary_notional_usd is None:
+            return _json_error("pair_trade_execute requires primary_side and primary_notional_usd")
+        dry_run = _bool_arg(arguments, "dry_run")
+        mainnet = _bool_arg(arguments, "mainnet")
+        confirmed = _bool_arg(arguments, "confirmed")
+        error = _context_limit_error(
+            "pair_trade_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        cmd = [
+            "pair", "execute",
+            "--primary-side", primary_side,
+            "--primary-notional-usd", str(primary_notional_usd),
+            "--hedge-goal", _str_arg(arguments, "hedge_goal") or "auto",
+            "--hedge-strength", str(_float_arg(arguments, "hedge_strength") or 1.0),
+            "--slippage", str(_float_arg(arguments, "slippage") or 0.01),
+            "--leverage", str(_float_arg(arguments, "leverage") or 1.0),
+            "--venue", _str_arg(arguments, "venue") or "direct",
+        ]
+        btc_mid = _float_arg(arguments, "btc_mid")
+        if btc_mid is not None:
+            cmd.extend(["--btc-mid", str(btc_mid)])
+        btcswp_mid = _float_arg(arguments, "btcswp_mid")
+        if btcswp_mid is not None:
+            cmd.extend(["--btcswp-mid", str(btcswp_mid)])
+        if dry_run:
+            cmd.append("--dry-run")
+        if mainnet:
+            cmd.append("--mainnet")
+        if confirmed or env_overrides:
+            cmd.append("--yes")
+        return _run_hl(*cmd, timeout=120, env_overrides=env_overrides)
+
+    if name == "pair_trade_close":
+        dry_run = _bool_arg(arguments, "dry_run")
+        mainnet = _bool_arg(arguments, "mainnet")
+        confirmed = _bool_arg(arguments, "confirmed")
+        error = _context_limit_error(
+            "pair_trade_close",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        cmd = ["pair", "close"]
+        pair_position_id = _str_arg(arguments, "pair_position_id")
+        if pair_position_id:
+            cmd.append(pair_position_id)
+        if dry_run:
+            cmd.append("--dry-run")
+        if mainnet:
+            cmd.append("--mainnet")
+        if confirmed or env_overrides:
+            cmd.append("--yes")
+        return _run_hl(*cmd, timeout=120, env_overrides=env_overrides)
 
     if name == "run_strategy":
         strategy = _str_arg(arguments, "strategy")

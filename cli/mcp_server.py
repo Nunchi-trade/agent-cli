@@ -29,11 +29,12 @@ _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
     "account", "status", "apex_status",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
-    "order_status", "funding_rates",
+    "order_status", "funding_rates", "btcswp_hedge_quote", "pair_trade_quote",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
     "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
+    "btcswp_hedge_execute", "pair_trade_execute", "pair_trade_close",
 }
 # Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
@@ -624,6 +625,163 @@ def create_mcp_server():
             env_overrides=env_overrides,
         )
 
+    @mcp.tool(**_ann("btcswp_hedge_execute", "Execute BTCSWP hedge quote"))
+    def btcswp_hedge_execute(
+        primary_side: str,
+        primary_notional_usd: float,
+        primary_instrument: str = "BTC-PERP",
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        btcswp_mid: Optional[float] = None,
+        current_funding_hr: Optional[float] = None,
+        k_fixed_hr: Optional[float] = None,
+        max_hedge_notional_usd: Optional[float] = None,
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Quote and execute the accepted Pear BTCSWP hedge. WARNING: places an order unless dry_run."""
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "btcswp_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+
+        args = [
+            "hedge", "execute-quote",
+            "--primary-side", primary_side,
+            "--primary-notional-usd", str(primary_notional_usd),
+            "--primary-instrument", primary_instrument,
+            "--hedge-goal", hedge_goal,
+            "--hedge-strength", str(hedge_strength),
+        ]
+        if btcswp_mid is not None:
+            args.extend(["--btcswp-mid", str(btcswp_mid)])
+        if current_funding_hr is not None:
+            args.extend(["--current-funding-hr", str(current_funding_hr)])
+        if k_fixed_hr is not None:
+            args.extend(["--k-fixed-hr", str(k_fixed_hr)])
+        if max_hedge_notional_usd is not None:
+            args.extend(["--max-hedge-notional-usd", str(max_hedge_notional_usd)])
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        if confirmed or env_overrides:
+            args.append("--yes")
+        return _run_hl(*args, timeout=120, env_overrides=env_overrides)
+
+    @mcp.tool(**_ann("pair_trade_quote", "Pair trade quote"))
+    def pair_trade_quote(
+        primary_side: str,
+        primary_notional_usd: float,
+        btc_mid: float,
+        btcswp_mid: float,
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        slippage: float = 0.01,
+        leverage: float = 1.0,
+    ) -> str:
+        """Return a Pear-style BTC + BTCSWP pair-position quote without executing."""
+        from strategies.pear_pair_trade import build_btc_btcswp_pair_plan
+
+        plan = build_btc_btcswp_pair_plan(
+            primary_side=primary_side,
+            primary_notional_usd=primary_notional_usd,
+            btc_mid=btc_mid,
+            btcswp_mid=btcswp_mid,
+            hedge_goal=hedge_goal,
+            hedge_strength=hedge_strength,
+            slippage=slippage,
+            leverage=leverage,
+        )
+        return json.dumps(plan.as_dict(), indent=2)
+
+    @mcp.tool(**_ann("pair_trade_execute", "Execute pair trade"))
+    def pair_trade_execute(
+        primary_side: str,
+        primary_notional_usd: float,
+        btc_mid: Optional[float] = None,
+        btcswp_mid: Optional[float] = None,
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        slippage: float = 0.01,
+        leverage: float = 1.0,
+        venue: str = "direct",
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Execute BTC + BTCSWP pair legs. WARNING: places orders unless dry_run."""
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "pair_trade_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        args = [
+            "pair", "execute",
+            "--primary-side", primary_side,
+            "--primary-notional-usd", str(primary_notional_usd),
+            "--hedge-goal", hedge_goal,
+            "--hedge-strength", str(hedge_strength),
+            "--slippage", str(slippage),
+            "--leverage", str(leverage),
+            "--venue", venue,
+        ]
+        if btc_mid is not None:
+            args.extend(["--btc-mid", str(btc_mid)])
+        if btcswp_mid is not None:
+            args.extend(["--btcswp-mid", str(btcswp_mid)])
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        if confirmed or env_overrides:
+            args.append("--yes")
+        return _run_hl(*args, timeout=120, env_overrides=env_overrides)
+
+    @mcp.tool(**_ann("pair_trade_close", "Close pair trade"))
+    def pair_trade_close(
+        pair_position_id: Optional[str] = None,
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Close both legs of a persisted pair position. WARNING: places reduce-only close orders unless dry_run."""
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "pair_trade_close",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        args = ["pair", "close"]
+        if pair_position_id:
+            args.append(pair_position_id)
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        if confirmed or env_overrides:
+            args.append("--yes")
+        return _run_hl(*args, timeout=120, env_overrides=env_overrides)
+
     @mcp.tool(**_ann("radar_run", "Run radar scan"))
     def radar_run(mock: bool = False, ctx: FastMCPContext = None) -> str:
         """Run opportunity radar — screen HL perps for trading setups."""
@@ -795,6 +953,34 @@ def create_mcp_server():
         if mainnet:
             args.append("--mainnet")
         return _run_hl(*args, env_overrides=_request_env(ctx))
+
+    @mcp.tool(**_ann("btcswp_hedge_quote", "BTCSWP hedge quote"))
+    def btcswp_hedge_quote(
+        primary_side: str,
+        primary_notional_usd: float,
+        primary_instrument: str = "BTC-PERP",
+        hedge_goal: str = "auto",
+        hedge_strength: float = 1.0,
+        btcswp_mid: Optional[float] = None,
+        current_funding_hr: Optional[float] = None,
+        k_fixed_hr: Optional[float] = None,
+        max_hedge_notional_usd: Optional[float] = None,
+    ) -> str:
+        """Return a Pear-ready BTCSWP quote payload without signing or submitting."""
+        from strategies.pear_btcswp_quote import quote_pear_btcswp_hedge
+
+        quote = quote_pear_btcswp_hedge(
+            primary_instrument=primary_instrument,
+            primary_side=primary_side,
+            primary_notional_usd=primary_notional_usd,
+            hedge_goal=hedge_goal,
+            hedge_strength=hedge_strength,
+            btcswp_mid=btcswp_mid,
+            current_funding_hr=current_funding_hr,
+            k_fixed_hr=k_fixed_hr,
+            max_hedge_notional_usd=max_hedge_notional_usd,
+        )
+        return json.dumps(quote.as_dict(), indent=2)
 
     # ------------------------------------------------------------------
     # Self-improvement tools — memory, journal, judge, obsidian

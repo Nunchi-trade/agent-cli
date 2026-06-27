@@ -35,6 +35,10 @@ class TestResolveStrategyPath:
         path = resolve_strategy_path("claude_agent")
         assert "ClaudeStrategy" in path
 
+    def test_pear_btcswp_hedge_registered(self):
+        path = resolve_strategy_path("pear_btcswp_hedge")
+        assert path == "strategies.cfi_hedge_agent:CfiHedgeAgent"
+
     def test_registry_has_params(self):
         for name, entry in STRATEGY_REGISTRY.items():
             assert "path" in entry

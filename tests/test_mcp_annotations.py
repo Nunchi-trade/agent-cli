@@ -13,13 +13,16 @@ def test_classification_sets_are_disjoint():
 
 def test_destructive_set_covers_fund_movers():
     from cli.mcp_server import _DESTRUCTIVE_TOOLS
-    for name in ("trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all"):
+    for name in (
+        "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
+        "btcswp_hedge_execute", "pair_trade_execute", "pair_trade_close",
+    ):
         assert name in _DESTRUCTIVE_TOOLS
 
 
 def test_read_only_set_covers_reads():
     from cli.mcp_server import _READ_ONLY_TOOLS
-    for name in ("account", "status", "strategies", "order_status", "funding_rates"):
+    for name in ("account", "status", "strategies", "order_status", "funding_rates", "btcswp_hedge_quote", "pair_trade_quote"):
         assert name in _READ_ONLY_TOOLS
 
 
