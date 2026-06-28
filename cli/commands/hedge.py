@@ -150,15 +150,76 @@ def _build_proposal(hl, coin: str):
     return proposal, snapshot
 
 
+# ─── info ────────────────────────────────────────────────────────────────────
+
+
+@hedge_app.command("info")
+def info_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON."),
+):
+    """Show deployed funding hedge capabilities and agent-facing schemas."""
+    from modules.funding_hedge import format_info, funding_hedge_info
+
+    info = funding_hedge_info()
+    if json_output:
+        typer.echo(json.dumps(info, indent=2))
+    else:
+        typer.echo(format_info(info))
+
+
 # ─── propose ─────────────────────────────────────────────────────────────────
 
 
 @hedge_app.command("propose")
 def propose_cmd(
     coin: str = typer.Argument("BTC", help="Coin to hedge (BTC, ETH)"),
+    asset: Optional[str] = typer.Option(None, "--asset", help="Alias for coin in pure sizing mode."),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    side: str = typer.Option("long", "--side", help="Perp exposure side for pure sizing: long or short"),
+    perp_notional: Optional[float] = typer.Option(
+        None,
+        "--perp-notional",
+        help="Pure sizing mode: absolute perp notional in USD; does not fetch account state.",
+    ),
+    funding_apr: Optional[float] = typer.Option(
+        None,
+        "--funding-apr",
+        help="Pure sizing mode: annualized funding APR. Accepts 0.42 or 42 for 42%.",
+    ),
+    funding_rate_8h: Optional[float] = typer.Option(
+        None,
+        "--funding-rate-8h",
+        help="Pure sizing mode: 8h funding rate as a decimal, e.g. 0.0003.",
+    ),
+    vol_multiplier: float = typer.Option(15.0, "--vol-multiplier", help="BTCSWP hedge multiplier."),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON in pure sizing mode."),
 ):
-    """Show a CFI v2 hedge proposal without executing."""
+    """Show a CFI v2 hedge proposal without executing.
+
+    By default this reads the current account position. Passing
+    `--perp-notional` switches to pure sizing mode for agents/docs/tests.
+    """
+    if perp_notional is not None:
+        from modules.funding_hedge import format_proposal, propose_funding_hedge
+
+        try:
+            proposal = propose_funding_hedge(
+                asset=asset or coin,
+                perp_side=side,
+                perp_notional_usd=perp_notional,
+                funding_apr=funding_apr,
+                funding_rate_8h=funding_rate_8h,
+                vol_multiplier=vol_multiplier,
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+        if json_output:
+            typer.echo(json.dumps(proposal.to_dict(), indent=2))
+        else:
+            typer.echo(format_proposal(proposal))
+        return
+
     _boot_cli()
 
     from cli.config import TradingConfig
@@ -379,8 +440,26 @@ def status_cmd(
 @hedge_app.command("backtest")
 def backtest_cmd(
     coin: str = typer.Option("BTC", "--coin", help="Coin (BTC or ETH)"),
+    asset: Optional[str] = typer.Option(None, "--asset", help="Alias for --coin in --csv mode."),
     days: int = typer.Option(365, "--days", help="Backtest window"),
     notional: float = typer.Option(1_000_000, "--notional", "-n"),
+    csv_path: Optional[Path] = typer.Option(
+        None,
+        "--csv",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Pure local cashflow mode: CSV with funding_rate_8h/funding_rate and optional hedge_rate_8h.",
+    ),
+    side: str = typer.Option("long", "--side", help="Perp exposure side for --csv mode: long or short"),
+    perp_notional: Optional[float] = typer.Option(
+        None,
+        "--perp-notional",
+        help="Pure --csv mode: absolute perp notional in USD; overrides --notional.",
+    ),
+    vol_multiplier: float = typer.Option(15.0, "--vol-multiplier", help="BTCSWP hedge multiplier for --csv mode."),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON in --csv mode."),
     script: Optional[Path] = typer.Option(
         None,
         "--script",
@@ -391,7 +470,28 @@ def backtest_cmd(
 
     Shells out to `~/hyperliquid-funding-rate-perps/tools/hedge_calculator.py
     --backtest --asset {COIN} --notional {N}`. Output is streamed through.
+    Passing `--csv` switches to pure local cashflow mode.
     """
+    if csv_path is not None:
+        from modules.funding_hedge import backtest_funding_hedge_csv, format_backtest
+
+        try:
+            backtest = backtest_funding_hedge_csv(
+                csv_path=csv_path,
+                asset=asset or coin,
+                perp_side=side,
+                perp_notional_usd=perp_notional if perp_notional is not None else notional,
+                vol_multiplier=vol_multiplier,
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+        if json_output:
+            typer.echo(json.dumps(backtest.to_dict(), indent=2))
+        else:
+            typer.echo(format_backtest(backtest))
+        return
+
     _boot_cli()
 
     script_path = script or (

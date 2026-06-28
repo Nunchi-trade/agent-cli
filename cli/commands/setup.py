@@ -19,6 +19,7 @@ def setup_check():
 
     issues = []
     ok_items = []
+    warnings = []
 
     # 1. Python + hyperliquid SDK
     try:
@@ -30,9 +31,16 @@ def setup_check():
     # 2. Private key
     has_env_key = bool(os.environ.get("HL_PRIVATE_KEY"))
     from cli.keystore import list_keystores
+    from cli.web_auth import pairing_from_env
     has_keystore = len(list_keystores()) > 0
+    pairing = pairing_from_env()
     if has_env_key:
         ok_items.append("HL_PRIVATE_KEY set")
+        if pairing is None:
+            warnings.append(
+                "Raw-key mode active. For MCP/agent use, prefer `hl pair connect` or hosted Nunchi Auth "
+                "so the AI client receives scoped access instead of a private key."
+            )
     elif has_keystore:
         ok_items.append(f"Keystore found ({len(list_keystores())} keys)")
         from cli.keystore import _load_env_password
@@ -44,6 +52,13 @@ def setup_check():
             issues.append("HL_KEYSTORE_PASSWORD not set (needed for auto-unlock)")
     else:
         issues.append("No private key: set HL_PRIVATE_KEY or run 'hl wallet import'")
+    if pairing is not None:
+        ok_items.append(f"web-auth pairing context provided ({pairing.address})")
+    else:
+        warnings.append(
+            "No web-auth pairing context found. Hosted/keyless signing uses "
+            "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS."
+        )
 
     # 3. Network
     testnet = os.environ.get("HL_TESTNET", "true").lower()
@@ -85,6 +100,11 @@ def setup_check():
         typer.echo(f"\n{len(issues)} issue(s) found.")
     else:
         typer.echo("\nAll checks passed.")
+
+    if warnings:
+        typer.echo("")
+        for warning in warnings:
+            typer.echo(f"  WARN  {warning}")
 
 
 @setup_app.command("bootstrap")

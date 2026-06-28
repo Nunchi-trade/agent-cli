@@ -203,7 +203,7 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 | mean_reversion | Signal | Trades when price deviates from SMA |
 | momentum_breakout | Signal | Enters on volume + price breakout above/below N-period range |
 | aggressive_taker | Taker | Directional spread crossing with bias |
-| hedge_agent | Risk | Reduces excess exposure per deterministic mandate |
+| hedge_agent | Risk | Inventory exposure reducer; BTCSWP funding hedge lives under `hl hedge` |
 | rfq_agent | RFQ | Block-size dark RFQ liquidity |
 | claude_agent | LLM | Claude/Gemini-powered autonomous trading agent |
 

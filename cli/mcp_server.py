@@ -29,7 +29,7 @@ _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
     "account", "status", "apex_status",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
-    "order_status", "funding_rates",
+    "order_status", "funding_rates", "funding_hedge_info", "funding_hedge_propose", "funding_hedge_backtest",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
@@ -356,7 +356,7 @@ def create_mcp_server():
         "yex-trader",
         instructions=(
             "Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, "
-            "REFLECT reviews. Always confirm details with the user before calling "
+            "REFLECT reviews, BTCSWP funding hedge proposals. Always confirm details with the user before calling "
             "destructive tools (trade, run_strategy, apex_run, schedule_cancel, "
             "emergency_close_all). "
             "emergency_close_all requires confirm=true."
@@ -472,6 +472,7 @@ def create_mcp_server():
         env_overrides = _request_env(ctx)
         issues = []
         ok_items = []
+        warnings = []
 
         # SDK
         try:
@@ -486,8 +487,14 @@ def create_mcp_server():
             env_overrides.get("NUNCHI_WEB_AUTH_ADDRESS")
         )
         keystores = list_keystores()
+        from cli.web_auth import pairing_from_env
+        pairing = pairing_from_env()
         if has_env_key:
             ok_items.append("HL_PRIVATE_KEY set")
+            if pairing is None and not has_web_auth:
+                warnings.append(
+                    "Raw-key mode active. Prefer hl pair connect or hosted Nunchi Auth for MCP/agent use."
+                )
         elif has_web_auth:
             ok_items.append("web-auth pairing context provided")
         elif keystores:
@@ -496,6 +503,13 @@ def create_mcp_server():
             issues.append(
                 "No signing context: set HL_PRIVATE_KEY, configure keystore, "
                 "or pass trusted web-auth pairing context"
+            )
+        if pairing is not None:
+            ok_items.append(f"web-auth pairing context provided ({pairing.address})")
+        elif not has_web_auth:
+            warnings.append(
+                "No web-auth pairing context found. Hosted/keyless signing uses "
+                "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS."
             )
 
         # Network
@@ -512,9 +526,86 @@ def create_mcp_server():
 
         return json.dumps({
             "ok": ok_items,
+            "warnings": warnings,
             "issues": issues,
             "passed": len(issues) == 0,
         }, indent=2)
+
+    @mcp.tool(**_ann("funding_hedge_info", "Funding hedge info"))
+    def funding_hedge_info() -> str:
+        """Describe deployed funding hedge profiles and input schemas."""
+        from modules.funding_hedge import funding_hedge_info as build_info
+
+        return json.dumps(build_info(), indent=2)
+
+    @mcp.tool(**_ann("funding_hedge_propose", "Funding hedge proposal"))
+    def funding_hedge_propose(
+        asset: str = "BTC",
+        perp_side: str = "long",
+        perp_notional_usd: float = 100_000.0,
+        funding_apr: Optional[float] = None,
+        funding_rate_8h: Optional[float] = None,
+        vol_multiplier: float = 15.0,
+    ) -> str:
+        """Propose a read-only BTCSWP funding-rate hedge.
+
+        Args:
+            asset: Underlying perp exposure. BTC is deployed today.
+            perp_side: Perp exposure side — "long" or "short".
+            perp_notional_usd: Absolute perp notional in USD.
+            funding_apr: Annualized funding APR. Accepts 0.42 or 42 for 42%.
+            funding_rate_8h: 8h funding rate as a decimal, used if funding_apr is omitted.
+            vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
+        """
+        from modules.funding_hedge import propose_funding_hedge
+
+        try:
+            proposal = propose_funding_hedge(
+                asset=asset,
+                perp_side=perp_side,
+                perp_notional_usd=perp_notional_usd,
+                funding_apr=funding_apr,
+                funding_rate_8h=funding_rate_8h,
+                vol_multiplier=vol_multiplier,
+            )
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)}, indent=2)
+        return json.dumps(proposal.to_dict(), indent=2)
+
+    @mcp.tool(**_ann("funding_hedge_backtest", "Funding hedge backtest"))
+    def funding_hedge_backtest(
+        csv_path: str,
+        asset: str = "BTC",
+        perp_side: str = "long",
+        perp_notional_usd: float = 100_000.0,
+        vol_multiplier: float = 15.0,
+    ) -> str:
+        """Backtest BTCSWP funding hedge cashflows from a local CSV.
+
+        The CSV must include funding_rate_8h, perp_funding_rate_8h, funding_rate,
+        or rate. It may also include hedge_rate_8h, btcswp_rate_8h, or
+        btcswp_funding_rate_8h for realized hedge residuals.
+
+        Args:
+            csv_path: Local CSV path readable by the MCP server process.
+            asset: Underlying perp exposure. BTC is deployed today.
+            perp_side: Perp exposure side — "long" or "short".
+            perp_notional_usd: Absolute perp notional in USD.
+            vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
+        """
+        from modules.funding_hedge import backtest_funding_hedge_csv
+
+        try:
+            backtest = backtest_funding_hedge_csv(
+                csv_path=csv_path,
+                asset=asset,
+                perp_side=perp_side,
+                perp_notional_usd=perp_notional_usd,
+                vol_multiplier=vol_multiplier,
+            )
+        except (OSError, ValueError) as exc:
+            return json.dumps({"error": str(exc)}, indent=2)
+        return json.dumps(backtest.to_dict(), indent=2)
 
     @mcp.tool(**_ann("account", "Account state"))
     def account(mainnet: bool = False, ctx: FastMCPContext = None) -> str:
