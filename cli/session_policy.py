@@ -59,6 +59,7 @@ ACTION NAMES (canonical)
 ``run``             — start an autonomous trading loop (cli/commands/run.py)
 ``trade``           — place a single manual order (cli/commands/trade.py)
 ``builder-approve`` — approve a builder fee on-chain (cli/commands/builder.py)
+``hedge``           — execute a BTCSWP funding hedge (cli/commands/hedge.py)
 
 Future commands should reuse these or add their own canonical name and pass it
 to ``guard_or_exit`` / ``enforce`` (e.g. ``fleet``, ``house``, ``hedge``,
@@ -87,6 +88,7 @@ DEFAULT_COUNTERS_PATH = "data/cli/policy-counters.json"
 ACTION_RUN = "run"
 ACTION_TRADE = "trade"
 ACTION_BUILDER_APPROVE = "builder-approve"
+ACTION_HEDGE = "hedge"
 
 
 class PolicyViolation(Exception):

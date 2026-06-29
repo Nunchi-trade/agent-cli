@@ -38,7 +38,7 @@ def setup_check():
         ok_items.append("HL_PRIVATE_KEY set")
         if pairing is None:
             warnings.append(
-                "Raw-key mode active. For MCP/agent use, prefer `hl pair connect` or hosted Nunchi Auth "
+                "Raw-key mode active. For MCP/agent use, prefer `hl auth import` or hosted Nunchi Auth "
                 "so the AI client receives scoped access instead of a private key."
             )
     elif has_keystore:
@@ -50,6 +50,8 @@ def setup_check():
             ok_items.append("HL_KEYSTORE_PASSWORD found in ~/.hl-agent/env")
         else:
             issues.append("HL_KEYSTORE_PASSWORD not set (needed for auto-unlock)")
+    elif pairing is not None:
+        ok_items.append(f"scoped-token signing context found ({pairing.address})")
     else:
         issues.append("No private key: set HL_PRIVATE_KEY or run 'hl wallet import'")
     if pairing is not None:
@@ -57,7 +59,7 @@ def setup_check():
     else:
         warnings.append(
             "No web-auth pairing context found. Hosted/keyless signing uses "
-            "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS."
+            "NUNCHI_WEB_AUTH_PAIR_TOKEN and NUNCHI_WEB_AUTH_ADDRESS, or run `hl auth import` locally."
         )
 
     # 3. Network

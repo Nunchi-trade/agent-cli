@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/strategies-14-C9A84C" alt="Strategies" />
   <img src="https://img.shields.io/badge/tests-483%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-20%20tools-8A2BE2" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP-21%20tools-8A2BE2" alt="MCP" />
 </p>
 
 <p align="center">
@@ -77,18 +77,21 @@ hl apex run --mainnet
 
 ### Funding Hedge
 
-Propose a read-only BTCSWP funding-rate hedge from the CLI or any MCP client. The default `hl hedge propose` path reads the current account position; passing `--perp-notional` switches to pure sizing mode with no account fetch or order execution.
+Propose, backtest, or execute a BTCSWP funding-rate hedge from the CLI or any MCP client. The default `hl hedge propose` path reads the current account position; passing `--perp-notional` switches to pure sizing mode with no account fetch or order execution.
 
 ```bash
 hl hedge info --json
+hl auth import --token <scoped-token> --address 0x... --permission-tier testnet_trading
 hl hedge propose --asset BTC --side long --perp-notional 150000 --funding-apr 42
 hl hedge propose --asset BTC --side long --perp-notional 150000 --funding-rate-8h 0.0003 --json
+hl hedge execute BTC --dry-run
+hl hedge execute BTC --yes
 hl hedge backtest --csv funding.csv --asset BTC --side long --perp-notional 150000
 ```
 
 Backtest CSVs need a `funding_rate_8h`, `perp_funding_rate_8h`, `funding_rate`, or `rate` column. Add `hedge_rate_8h`, `btcswp_rate_8h`, or `btcswp_funding_rate_8h` when you have realized BTCSWP rates; otherwise the backtest uses an idealized offset.
 
-MCP tools: `funding_hedge_info`, `funding_hedge_propose`, `funding_hedge_backtest`
+MCP tools: `funding_hedge_info`, `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`. Live MCP execution requires `confirmed=true` plus a signing context from `HL_PRIVATE_KEY`, keystore, trusted hosted context, or a local scoped token stored with `hl auth import`.
 
 ---
 
@@ -477,9 +480,11 @@ hl guard run -i ETH-PERP [options] # Guard trailing stop
 hl reflect run [--since DATE]        # Performance review
 hl hedge info [--json]             # Funding hedge profiles and schemas
 hl hedge propose [options]         # BTCSWP funding hedge proposal
+hl hedge execute BTC [--dry-run]   # Execute or preview BTCSWP hedge
 hl hedge backtest --csv <path>     # Local funding hedge cashflow backtest
 
 # Infrastructure
+hl auth import/status/export-env   # Local scoped-token keyless auth
 hl builder approve [--mainnet]    # Approve builder fee
 hl wallet auto [--save-env]       # Create wallet (agent-friendly)
 hl setup check                    # Validate environment
@@ -499,7 +504,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**20 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `funding_hedge_info`, `funding_hedge_propose`, `funding_hedge_backtest`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
+**21 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `funding_hedge_info`, `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
@@ -636,7 +641,7 @@ hl run engine_mm -i BTCSWP-USDYP --tick 10
 ```
 cli/           CLI commands and trading engine
   commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
-  mcp_server.py  MCP server (20 tools via FastMCP)
+  mcp_server.py  MCP server (21 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)

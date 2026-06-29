@@ -32,6 +32,7 @@ def test_trusted_gateway_headers_become_scoped_env(monkeypatch):
         "x-nunchi-trading-permission-tier": "testnet_trading",
         "x-nunchi-trading-network": "testnet",
         "x-nunchi-max-order-size": "0.5",
+        "x-nunchi-max-hedge-notional": "12000",
         "x-nunchi-max-strategy-ticks": "12",
     })
 
@@ -45,6 +46,8 @@ def test_trusted_gateway_headers_become_scoped_env(monkeypatch):
     assert policy["wallets"] == ["0x" + "2" * 40]
     assert policy["network"] == "testnet"
     assert "trade" in policy["allowed_actions"]
+    assert "hedge" in policy["allowed_actions"]
+    assert policy["max_notional_usd_per_action"] == 12000.0
 
 
 def test_context_limits_fail_closed_without_signing_context(monkeypatch, tmp_path):
