@@ -190,7 +190,14 @@ def _policy_from_context_env(env: dict[str, str]) -> Optional[str]:
     if tier == "read_only":
         policy["allowed_actions"] = ["__read_only__"]
     elif tier in ("testnet_trading", "live_trading"):
-        policy["allowed_actions"] = ["trade", "run", "builder-approve"]
+        policy["allowed_actions"] = ["trade", "run", "builder-approve", "hedge"]
+
+    hedge_cap = (env.get("NUNCHI_MAX_HEDGE_NOTIONAL") or "").strip()
+    if hedge_cap:
+        try:
+            policy["max_notional_usd_per_action"] = float(hedge_cap)
+        except ValueError:
+            pass
 
     if not policy:
         return None
@@ -371,7 +378,11 @@ def create_mcp_server():
         def _local_scoped_env() -> dict[str, str]:
             try:
                 from cli.web_auth import scoped_token_env
-                return scoped_token_env()
+                env = scoped_token_env()
+                policy = _policy_from_context_env(env)
+                if policy is not None:
+                    env["NUNCHI_SESSION_POLICY"] = policy
+                return env
             except Exception:
                 return {}
 
@@ -640,7 +651,7 @@ def create_mcp_server():
             "funding_hedge_execute",
             env_overrides,
             mainnet=mainnet,
-            confirmed=confirmed,
+            confirmed=confirmed or dry_run,
             require_signing=True,
         )
         if error:

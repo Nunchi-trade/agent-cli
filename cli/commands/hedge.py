@@ -250,6 +250,11 @@ def execute_cmd(
         "--max-hedge-notional",
         help="Reject execution if proposed BTCSWP hedge notional exceeds this USD cap.",
     ),
+    policy: Optional[Path] = typer.Option(
+        None,
+        "--policy",
+        help="Session policy file (or inline JSON / NUNCHI_SESSION_POLICY env).",
+    ),
 ):
     """Build the proposal and optionally sign + submit a real yex:{COIN}SWP order.
 
@@ -261,7 +266,12 @@ def execute_cmd(
     from cli.display import BOLD, GREEN, RESET
     from cli.hedge_display import hedge_proposal_block
     from cli.hl_adapter import DirectHLProxy
+    from cli.session_policy import ACTION_HEDGE, current_workspace, guard_or_exit
     from parent.hl_proxy import HLProxy
+
+    network = "mainnet" if mainnet else "testnet"
+    policy_path = str(policy) if policy else None
+    guard_or_exit(ACTION_HEDGE, policy_path=policy_path, network=network)
 
     cfg = TradingConfig()
     private_key = cfg.get_private_key()
@@ -278,6 +288,15 @@ def execute_cmd(
             err=True,
         )
         raise typer.Exit(2)
+
+    pol = guard_or_exit(
+        ACTION_HEDGE,
+        policy_path=policy_path,
+        wallet=getattr(hl, "_address", None),
+        network=network,
+        market=proposal.profile.cfi_instrument,
+        notional_usd=proposal.hedge_notional_usd,
+    )
 
     # Size the order in CFI v2 (BTCSWP) units. SDK rounds to szDecimals.
     wire_px = snapshot.oracle_px or proposal.profile.baseline_b0
@@ -322,6 +341,15 @@ def execute_cmd(
         f"{fill.instrument} @ {fill.price} (oid={fill.oid})"
     )
 
+    if pol is not None and pol.daily_notional_limit_usd is not None:
+        from cli.session_policy import PolicyCounters
+        PolicyCounters().record(
+            getattr(hl, "_address", None),
+            network,
+            current_workspace(),
+            abs(float(fill.quantity) * float(fill.price)),
+        )
+
     # Persist the HedgeJob.
     job_id = f"HEDGE-{int(time.time() * 1000)}"
     job = {
@@ -340,7 +368,7 @@ def execute_cmd(
         "status": "active",
         "cumulative_savings_usd": 0.0,
         "last_sample_at_ms": int(time.time() * 1000),
-        "network": "mainnet" if mainnet else "testnet",
+        "network": network,
     }
     hedges = _load_hedges()
     hedges.insert(0, job)

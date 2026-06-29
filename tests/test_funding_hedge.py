@@ -289,3 +289,43 @@ def test_mcp_funding_hedge_execute_uses_local_scoped_token(monkeypatch, tmp_path
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "stored-token"
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "a" * 40
     assert captured["env_overrides"]["NUNCHI_MAX_HEDGE_NOTIONAL"] == "12000.0"
+    policy = json.loads(captured["env_overrides"]["NUNCHI_SESSION_POLICY"])
+    assert "hedge" in policy["allowed_actions"]
+    assert policy["max_notional_usd_per_action"] == 12000.0
+
+
+def test_mcp_funding_hedge_dry_run_does_not_require_confirmation(monkeypatch, tmp_path):
+    install_fake_mcp(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_SCOPED_TOKEN_PATH", str(tmp_path / "scoped-token.json"))
+
+    from cli.web_auth import ScopedToken, save_scoped_token
+
+    save_scoped_token(
+        ScopedToken(
+            token="stored-token",
+            address="0x" + "b" * 40,
+            permission_tier="testnet_trading",
+            network="testnet",
+            require_confirmation=True,
+        )
+    )
+
+    import cli.mcp_server as mcp_server
+    from cli.mcp_server import create_mcp_server
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["env_overrides"] = env_overrides
+        return "dry-run preview"
+
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    server = create_mcp_server()
+    output = server.tools["funding_hedge_execute"](coin="BTC")
+
+    assert output == "dry-run preview"
+    assert captured["args"] == ("hedge", "execute", "BTC", "--dry-run")
+    assert captured["env_overrides"]["NUNCHI_REQUIRE_CONFIRMATION"] == "true"

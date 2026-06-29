@@ -299,6 +299,95 @@ def test_hedge_execute_respects_max_hedge_notional(monkeypatch):
     assert persisted is False
 
 
+def test_hedge_execute_enforces_session_policy_action(monkeypatch):
+    import cli.commands.hedge as hedge_cmd
+    import cli.config as cfgmod
+    import cli.hl_adapter as adapter_mod
+    import parent.hl_proxy as proxy_mod
+
+    class FakeDirectHLProxy:
+        placed = False
+
+        def __init__(self, raw_hl):
+            self.raw_hl = raw_hl
+
+        def place_order(self, **kwargs):
+            FakeDirectHLProxy.placed = True
+            raise AssertionError("place_order should not be called when policy rejects")
+
+    profile = SimpleNamespace(cfi_instrument="yex:BTCSWP", baseline_b0=75_000.0)
+    proposal = SimpleNamespace(
+        profile=profile,
+        hedge_notional_usd=10_000.0,
+        legs=[SimpleNamespace(), SimpleNamespace(side="long")],
+    )
+    snapshot = SimpleNamespace(oracle_px=75_000.0)
+
+    monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
+    monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
+    monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
+    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin: (proposal, snapshot))
+    monkeypatch.setattr("cli.hedge_display.hedge_proposal_block", lambda proposal, snapshot, mainnet=False: "proposal")
+
+    result = runner.invoke(
+        app,
+        ["hedge", "execute", "BTC", "--dry-run", "--policy", '{"allowed_actions": ["trade"]}'],
+    )
+
+    assert result.exit_code == 2
+    assert "REFUSED by session policy" in result.output
+    assert "action 'hedge'" in result.output
+    assert FakeDirectHLProxy.placed is False
+
+
+def test_hedge_execute_enforces_session_policy_notional(monkeypatch):
+    import cli.commands.hedge as hedge_cmd
+    import cli.config as cfgmod
+    import cli.hl_adapter as adapter_mod
+    import parent.hl_proxy as proxy_mod
+
+    class FakeDirectHLProxy:
+        placed = False
+
+        def __init__(self, raw_hl):
+            self.raw_hl = raw_hl
+
+        def place_order(self, **kwargs):
+            FakeDirectHLProxy.placed = True
+            raise AssertionError("place_order should not be called when policy rejects")
+
+    profile = SimpleNamespace(cfi_instrument="yex:BTCSWP", baseline_b0=75_000.0)
+    proposal = SimpleNamespace(
+        profile=profile,
+        hedge_notional_usd=10_000.0,
+        legs=[SimpleNamespace(), SimpleNamespace(side="long")],
+    )
+    snapshot = SimpleNamespace(oracle_px=75_000.0)
+
+    monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
+    monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
+    monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
+    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin: (proposal, snapshot))
+    monkeypatch.setattr("cli.hedge_display.hedge_proposal_block", lambda proposal, snapshot, mainnet=False: "proposal")
+
+    result = runner.invoke(
+        app,
+        [
+            "hedge",
+            "execute",
+            "BTC",
+            "--dry-run",
+            "--policy",
+            '{"allowed_actions": ["hedge"], "max_notional_usd_per_action": 9999}',
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "REFUSED by session policy" in result.output
+    assert "per-action limit" in result.output
+    assert FakeDirectHLProxy.placed is False
+
+
 def _assert_margin_dry_run_does_not_open_hl(monkeypatch, args, expected_output):
     import cli.commands.margin as margin_cmd
 
