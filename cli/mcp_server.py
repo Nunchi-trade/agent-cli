@@ -2,6 +2,11 @@
 
 Fast tools (account, strategies, builder, wallet, setup) call Python directly.
 Long-running tools (run_strategy, apex_run, radar, reflect) use subprocess.
+
+Hosted MCP is the bring-your-own-agent path: a user's MCP-capable agent calls
+these tools, while web-auth handles wallet selection, consent, and scoped access.
+The OpenRouter-backed ai_agent strategy belongs to the separate hosted-agent
+product and is not required for generic MCP use.
 """
 from __future__ import annotations
 
@@ -38,10 +43,12 @@ def create_mcp_server():
     from mcp.server.fastmcp import FastMCP
 
     mcp = FastMCP(
-        "yex-trader",
+        "nunchi-trading",
         instructions=(
-            "Autonomous Hyperliquid trading CLI — 18 strategies, APEX orchestrator, "
-            "REFLECT reviews, and BTCSWP funding hedge proposals."
+            "Nunchi trading tools for MCP-capable agents. Bring your own agent; "
+            "web-auth selects the wallet and grants scoped tool access. Tools call "
+            "agent-cli for Hyperliquid/YEX trading, APEX orchestration, REFLECT "
+            "reviews, and BTCSWP funding hedge proposals."
         ),
     )
 
@@ -51,7 +58,12 @@ def create_mcp_server():
 
     @mcp.tool()
     def strategies() -> str:
-        """List all available trading strategies with descriptions and default parameters."""
+        """List available agent-cli strategies.
+
+        Generic MCP clients can use any deterministic strategy directly. The
+        ai_agent strategy is the Nunchi-hosted LLM agent product path and may
+        require hosted-agent subscription/provider configuration.
+        """
         from cli.strategy_registry import STRATEGY_REGISTRY, YEX_MARKETS
 
         result = {"strategies": {}, "yex_markets": {}}
@@ -124,7 +136,7 @@ def create_mcp_server():
 
     @mcp.tool()
     def setup_check() -> str:
-        """Validate environment — SDK, keys, network, builder fee."""
+        """Validate environment, web-auth pairing, network, and builder fee."""
         import os
         from cli.keystore import list_keystores
         from cli.config import TradingConfig
@@ -145,20 +157,21 @@ def create_mcp_server():
         keystores = list_keystores()
         from cli.web_auth import get_stored_pairing
         pairing = get_stored_pairing()
-        if has_env_key:
+        if pairing is not None:
+            ok_items.append(f"Web-auth wallet selected ({pairing.selected_or_master_address})")
+        elif has_env_key:
             ok_items.append("HL_PRIVATE_KEY set")
-            if pairing is None:
-                warnings.append(
-                    "Raw-key mode active. Prefer hl pair connect or hosted Nunchi Auth for MCP/agent use."
-                )
+            warnings.append(
+                "Raw-key mode active. Prefer hl pair connect or hosted Nunchi Auth for MCP/agent use."
+            )
         elif keystores:
             ok_items.append(f"Keystore found ({len(keystores)} keys)")
         else:
             issues.append("No private key: set HL_PRIVATE_KEY or run wallet_auto")
-        if pairing is not None:
-            ok_items.append(f"Paired wallet active ({pairing.selected_or_master_address})")
-        else:
-            warnings.append("No paired wallet found. Run hl pair connect to enable browser-approved signing.")
+        if pairing is None:
+            warnings.append(
+                "No web-auth wallet selected. Run hl pair connect, or complete the hosted MCP connect flow."
+            )
 
         # Network
         testnet = os.environ.get("HL_TESTNET", "true").lower()
@@ -176,12 +189,16 @@ def create_mcp_server():
             "ok": ok_items,
             "warnings": warnings,
             "issues": issues,
+            "web_auth": {
+                "paired": pairing is not None,
+                "selected_wallet": pairing.selected_or_master_address if pairing is not None else None,
+            },
             "passed": len(issues) == 0,
         }, indent=2)
 
     @mcp.tool()
     def pair_status() -> str:
-        """Show web-auth paired wallet status."""
+        """Show the web-auth paired wallet selected for MCP tool calls."""
         return _run_hl("pair", "status")
 
     @mcp.tool()

@@ -70,11 +70,17 @@ def setup_check():
     else:
         ok_items.append("Builder fee: not configured (optional)")
 
-    # 5. LLM key (for claude_agent)
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("GEMINI_API_KEY"):
-        ok_items.append("LLM API key found")
+    # 5. Hosted LLM key (only needed for the subscription-gated ai_agent product path)
+    if (
+        os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("AI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    ):
+        ok_items.append("Hosted LLM API key found")
     else:
-        ok_items.append("LLM API key: not set (only needed for claude_agent strategy)")
+        ok_items.append("Hosted LLM API key: not set (only needed for ai_agent)")
 
     # 6. Data directories
     data_dir = Path("data/cli")

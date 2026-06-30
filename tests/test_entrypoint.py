@@ -12,6 +12,7 @@ from scripts.entrypoint import (
     build_command,
     MAX_BODY_SIZE,
     _SECRET_RE,
+    _pricing_snapshot,
     HealthHandler,
 )
 
@@ -78,6 +79,8 @@ class TestBuildCommand:
         monkeypatch.setenv("INSTRUMENT", "BTC-PERP")
         monkeypatch.setenv("TICK_INTERVAL", "5")
         monkeypatch.setenv("HL_TESTNET", "true")
+        monkeypatch.delenv("AI_MODEL", raising=False)
+        monkeypatch.delenv("MAX_TICKS", raising=False)
 
         cmd = build_command()
         assert "run" in cmd
@@ -86,6 +89,30 @@ class TestBuildCommand:
         assert "BTC-PERP" in cmd
         assert "-t" in cmd
         assert "5" in cmd
+        assert "--data-dir" in cmd
+        assert "/data/cli" in cmd
+        assert "--mainnet" not in cmd
+
+    def test_strategy_mode_hosted_pricing_options(self, monkeypatch):
+        monkeypatch.setenv("RUN_MODE", "strategy")
+        monkeypatch.setenv("STRATEGY", "ai_agent")
+        monkeypatch.setenv("INSTRUMENT", "ETH-PERP")
+        monkeypatch.setenv("TICK_INTERVAL", "10")
+        monkeypatch.setenv("DATA_DIR", "/data/pricing")
+        monkeypatch.setenv("AI_MODEL", "openrouter/fusion")
+        monkeypatch.setenv("MAX_TICKS", "100")
+        monkeypatch.setenv("HL_TESTNET", "true")
+
+        cmd = build_command()
+
+        assert cmd[:3] == [sys.executable, "-m", "cli.main"]
+        assert cmd[3:5] == ["run", "ai_agent"]
+        assert "--data-dir" in cmd
+        assert "/data/pricing" in cmd
+        assert "--model" in cmd
+        assert "openrouter/fusion" in cmd
+        assert "--max-ticks" in cmd
+        assert "100" in cmd
         assert "--mainnet" not in cmd
 
     def test_strategy_mode_mainnet(self, monkeypatch):
@@ -106,6 +133,34 @@ class TestBuildCommand:
 
         with pytest.raises(SystemExit):
             build_command()
+
+
+class TestPricingSnapshot:
+    def test_pricing_snapshot_reports_env_and_ledgers(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("RUN_MODE", "strategy")
+        monkeypatch.setenv("STRATEGY", "ai_agent")
+        monkeypatch.setenv("AI_PROVIDER", "openrouter")
+        monkeypatch.setenv("AI_MODEL", "openrouter/fusion")
+        monkeypatch.setenv("HL_TESTNET", "true")
+        monkeypatch.setenv("NUNCHI_EXPERIMENT_ID", "exp-1")
+        monkeypatch.setenv("NUNCHI_RUN_ID", "run-1")
+        monkeypatch.setenv("NUNCHI_JOB_TYPE", "taker")
+        monkeypatch.setenv("NUNCHI_AGENT_ID", "taker-01")
+        (tmp_path / "cost_ledger.jsonl").write_text('{"usd_cost":"0.001"}\n')
+        (tmp_path / "route_ledger.jsonl").write_text('{"requested_route":"openrouter/fusion"}\n')
+
+        snapshot = _pricing_snapshot(str(tmp_path), limit=10)
+
+        assert snapshot["mode"] == "strategy"
+        assert snapshot["strategy"] == "ai_agent"
+        assert snapshot["ai_provider"] == "openrouter"
+        assert snapshot["ai_model"] == "openrouter/fusion"
+        assert snapshot["experiment_id"] == "exp-1"
+        assert snapshot["job_type"] == "taker"
+        assert snapshot["ledger_exists"]["cost"] is True
+        assert snapshot["ledger_exists"]["route"] is True
+        assert snapshot["ledgers"]["cost"][0]["usd_cost"] == "0.001"
+        assert snapshot["ledgers"]["route"][0]["requested_route"] == "openrouter/fusion"
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +221,9 @@ class TestCheckAuth:
         ep.AUTH_TOKEN = None
         try:
             handler = self._make_handler()
-            assert handler._check_auth() is True
+            assert handler._check_auth() is False
+            handler.send_response.assert_called_with(503)
+            handler.write.assert_called_once()
         finally:
             ep.AUTH_TOKEN = original
 
@@ -176,6 +233,17 @@ class TestCheckAuth:
         ep.AUTH_TOKEN = "test-secret"
         try:
             handler = self._make_handler(auth_header="Bearer test-secret")
+            assert handler._check_auth() is True
+        finally:
+            ep.AUTH_TOKEN = original
+
+    def test_valid_x_api_token(self, monkeypatch):
+        import scripts.entrypoint as ep
+        original = ep.AUTH_TOKEN
+        ep.AUTH_TOKEN = "test-secret"
+        try:
+            handler = self._make_handler()
+            handler.headers = {"Authorization": "", "X-API-Token": "test-secret"}
             assert handler._check_auth() is True
         finally:
             ep.AUTH_TOKEN = original

@@ -26,5 +26,5 @@ def mcp_serve(
         raise typer.Exit(1)
 
     server = create_mcp_server()
-    typer.echo(f"Starting MCP server (transport={transport}) ...")
+    typer.echo(f"Starting MCP server (transport={transport}) ...", err=True)
     server.run(transport=transport)

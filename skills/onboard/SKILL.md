@@ -179,6 +179,22 @@ hl builder status
 | `No private key` | Complete Step 2 |
 | `insufficient funds` | Complete Step 4 |
 
+### Step 5b (institutional): designate a separate USDC settlement wallet
+
+Skip this step if you're trading on your own behalf. Required for HOUSE / Jump-style institutional pilots where Builder Code surcharges are remitted to a dedicated USDC wallet that is **not** the trading wallet.
+
+```bash
+export SETTLEMENT_ADDRESS=0x<your-institutional-USDC-receive-wallet>
+```
+
+When `SETTLEMENT_ADDRESS` is set, the BC remittance ledger reports under that address. When it's empty (default), trading wallet doubles as settlement wallet.
+
+**Verify:**
+```bash
+hl builder status
+# Expected line when set: "Settlement: 0x<addr> (separate from trading wallet)"
+```
+
 ---
 
 ## Step 6: Validate with Mock Trade
@@ -300,8 +316,11 @@ Only after completing Steps 1-8 on testnet:
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
 | `BUILDER_ADDRESS` | No | Override builder fee address |
 | `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
-| `ANTHROPIC_API_KEY` | No | For `claude_agent` strategy |
-| `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
+| `SETTLEMENT_ADDRESS` | No | Institutional USDC settlement wallet (separate from trading wallet); empty = same as trading wallet |
+| `MARKET_WHITELIST` | No | Comma-separated asset list or glob (e.g. `xyz:GOLD,xyz:CL` or `xyz:*`); empty = all HL perps |
+| `OPENROUTER_API_KEY` | No | For hosted `ai_agent` through OpenRouter |
+| `ANTHROPIC_API_KEY` | No | For `ai_agent` with Claude |
+| `GEMINI_API_KEY` | No | For `ai_agent` with Gemini |
 
 \* Either keystore with `HL_KEYSTORE_PASSWORD` or `HL_PRIVATE_KEY` is required.
 

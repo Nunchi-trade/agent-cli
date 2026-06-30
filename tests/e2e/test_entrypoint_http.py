@@ -18,7 +18,7 @@ pytestmark = pytest.mark.e2e
 @pytest.fixture
 def entrypoint_server(monkeypatch, tmp_path):
     monkeypatch.setenv("RUN_MODE", "strategy")
-    monkeypatch.setenv("STRATEGY", "claude_agent")
+    monkeypatch.setenv("STRATEGY", "ai_agent")
     monkeypatch.setenv("AI_PROVIDER", "openrouter")
     monkeypatch.setenv("AI_MODEL", "openrouter/fusion")
     monkeypatch.setenv("HL_TESTNET", "true")
@@ -66,7 +66,7 @@ def test_health_status_metrics_and_pricing_endpoints(entrypoint_server):
     assert status == 200
     assert health["status"] == "ok"
     assert health["mode"] == "strategy"
-    assert health["strategy"] == "claude_agent"
+    assert health["strategy"] == "ai_agent"
 
     status, api_status = _request_json(base_url, "/api/status")
     assert status == 200

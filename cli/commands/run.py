@@ -53,7 +53,7 @@ def run_cmd(
     ),
     model: Optional[str] = typer.Option(
         None, "--model",
-        help="LLM model override for claude_agent strategy",
+        help="LLM model override for ai_agent strategy",
     ),
 ):
     """Start autonomous trading with a strategy."""

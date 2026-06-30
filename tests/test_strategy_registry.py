@@ -31,9 +31,9 @@ class TestResolveStrategyPath:
         with pytest.raises(ValueError, match="simple_mm"):
             resolve_strategy_path("bad_name")
 
-    def test_claude_agent_registered(self):
-        path = resolve_strategy_path("claude_agent")
-        assert "ClaudeStrategy" in path
+    def test_ai_agent_registered(self):
+        path = resolve_strategy_path("ai_agent")
+        assert "AIStrategy" in path
 
     def test_registry_has_params(self):
         for name, entry in STRATEGY_REGISTRY.items():

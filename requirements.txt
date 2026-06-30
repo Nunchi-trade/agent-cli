@@ -7,7 +7,7 @@ eth-account>=0.10.0
 requests>=2.28.0
 eciespy>=0.4.0
 
-# Optional: LLM strategy (claude_agent)
+# Optional: LLM strategy (ai_agent)
 # anthropic>=0.40.0
 openai>=1.0.0
 
