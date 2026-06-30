@@ -33,7 +33,6 @@ def telegram_start(
     )
 
     from tg_bot.config import TelegramBotConfig
-    from tg_bot.bot import run_bot
 
     config = TelegramBotConfig.from_env()
 
@@ -49,6 +48,8 @@ def telegram_start(
             err=True,
         )
         raise typer.Exit(code=1)
+
+    from tg_bot.bot import run_bot
 
     typer.echo(f"Network: {config.default_network}")
     typer.echo(f"Chat IDs: {config.allowed_chat_ids or 'auto-detect on first /start'}")

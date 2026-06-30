@@ -29,6 +29,7 @@ from cli.commands.pulse import pulse_app
 from cli.commands.apex import apex_app
 from cli.commands.builder import builder_app
 from cli.commands.pair import pair_app
+from cli.commands.money import money_app
 from cli.commands.reflect import reflect_app
 from cli.commands.wallet import wallet_app
 from cli.commands.setup import setup_app
@@ -37,7 +38,6 @@ from cli.commands.skills import skills_app
 from cli.commands.journal import journal_app
 from cli.commands.keys import keys_app
 from cli.commands.telegram_cmd import telegram_app
-from cli.jobs.commands import jobs_app
 from cli.commands.hedge import hedge_app
 
 app.command("run", help="Start autonomous trading with a strategy")(run_cmd)
@@ -51,6 +51,7 @@ app.add_typer(pulse_app, name="pulse", help="Pulse — detect assets with capita
 app.add_typer(apex_app, name="apex", help="APEX — autonomous multi-slot trading")
 app.add_typer(builder_app, name="builder", help="Builder fee — revenue collection on trades")
 app.add_typer(pair_app, name="pair", help="web-auth paired wallet management")
+app.add_typer(money_app, name="money", help="Fund movement — withdraw, transfer, deposit, bridge")
 app.add_typer(reflect_app, name="reflect", help="Reflect — performance review and self-improvement")
 app.add_typer(wallet_app, name="wallet", help="Encrypted keystore wallet management")
 app.add_typer(setup_app, name="setup", help="Environment validation and setup")
@@ -59,7 +60,6 @@ app.add_typer(skills_app, name="skills", help="Skill discovery and registry")
 app.add_typer(journal_app, name="journal", help="Trade journal — structured position records with reasoning")
 app.add_typer(keys_app, name="keys", help="Unified key management across backends")
 app.add_typer(telegram_app, name="telegram", help="Telegram bot — deploy agents from chat")
-app.add_typer(jobs_app, name="jobs", help="Perpetual agent jobs — register, run, and manage on-chain jobs")
 app.add_typer(hedge_app, name="hedge", help="Funding-rate hedge proposals")
 
 
