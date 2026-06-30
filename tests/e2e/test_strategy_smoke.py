@@ -10,7 +10,7 @@ from cli.strategy_registry import STRATEGY_REGISTRY
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
-LLM_OR_LIVE_ONLY = {"claude_agent"}
+LLM_OR_LIVE_ONLY = {"ai_agent"}
 
 
 @pytest.mark.parametrize("strategy_name", sorted(STRATEGY_REGISTRY))
@@ -71,17 +71,17 @@ def test_registered_strategy_runs_deeper_mock_loop_and_status(run_cli, tmp_path,
 
 @pytest.mark.live
 @pytest.mark.llm
-def test_claude_agent_openrouter_one_mock_tick_when_enabled(run_cli, tmp_path):
+def test_ai_agent_openrouter_one_mock_tick_when_enabled(run_cli, tmp_path):
     import os
 
     if not (os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY")):
         pytest.skip("OPENROUTER_API_KEY or AI_API_KEY is required for OpenRouter E2E")
 
-    data_dir = tmp_path / "claude-agent-openrouter"
+    data_dir = tmp_path / "ai-agent-openrouter"
     result = run_cli(
         [
             "run",
-            "claude_agent",
+            "ai_agent",
             "--mock",
             "--max-ticks",
             "1",
@@ -101,7 +101,7 @@ def test_claude_agent_openrouter_one_mock_tick_when_enabled(run_cli, tmp_path):
     )
 
     assert "Mode: MOCK" in result.stdout
-    assert "Strategy: claude_agent" in result.stdout
+    assert "Strategy: ai_agent" in result.stdout
     assert (data_dir / "state.db").exists()
 
 

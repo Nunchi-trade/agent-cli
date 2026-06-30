@@ -91,7 +91,7 @@
 | **hedge_agent** | - | I | - | I | I | I | I | - | - | - | - |
 | **rfq_agent** | - | I | - | I | I | I | I | - | - | - | - |
 | **aggressive_taker** | - | I | - | I | I | I | I | - | - | - | - |
-| **claude_agent** | - | I | - | I | I | I | I | - | - | - | - |
+| **ai_agent** | - | I | - | I | I | I | I | - | - | - | - |
 | **engine_mm** | - | I | - | I | I | I | I | D | **D** | - | - |
 | **funding_arb** | - | I | - | I | I | I | I | D | **D** | - | - |
 | **regime_mm** | - | I | - | I | I | I | I | D | **D** | - | - |
@@ -160,7 +160,7 @@
 ### Strategy Groupings by HL Coupling
 
 **Loosely coupled (adapter-only dependency, 11 strategies):**
-`simple_mm`, `avellaneda_mm`, `mean_reversion`, `hedge_agent`, `rfq_agent`, `aggressive_taker`, `claude_agent`, `momentum_breakout`, `grid_mm`, `simplified_ensemble`, `trend_follower`
+`simple_mm`, `avellaneda_mm`, `mean_reversion`, `hedge_agent`, `rfq_agent`, `aggressive_taker`, `ai_agent`, `momentum_breakout`, `grid_mm`, `simplified_ensemble`, `trend_follower`
 
 These strategies have zero HL-specific imports. They only depend on HL through the adapter layer (`DirectHLProxy` / `MarketSnapshot`). Porting to another exchange requires only writing a new adapter that produces `MarketSnapshot` and accepts orders.
 

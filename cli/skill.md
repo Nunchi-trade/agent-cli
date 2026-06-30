@@ -94,8 +94,9 @@ hl apex run --mainnet                                   # APEX multi-slot
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
 | `BUILDER_ADDRESS` | No | Override builder fee address (default: hardcoded) |
 | `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
-| `ANTHROPIC_API_KEY` | No | For `claude_agent` strategy |
-| `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
+| `OPENROUTER_API_KEY` | No | For hosted `ai_agent` through OpenRouter |
+| `ANTHROPIC_API_KEY` | No | For `ai_agent` with Claude |
+| `GEMINI_API_KEY` | No | For `ai_agent` with Gemini |
 
 \* Either `HL_PRIVATE_KEY` or a keystore with `HL_KEYSTORE_PASSWORD` is required.
 
@@ -205,7 +206,7 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 | aggressive_taker | Taker | Directional spread crossing with bias |
 | hedge_agent | Risk | Inventory exposure reducer; BTCSWP funding hedge lives under `hl hedge` |
 | rfq_agent | RFQ | Block-size dark RFQ liquidity |
-| claude_agent | LLM | Claude/Gemini-powered autonomous trading agent |
+| ai_agent | LLM | Hosted multi-provider autonomous trading agent |
 
 ## Instruments
 

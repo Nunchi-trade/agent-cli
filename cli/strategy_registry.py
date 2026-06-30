@@ -34,9 +34,9 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Crosses the spread with directional bias",
         "params": {"size": 2.0, "bias_amplitude": 0.35},
     },
-    "claude_agent": {
-        "path": "strategies.claude_agent:ClaudeStrategy",
-        "description": "LLM trading agent — Gemini (default), Claude, OpenAI, or ClawRouter (x402 USDC)",
+    "ai_agent": {
+        "path": "strategies.ai_agent:AIStrategy",
+        "description": "Nunchi-hosted LLM trading agent — OpenRouter-backed by default, with configurable providers",
         "params": {"model": "gemini-2.0-flash", "base_size": 0.5},
     },
     "engine_mm": {

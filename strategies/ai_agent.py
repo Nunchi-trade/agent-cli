@@ -1,4 +1,8 @@
-"""LLM-powered trading agent — supports Claude, Gemini, OpenAI, OpenRouter, and ClawRouter.
+"""Nunchi-hosted LLM trading agent.
+
+Supports OpenRouter, Claude, Gemini, OpenAI, and ClawRouter backends. This is
+the hosted-agent product path. Generic MCP users bring their own external agent
+and call the MCP tools directly.
 
 Uses structured tool/function calling to make trading decisions each tick.
 The LLM receives market data, position state, and risk context, then decides
@@ -6,20 +10,20 @@ to place orders or hold.
 
 Usage:
     # Gemini (default — fast, free tier available)
-    hl run claude_agent --mock --max-ticks 5 --tick 15
-    hl run claude_agent -i ETH-PERP --tick 15
+    hl run ai_agent --mock --max-ticks 5 --tick 15
+    hl run ai_agent -i ETH-PERP --tick 15
 
     # Claude
-    hl run claude_agent -i ETH-PERP --tick 15 --model claude-haiku-4-5-20251001
+    hl run ai_agent -i ETH-PERP --tick 15 --model claude-haiku-4-5-20251001
 
     # Gemini Flash
-    hl run claude_agent -i ETH-PERP --tick 15 --model gemini-2.0-flash
+    hl run ai_agent -i ETH-PERP --tick 15 --model gemini-2.0-flash
 
     # ClawRouter (x402 — pay with USDC, no API key needed)
-    hl run claude_agent -i ETH-PERP --tick 15 --model blockrun/auto
+    hl run ai_agent -i ETH-PERP --tick 15 --model blockrun/auto
 
     # OpenRouter (Nunchi hosted default)
-    hl run claude_agent -i ETH-PERP --tick 15 --model openrouter/auto
+    hl run ai_agent -i ETH-PERP --tick 15 --model openrouter/auto
 """
 from __future__ import annotations
 
@@ -136,12 +140,12 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class ClaudeStrategy(BaseStrategy):
+class AIStrategy(BaseStrategy):
     """LLM-powered trading strategy with multiple hosted/local inference backends."""
 
     def __init__(
         self,
-        strategy_id: str = "claude_agent",
+        strategy_id: str = "ai_agent",
         model: str = "gemini-2.0-flash",
         base_size: float = 0.5,
         max_position: float = 5.0,

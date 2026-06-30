@@ -1,8 +1,10 @@
 """Smoke tests for MCP money-movement wrappers."""
 from __future__ import annotations
 
+import json
 import sys
 import types
+from types import SimpleNamespace
 
 
 class FakeFastMCP:
@@ -18,6 +20,127 @@ class FakeFastMCP:
             return fn
 
         return decorator
+
+
+def install_fake_mcp(monkeypatch) -> None:
+    fastmcp_module = types.ModuleType("mcp.server.fastmcp")
+    fastmcp_module.FastMCP = FakeFastMCP
+    server_module = types.ModuleType("mcp.server")
+    server_module.fastmcp = fastmcp_module
+    mcp_module = types.ModuleType("mcp")
+    mcp_module.server = server_module
+    monkeypatch.setitem(sys.modules, "mcp", mcp_module)
+    monkeypatch.setitem(sys.modules, "mcp.server", server_module)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fastmcp_module)
+
+
+def test_mcp_strategies_exposes_ai_agent_without_legacy_name(monkeypatch):
+    install_fake_mcp(monkeypatch)
+
+    from cli.mcp_server import create_mcp_server
+
+    server = create_mcp_server()
+    payload = json.loads(server.tools["strategies"]())
+
+    assert "ai_agent" in payload["strategies"]
+    assert "Nunchi-hosted LLM trading agent" in payload["strategies"]["ai_agent"]["description"]
+    assert "claude_agent" not in payload["strategies"]
+
+
+def test_mcp_setup_check_treats_web_auth_pairing_as_wallet_selection(monkeypatch):
+    install_fake_mcp(monkeypatch)
+    monkeypatch.delenv("HL_PRIVATE_KEY", raising=False)
+
+    import cli.keystore as keystore
+    import cli.web_auth as web_auth
+    from cli.mcp_server import create_mcp_server
+
+    monkeypatch.setattr(keystore, "list_keystores", lambda: [])
+    monkeypatch.setattr(
+        web_auth,
+        "get_stored_pairing",
+        lambda: SimpleNamespace(selected_or_master_address="0x1111111111111111111111111111111111111111"),
+    )
+
+    server = create_mcp_server()
+    payload = json.loads(server.tools["setup_check"]())
+
+    assert payload["web_auth"] == {
+        "paired": True,
+        "selected_wallet": "0x1111111111111111111111111111111111111111",
+    }
+    assert payload["passed"] is True
+    assert not any("No private key" in issue for issue in payload["issues"])
+
+
+def test_mcp_pair_status_uses_agent_cli_pair_status(monkeypatch):
+    install_fake_mcp(monkeypatch)
+
+    import cli.mcp_server as mcp_server
+
+    calls = []
+    monkeypatch.setattr(mcp_server, "_run_hl", lambda *args, timeout=30: calls.append(args) or "Pairing: NONE")
+
+    server = mcp_server.create_mcp_server()
+
+    assert server.tools["pair_status"]() == "Pairing: NONE"
+    assert calls == [("pair", "status")]
+
+
+def test_mcp_funding_hedge_propose_is_read_only_json(monkeypatch):
+    install_fake_mcp(monkeypatch)
+
+    from cli.mcp_server import create_mcp_server
+
+    server = create_mcp_server()
+    payload = json.loads(server.tools["funding_hedge_propose"](
+        asset="BTC",
+        perp_side="long",
+        perp_notional_usd=150_000.0,
+        funding_apr=0.45,
+    ))
+
+    assert payload["asset"] == "BTC"
+    assert payload["perp_side"] == "long"
+    assert payload["perp_notional_usd"] == 150_000.0
+    assert payload["hedge_notional_usd"] > 0
+
+
+def test_mcp_run_strategy_builds_bounded_mock_agent_cli_call(monkeypatch):
+    install_fake_mcp(monkeypatch)
+
+    import cli.mcp_server as mcp_server
+
+    calls = []
+    monkeypatch.setattr(mcp_server, "_run_hl", lambda *args, timeout=30: calls.append((args, timeout)) or "ok")
+
+    server = mcp_server.create_mcp_server()
+
+    assert server.tools["run_strategy"](
+        "engine_mm",
+        instrument="ETH-PERP",
+        tick=0,
+        max_ticks=1,
+        mock=True,
+        dry_run=True,
+    ) == "ok"
+    assert calls == [
+        (
+            (
+                "run",
+                "engine_mm",
+                "-i",
+                "ETH-PERP",
+                "-t",
+                "0",
+                "--max-ticks",
+                "1",
+                "--mock",
+                "--dry-run",
+            ),
+            60,
+        )
+    ]
 
 
 def test_mcp_money_tools_require_confirm(monkeypatch):

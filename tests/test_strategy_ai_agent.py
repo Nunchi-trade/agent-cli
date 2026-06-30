@@ -1,4 +1,4 @@
-"""Tests for ClaudeStrategy (LLM agent) — tests helper functions only, no API calls."""
+"""Tests for AIStrategy (LLM agent) — tests helper functions only, no API calls."""
 import os
 import sys
 import time
@@ -32,37 +32,37 @@ def _ctx(pos_qty=0.0, upnl=0.0, rpnl=0.0, reduce_only=False, safe_mode=False, ro
 
 class TestDetectProvider:
     def test_claude_model(self):
-        from strategies.claude_agent import _detect_provider
+        from strategies.ai_agent import _detect_provider
         assert _detect_provider("claude-haiku-4-5-20251001") == "claude"
         assert _detect_provider("claude-3-sonnet") == "claude"
 
     def test_gemini_model(self):
-        from strategies.claude_agent import _detect_provider
+        from strategies.ai_agent import _detect_provider
         assert _detect_provider("gemini-2.0-flash") == "gemini"
         assert _detect_provider("gemini-pro") == "gemini"
 
     def test_openai_model(self):
-        from strategies.claude_agent import _detect_provider
+        from strategies.ai_agent import _detect_provider
         assert _detect_provider("gpt-4o") == "openai"
         assert _detect_provider("o1-mini") == "openai"
         assert _detect_provider("o3-mini") == "openai"
         assert _detect_provider("o4-mini") == "openai"
 
     def test_blockrun_model(self):
-        from strategies.claude_agent import _detect_provider
+        from strategies.ai_agent import _detect_provider
         assert _detect_provider("blockrun/auto") == "blockrun"
         assert _detect_provider("blockrun/claude-sonnet") == "blockrun"
 
     def test_unknown_defaults_to_gemini(self):
-        from strategies.claude_agent import _detect_provider
+        from strategies.ai_agent import _detect_provider
         assert _detect_provider("some-random-model") == "gemini"
         assert _detect_provider("") == "gemini"
 
 
 class TestParseToolCall:
     def _make_strat(self):
-        from strategies.claude_agent import ClaudeStrategy
-        return ClaudeStrategy(base_size=0.5, max_position=5.0)
+        from strategies.ai_agent import AIStrategy
+        return AIStrategy(base_size=0.5, max_position=5.0)
 
     def test_valid_place_order(self):
         strat = self._make_strat()
@@ -166,8 +166,8 @@ class TestParseToolCall:
 
 class TestBuildUserMessage:
     def _make_strat(self):
-        from strategies.claude_agent import ClaudeStrategy
-        return ClaudeStrategy(base_size=0.5, max_position=5.0)
+        from strategies.ai_agent import AIStrategy
+        return AIStrategy(base_size=0.5, max_position=5.0)
 
     def test_contains_market_data(self):
         strat = self._make_strat()
@@ -218,8 +218,8 @@ class TestBuildUserMessage:
 
 class TestBuildOpenAITools:
     def test_format(self):
-        from strategies.claude_agent import ClaudeStrategy
-        strat = ClaudeStrategy()
+        from strategies.ai_agent import AIStrategy
+        strat = AIStrategy()
         tools = strat._build_openai_tools()
         assert len(tools) == 2
         for t in tools:
@@ -229,8 +229,8 @@ class TestBuildOpenAITools:
             assert "parameters" in t["function"]
 
     def test_place_order_tool(self):
-        from strategies.claude_agent import ClaudeStrategy
-        strat = ClaudeStrategy()
+        from strategies.ai_agent import AIStrategy
+        strat = AIStrategy()
         tools = strat._build_openai_tools()
         place_order = [t for t in tools if t["function"]["name"] == "place_order"][0]
         params = place_order["function"]["parameters"]
@@ -239,8 +239,8 @@ class TestBuildOpenAITools:
         assert "price" in params["properties"]
 
     def test_hold_tool(self):
-        from strategies.claude_agent import ClaudeStrategy
-        strat = ClaudeStrategy()
+        from strategies.ai_agent import AIStrategy
+        strat = AIStrategy()
         tools = strat._build_openai_tools()
         hold = [t for t in tools if t["function"]["name"] == "hold"][0]
         params = hold["function"]["parameters"]
@@ -249,34 +249,34 @@ class TestBuildOpenAITools:
 
 class TestOpenRouterFusion:
     def test_fusion_defaults_to_requested_route(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.delenv("OPENROUTER_FUSION_MODEL", raising=False)
         monkeypatch.delenv("NUNCHI_OPENROUTER_FUSION_MODEL", raising=False)
-        strat = ClaudeStrategy(model="openrouter/fusion")
+        strat = AIStrategy(model="openrouter/fusion")
 
         assert strat._resolve_openrouter_model() == "openrouter/fusion"
 
     def test_fusion_can_be_overridden(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.setenv("OPENROUTER_FUSION_MODEL", "anthropic/claude-haiku")
-        strat = ClaudeStrategy(model="openrouter/fusion")
+        strat = AIStrategy(model="openrouter/fusion")
 
         assert strat._resolve_openrouter_model() == "anthropic/claude-haiku"
 
     def test_fusion_plugin_uses_budget_preset(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.setenv("OPENROUTER_FUSION_PRESET", "general-budget")
-        strat = ClaudeStrategy(model="openrouter/fusion")
+        strat = AIStrategy(model="openrouter/fusion")
 
         assert strat._openrouter_fusion_plugins() == [
             {"id": "fusion", "preset": "general-budget"}
         ]
 
     def test_fusion_plugin_supports_explicit_panel(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.setenv(
             "OPENROUTER_FUSION_ANALYSIS_MODELS",
@@ -284,7 +284,7 @@ class TestOpenRouterFusion:
         )
         monkeypatch.setenv("OPENROUTER_FUSION_JUDGE_MODEL", "openai/gpt-5-nano")
         monkeypatch.setenv("OPENROUTER_FUSION_MAX_TOOL_CALLS", "1")
-        strat = ClaudeStrategy(model="openrouter/fusion")
+        strat = AIStrategy(model="openrouter/fusion")
 
         assert strat._openrouter_fusion_plugins() == [
             {
@@ -299,19 +299,19 @@ class TestOpenRouterFusion:
         ]
 
     def test_force_fusion_env(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.setenv("OPENROUTER_FORCE_FUSION", "true")
-        strat = ClaudeStrategy(model="openrouter/fusion")
+        strat = AIStrategy(model="openrouter/fusion")
 
         assert strat._force_openrouter_fusion() is True
 
     def test_llm_decision_interval_skips_intermediate_ticks(self, monkeypatch):
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
 
         monkeypatch.setenv("NUNCHI_LLM_DECISION_INTERVAL_TICKS", "3")
         calls = []
-        strat = ClaudeStrategy(model="gemini-2.0-flash")
+        strat = AIStrategy(model="gemini-2.0-flash")
 
         def fake_call(user_msg, snapshot):
             calls.append(strat._current_tick_index)
@@ -325,24 +325,24 @@ class TestOpenRouterFusion:
         assert calls == [1, 4]
 
 
-class TestClaudeStrategyOnTick:
+class TestAIStrategyOnTick:
     def test_zero_mid_returns_empty(self):
-        from strategies.claude_agent import ClaudeStrategy
-        strat = ClaudeStrategy()
+        from strategies.ai_agent import AIStrategy
+        strat = AIStrategy()
         orders = strat.on_tick(_snap(mid=0.0, bid=0.0, ask=0.0), _ctx())
         assert orders == []
 
     def test_safe_mode_returns_empty(self):
-        from strategies.claude_agent import ClaudeStrategy
-        strat = ClaudeStrategy()
+        from strategies.ai_agent import AIStrategy
+        strat = AIStrategy()
         orders = strat.on_tick(_snap(), _ctx(safe_mode=True))
         assert orders == []
 
     def test_on_tick_without_api_key_returns_empty(self):
         """Without API keys, on_tick should catch the error and return []."""
-        from strategies.claude_agent import ClaudeStrategy
+        from strategies.ai_agent import AIStrategy
         # Use gemini model (default) — no API key set
-        strat = ClaudeStrategy(model="gemini-2.0-flash")
+        strat = AIStrategy(model="gemini-2.0-flash")
         # Clear any env vars
         old_key = os.environ.pop("GEMINI_API_KEY", None)
         old_key2 = os.environ.pop("GOOGLE_API_KEY", None)

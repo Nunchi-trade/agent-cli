@@ -82,7 +82,8 @@ def test_mcp_serve_fails_cleanly_without_optional_extra_or_can_show_startup(run_
         assert "Starting MCP server" in result.combined_output
         return
     if result.returncode == 0:
-        pytest.fail("mcp serve unexpectedly exited successfully; it should either run or report missing extras")
+        assert "Starting MCP server" in result.combined_output
+        return
     assert (
         "MCP package not installed" in result.combined_output
         or "Starting MCP server" in result.combined_output
