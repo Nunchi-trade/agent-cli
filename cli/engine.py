@@ -295,6 +295,7 @@ class TradingEngine:
                 "side": fill.side,
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
+                "notional_usd": str(fill.price * fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": self.strategy.strategy_id,
@@ -437,6 +438,7 @@ class TradingEngine:
                 "side": fill.side,
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
+                "notional_usd": str(fill.price * fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": self.strategy.strategy_id,
@@ -523,6 +525,7 @@ class TradingEngine:
                 "side": fill.side,
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
+                "notional_usd": str(fill.price * fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": self.strategy.strategy_id,
@@ -567,12 +570,7 @@ class TradingEngine:
     def _experiment_fields(self) -> Dict[str, Any]:
         if not self.experiment.enabled:
             return {}
-        return {
-            "experiment_id": self.experiment.experiment_id,
-            "run_id": self.experiment.run_id,
-            "agent_id": self.experiment.agent_id,
-            "job_type": self.experiment.job_type,
-        }
+        return self.experiment.ledger_fields()
 
     def _decision_fields(self, decisions=None) -> Dict[str, Any]:
         fields: Dict[str, Any] = {"tick_index": self.tick_count}

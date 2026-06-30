@@ -42,20 +42,54 @@ class ExperimentContext:
     run_id: str
     agent_id: str
     job_type: str
+    user_id: str = ""
+    account_id: str = ""
+    plan_id: str = ""
+    subscription_id: str = ""
+    billing_period_start: str = ""
+    billing_period_end: str = ""
 
     @classmethod
     def from_env(cls, strategy_id: str) -> "ExperimentContext":
         run_id = os.environ.get("NUNCHI_RUN_ID") or f"manual-{int(time.time())}"
+        hosted_identity_present = bool(os.environ.get("NUNCHI_USER_ID") or os.environ.get("NUNCHI_ACCOUNT_ID"))
+        experiment_id = os.environ.get("NUNCHI_EXPERIMENT_ID", "")
+        if not experiment_id and hosted_identity_present:
+            experiment_id = "hosted-agent"
         return cls(
-            experiment_id=os.environ.get("NUNCHI_EXPERIMENT_ID", ""),
+            experiment_id=experiment_id,
             run_id=run_id,
             agent_id=os.environ.get("NUNCHI_AGENT_ID") or strategy_id,
             job_type=os.environ.get("NUNCHI_JOB_TYPE", "unknown"),
+            user_id=os.environ.get("NUNCHI_USER_ID", ""),
+            account_id=os.environ.get("NUNCHI_ACCOUNT_ID", ""),
+            plan_id=os.environ.get("NUNCHI_PLAN_ID", ""),
+            subscription_id=os.environ.get("NUNCHI_SUBSCRIPTION_ID", ""),
+            billing_period_start=os.environ.get("NUNCHI_BILLING_PERIOD_START", ""),
+            billing_period_end=os.environ.get("NUNCHI_BILLING_PERIOD_END", ""),
         )
 
     @property
     def enabled(self) -> bool:
-        return bool(self.experiment_id)
+        return bool(self.experiment_id or self.user_id or self.account_id or self.subscription_id)
+
+    def ledger_fields(self) -> Dict[str, str]:
+        fields = {
+            "experiment_id": self.experiment_id,
+            "run_id": self.run_id,
+            "agent_id": self.agent_id,
+            "job_type": self.job_type,
+        }
+        optional_fields = {
+            "user_id": self.user_id,
+            "account_id": self.account_id,
+            "plan_id": self.plan_id,
+            "subscription_id": self.subscription_id,
+            "billing_period_start": self.billing_period_start,
+            "billing_period_end": self.billing_period_end,
+        }
+        fields.update({key: value for key, value in optional_fields.items() if value})
+        return fields
 
 
 class OpenRouterPricing:
@@ -190,12 +224,9 @@ class CostMeter:
                 cache_savings = None
         ts_ms = _now_ms()
         row = {
-            "experiment_id": self.context.experiment_id,
-            "run_id": self.context.run_id,
+            **self.context.ledger_fields(),
             "ts": ts_ms,
-            "agent_id": self.context.agent_id,
             "strategy": self.strategy,
-            "job_type": self.context.job_type,
             "tick_index": tick_index,
             "decision_call_id": decision_call_id,
             "provider": provider,
@@ -227,11 +258,8 @@ class CostMeter:
 
         if provider == "openrouter":
             route_row = {
-                "experiment_id": self.context.experiment_id,
-                "run_id": self.context.run_id,
+                **self.context.ledger_fields(),
                 "ts": ts_ms,
-                "agent_id": self.context.agent_id,
-                "job_type": self.context.job_type,
                 "tick_index": tick_index,
                 "decision_call_id": decision_call_id,
                 "requested_route": route,

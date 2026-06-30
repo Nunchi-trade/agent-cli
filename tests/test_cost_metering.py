@@ -23,7 +23,7 @@ def test_cost_meter_writes_cost_and_route_ledgers(tmp_path):
     meter = CostMeter(
         context=context,
         data_dir=str(tmp_path),
-        strategy="claude_agent",
+        strategy="ai_agent",
         pricing=StaticPricing(),
     )
 
@@ -36,7 +36,7 @@ def test_cost_meter_writes_cost_and_route_ledgers(tmp_path):
         output_tokens=5,
         tick_index=7,
         elapsed_ms=123.4,
-        decision_call_id="claude_agent:run-1:tick-7",
+        decision_call_id="ai_agent:run-1:tick-7",
     )
 
     cost_row = json.loads((tmp_path / "cost_ledger.jsonl").read_text().strip())
@@ -45,11 +45,69 @@ def test_cost_meter_writes_cost_and_route_ledgers(tmp_path):
     assert cost_row["experiment_id"] == "exp-1"
     assert cost_row["job_type"] == "taker"
     assert cost_row["tick_index"] == 7
-    assert cost_row["decision_call_id"] == "claude_agent:run-1:tick-7"
+    assert cost_row["decision_call_id"] == "ai_agent:run-1:tick-7"
     assert cost_row["usd_cost"] == "0.020"
     assert route_row["requested_route"] == "openrouter/fusion"
-    assert route_row["decision_call_id"] == "claude_agent:run-1:tick-7"
+    assert route_row["decision_call_id"] == "ai_agent:run-1:tick-7"
     assert route_row["resolved_model"] == "anthropic/claude-haiku"
+
+
+def test_cost_meter_records_hosted_identity_fields(tmp_path):
+    context = ExperimentContext(
+        experiment_id="exp-1",
+        run_id="run-1",
+        agent_id="agent-1",
+        job_type="taker",
+        user_id="user-1",
+        account_id="account-1",
+        plan_id="hosted-agent-standard",
+        subscription_id="sub-1",
+        billing_period_start="1000",
+        billing_period_end="2000",
+    )
+    meter = CostMeter(
+        context=context,
+        data_dir=str(tmp_path),
+        strategy="ai_agent",
+        pricing=StaticPricing(),
+    )
+
+    meter.record_llm_call(
+        provider="openrouter",
+        requested_model="openrouter/auto",
+        resolved_model="openai/gpt-4o-mini",
+        route="openrouter/auto",
+        input_tokens=1,
+        output_tokens=1,
+        tick_index=1,
+        elapsed_ms=1,
+    )
+
+    cost_row = json.loads((tmp_path / "cost_ledger.jsonl").read_text().strip())
+    route_row = json.loads((tmp_path / "route_ledger.jsonl").read_text().strip())
+
+    assert cost_row["user_id"] == "user-1"
+    assert cost_row["account_id"] == "account-1"
+    assert cost_row["plan_id"] == "hosted-agent-standard"
+    assert cost_row["subscription_id"] == "sub-1"
+    assert cost_row["billing_period_start"] == "1000"
+    assert cost_row["billing_period_end"] == "2000"
+    assert route_row["user_id"] == "user-1"
+    assert route_row["account_id"] == "account-1"
+
+
+def test_experiment_context_from_env_enables_hosted_metering(monkeypatch):
+    monkeypatch.delenv("NUNCHI_EXPERIMENT_ID", raising=False)
+    monkeypatch.setenv("NUNCHI_USER_ID", "user-1")
+    monkeypatch.setenv("NUNCHI_ACCOUNT_ID", "account-1")
+    monkeypatch.setenv("NUNCHI_AGENT_ID", "agent-1")
+
+    context = ExperimentContext.from_env("ai_agent")
+
+    assert context.enabled is True
+    assert context.experiment_id == "hosted-agent"
+    assert context.ledger_fields()["user_id"] == "user-1"
+    assert context.ledger_fields()["account_id"] == "account-1"
 
 
 def test_cost_meter_prefers_actual_openrouter_cost(tmp_path):
@@ -62,7 +120,7 @@ def test_cost_meter_prefers_actual_openrouter_cost(tmp_path):
     meter = CostMeter(
         context=context,
         data_dir=str(tmp_path),
-        strategy="claude_agent",
+        strategy="ai_agent",
         pricing=StaticPricing(input_price="0", output_price="0"),
     )
 
@@ -96,7 +154,7 @@ def test_cost_meter_records_openrouter_route_metadata(tmp_path):
     meter = CostMeter(
         context=context,
         data_dir=str(tmp_path),
-        strategy="claude_agent",
+        strategy="ai_agent",
         pricing=StaticPricing(),
     )
 
@@ -131,7 +189,7 @@ def test_cost_meter_records_cache_metrics(tmp_path):
     meter = CostMeter(
         context=context,
         data_dir=str(tmp_path),
-        strategy="claude_agent",
+        strategy="ai_agent",
         pricing=StaticPricing(),
     )
 
@@ -166,6 +224,6 @@ def test_cost_meter_records_cache_metrics(tmp_path):
 
 def test_experiment_context_disabled_without_experiment_id(monkeypatch):
     monkeypatch.delenv("NUNCHI_EXPERIMENT_ID", raising=False)
-    context = ExperimentContext.from_env("claude_agent")
+    context = ExperimentContext.from_env("ai_agent")
     assert context.enabled is False
-    assert context.agent_id == "claude_agent"
+    assert context.agent_id == "ai_agent"

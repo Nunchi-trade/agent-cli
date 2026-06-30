@@ -154,10 +154,7 @@ def trade_cmd(
                 os.environ.get("NUNCHI_TRADE_LEDGER_PATH") or str(Path(data_dir) / "trades.jsonl")
             )
             trade_log.append({
-                "experiment_id": experiment.experiment_id,
-                "run_id": experiment.run_id,
-                "agent_id": experiment.agent_id,
-                "job_type": experiment.job_type,
+                **experiment.ledger_fields(),
                 "ts": int(time.time() * 1000),
                 "tick": tick_index,
                 "tick_index": tick_index,
@@ -169,6 +166,7 @@ def trade_cmd(
                 "side": fill.side,
                 "price": str(fill.price),
                 "quantity": str(fill.quantity),
+                "notional_usd": str(fill.price * fill.quantity),
                 "timestamp_ms": fill.timestamp_ms,
                 "fee": str(fill.fee),
                 "strategy": "manual_trade",

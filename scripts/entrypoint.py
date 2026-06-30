@@ -54,6 +54,13 @@ def _tail_jsonl(path: Path, limit: int = 20) -> list[dict]:
 def _pricing_snapshot(data_dir: str, limit: int = 20) -> dict:
     """Return non-secret pricing-loop status and recent ledger rows."""
     base = Path(data_dir)
+    quota_status_path = Path(os.environ.get("NUNCHI_METERING_QUOTA_STATUS_PATH") or base / ".metering_quota_status.json")
+    quota_status = None
+    if quota_status_path.exists():
+        try:
+            quota_status = json.loads(quota_status_path.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            quota_status = {"status": "unreadable"}
     ledgers = {
         "cost": base / "cost_ledger.jsonl",
         "route": base / "route_ledger.jsonl",
@@ -76,6 +83,7 @@ def _pricing_snapshot(data_dir: str, limit: int = 20) -> dict:
         "plan_id": os.environ.get("NUNCHI_PLAN_ID"),
         "subscription_id": os.environ.get("NUNCHI_SUBSCRIPTION_ID"),
         "metering_enabled": bool(os.environ.get("NUNCHI_METERING_URL") and os.environ.get("NUNCHI_METERING_TOKEN")),
+        "quota_status": quota_status,
         "data_dir": data_dir,
         "child_alive": CHILD_PROC.poll() is None if CHILD_PROC else False,
         "ledger_exists": {name: path.exists() for name, path in ledgers.items()},

@@ -97,6 +97,9 @@ def aggregate(args: argparse.Namespace) -> int:
         trades = [r for r in trade_rows if str(r.get("job_type", "unknown")) == job_type]
 
         agents = {str(r.get("agent_id", "")) for r in [*costs, *runtimes, *trades] if r.get("agent_id")}
+        users = {str(r.get("user_id", "")) for r in [*costs, *runtimes, *trades] if r.get("user_id")}
+        accounts = {str(r.get("account_id", "")) for r in [*costs, *runtimes, *trades] if r.get("account_id")}
+        subscriptions = {str(r.get("subscription_id", "")) for r in [*costs, *runtimes, *trades] if r.get("subscription_id")}
         llm_total = sum((_decimal(r.get("usd_cost")) for r in costs), Decimal("0"))
         fee_total = sum((_decimal(r.get("fee")) for r in trades), Decimal("0"))
         input_token_total = sum((_decimal(r.get("input_tokens")) for r in costs), Decimal("0"))
@@ -168,6 +171,9 @@ def aggregate(args: argparse.Namespace) -> int:
         report_rows.append({
             "job_type": job_type,
             "agent_count": len(agents),
+            "user_count": len(users),
+            "account_count": len(accounts),
+            "subscription_count": len(subscriptions),
             "duration_hours": duration_hours,
             "heartbeat_count": int(heartbeat_count),
             "llm_total": llm_total,
@@ -237,13 +243,14 @@ def _render_markdown(input_dir: Path, rows: List[dict], incidents: List[dict], a
         "",
         "## Cost By Job Type",
         "",
-        "| Job Type | Agents | Hours | Heartbeats | Linked Fills | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Job Type | Users | Accounts | Agents | Subs | Hours | Heartbeats | Linked Fills | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ])
 
     for row in rows:
         lines.append(
-            f"| `{row['job_type']}` | {row['agent_count']} | {float(row['duration_hours']):.2f} | "
+            f"| `{row['job_type']}` | {row['user_count']} | {row['account_count']} | {row['agent_count']} | "
+            f"{row['subscription_count']} | {float(row['duration_hours']):.2f} | "
             f"{row['heartbeat_count']} | {row['linked_trade_count']} | {_money(row['avg_llm_per_linked_fill'])} | "
             f"{float(row['cache_hit_rate']) * 100:.1f}% | {int(row['cached_token_total'])} | {_money(row['cache_savings_total'])} | "
             f"{_money(row['llm_total'])} | {_money(row['infra_total'])} | "
