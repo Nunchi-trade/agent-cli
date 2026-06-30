@@ -30,6 +30,7 @@ from collections import deque
 from typing import Any, Dict, List, Optional
 
 from common.models import MarketSnapshot, StrategyDecision
+from modules.cost_metering import CostMeter
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 log = logging.getLogger("llm_agent")
@@ -123,6 +124,13 @@ def _detect_provider(model: str) -> str:
     return "gemini"
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 # ---------------------------------------------------------------------------
 # Strategy
 # ---------------------------------------------------------------------------
@@ -164,6 +172,14 @@ class ClaudeStrategy(BaseStrategy):
         self._openai_client = None
         self._openrouter_client = None
         self._blockrun_client = None
+
+        # Optional hosted-agent pricing meter. Enabled only when
+        # NUNCHI_EXPERIMENT_ID is present in the environment.
+        self._cost_meter = CostMeter.from_env(strategy_id)
+        self._current_tick_index: Optional[int] = None
+        self._current_decision_call_id: Optional[str] = None
+        self.last_decision_call_id: Optional[str] = None
+        self._last_llm_decision_tick: Optional[int] = None
 
     # ------------------------------------------------------------------
     # Client initialization
@@ -233,6 +249,244 @@ class ClaudeStrategy(BaseStrategy):
                 },
             )
         return self._openrouter_client
+
+    def _resolve_openrouter_model(self) -> str:
+        """Allow a confirmed Fusion override while preserving the requested route."""
+        if self.model == "openrouter/fusion":
+            return (
+                os.environ.get("OPENROUTER_FUSION_MODEL")
+                or os.environ.get("NUNCHI_OPENROUTER_FUSION_MODEL")
+                or self.model
+            )
+        return self.model
+
+    def _openrouter_fusion_plugins(
+        self,
+        *,
+        default_preset: Optional[str] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Build optional OpenRouter Fusion plugin config from env."""
+        if self.model != "openrouter/fusion":
+            return None
+
+        preset = (
+            os.environ.get("OPENROUTER_FUSION_PRESET")
+            or os.environ.get("NUNCHI_OPENROUTER_FUSION_PRESET")
+            or default_preset
+        )
+        analysis_models_raw = (
+            os.environ.get("OPENROUTER_FUSION_ANALYSIS_MODELS")
+            or os.environ.get("NUNCHI_OPENROUTER_FUSION_ANALYSIS_MODELS")
+        )
+        judge_model = (
+            os.environ.get("OPENROUTER_FUSION_JUDGE_MODEL")
+            or os.environ.get("NUNCHI_OPENROUTER_FUSION_JUDGE_MODEL")
+        )
+
+        plugin: Dict[str, Any] = {"id": "fusion"}
+        if preset:
+            plugin["preset"] = preset
+        if analysis_models_raw:
+            plugin["analysis_models"] = [
+                item.strip() for item in analysis_models_raw.split(",") if item.strip()
+            ]
+        if judge_model:
+            plugin["model"] = judge_model
+
+        for env_name, field in (
+            ("OPENROUTER_FUSION_MAX_TOOL_CALLS", "max_tool_calls"),
+            ("OPENROUTER_FUSION_MAX_COMPLETION_TOKENS", "max_completion_tokens"),
+        ):
+            raw = os.environ.get(env_name)
+            if raw:
+                try:
+                    plugin[field] = int(raw)
+                except ValueError:
+                    log.warning("Ignoring invalid %s=%r", env_name, raw)
+
+        if len(plugin) == 1:
+            return None
+        return [plugin]
+
+    def _force_openrouter_fusion(self) -> bool:
+        return _env_bool("OPENROUTER_FORCE_FUSION") or _env_bool("NUNCHI_OPENROUTER_FORCE_FUSION")
+
+    def _llm_decision_interval_ticks(self) -> int:
+        raw = (
+            os.environ.get("NUNCHI_LLM_DECISION_INTERVAL_TICKS")
+            or os.environ.get("LLM_DECISION_INTERVAL_TICKS")
+            or "1"
+        )
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            log.warning("Ignoring invalid LLM decision interval: %r", raw)
+            return 1
+
+    def _should_run_llm_decision(self, context: Optional[StrategyContext]) -> bool:
+        interval = self._llm_decision_interval_ticks()
+        if interval <= 1 or context is None:
+            return True
+
+        tick = context.round_number
+        if self._last_llm_decision_tick is None:
+            return True
+        return tick - self._last_llm_decision_tick >= interval
+
+    def _fetch_openrouter_generation_metadata(self, generation_id: Optional[str]) -> Dict[str, Any]:
+        """Fetch post-generation routing metadata when OpenRouter exposes it."""
+        if not generation_id or not _env_bool("OPENROUTER_FETCH_GENERATION_METADATA", True):
+            return {}
+
+        try:
+            import json as _json
+            import urllib.parse
+            import urllib.request
+
+            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("AI_API_KEY")
+            if not api_key:
+                return {"generation_id": generation_id}
+
+            query = urllib.parse.urlencode({"id": generation_id})
+            req = urllib.request.Request(
+                f"https://openrouter.ai/api/v1/generation?{query}",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = _json.loads(resp.read().decode("utf-8"))
+            data = payload.get("data") or {}
+        except Exception as exc:
+            log.debug("Could not fetch OpenRouter generation metadata: %s", exc)
+            return {"generation_id": generation_id}
+
+        metadata: Dict[str, Any] = {"generation_id": generation_id}
+        for source_key, dest_key in (
+            ("router", "router"),
+            ("strategy", "routing_strategy"),
+            ("provider_name", "provider_name"),
+            ("model", "metadata_model"),
+            ("total_cost", "metadata_total_cost"),
+        ):
+            if source_key in data:
+                metadata[dest_key] = data.get(source_key)
+        for key in ("attempts", "pipeline"):
+            if key in data:
+                metadata[key] = data.get(key)
+        return metadata
+
+    def _record_usage(
+        self,
+        *,
+        provider: str,
+        requested_model: str,
+        resolved_model: str,
+        route: str,
+        input_tokens: int,
+        output_tokens: int,
+        elapsed_ms: float,
+        usage: Any = None,
+    ) -> None:
+        if self._cost_meter is None:
+            return
+        cache_metrics = self._extract_cache_metrics(usage, input_tokens=input_tokens)
+        self._cost_meter.record_llm_call(
+            provider=provider,
+            requested_model=requested_model,
+            resolved_model=resolved_model,
+            route=route,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tick_index=self._current_tick_index,
+            elapsed_ms=elapsed_ms,
+            decision_call_id=self._current_decision_call_id,
+            **cache_metrics,
+        )
+
+    def _record_openrouter_usage(
+        self,
+        *,
+        requested_model: str,
+        resolved_model: str,
+        input_tokens: int,
+        output_tokens: int,
+        elapsed_ms: float,
+        usage: Any,
+        route: Optional[str] = None,
+        route_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        actual_cost = getattr(usage, "cost", None)
+        if actual_cost is None and hasattr(usage, "model_extra"):
+            actual_cost = usage.model_extra.get("cost")
+        if actual_cost is None and hasattr(usage, "model_dump"):
+            actual_cost = usage.model_dump().get("cost")
+        if self._cost_meter is None:
+            return
+        cache_metrics = self._extract_cache_metrics(usage, input_tokens=input_tokens)
+        self._cost_meter.record_llm_call(
+            provider="openrouter",
+            requested_model=requested_model,
+            resolved_model=resolved_model,
+            route=route or requested_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tick_index=self._current_tick_index,
+            elapsed_ms=elapsed_ms,
+            decision_call_id=self._current_decision_call_id,
+            **cache_metrics,
+            actual_usd_cost=actual_cost,
+            route_metadata=route_metadata,
+        )
+
+    def _extract_cache_metrics(self, usage: Any, *, input_tokens: int) -> Dict[str, Any]:
+        if usage is None:
+            return {}
+
+        usage_data: Dict[str, Any] = {}
+        if hasattr(usage, "model_dump"):
+            try:
+                usage_data = usage.model_dump() or {}
+            except Exception:
+                usage_data = {}
+
+        def get_value(name: str) -> Any:
+            if hasattr(usage, name):
+                return getattr(usage, name)
+            return usage_data.get(name)
+
+        prompt_details = get_value("prompt_tokens_details") or usage_data.get("prompt_tokens_details") or {}
+        if hasattr(prompt_details, "model_dump"):
+            prompt_details = prompt_details.model_dump()
+        elif not isinstance(prompt_details, dict):
+            prompt_details = {
+                "cached_tokens": getattr(prompt_details, "cached_tokens", None),
+            }
+
+        cache_read = get_value("cache_read_input_tokens")
+        cache_creation = get_value("cache_creation_input_tokens")
+        cached_tokens = prompt_details.get("cached_tokens")
+        cache_savings = get_value("cache_savings_usd") or get_value("cache_discount_usd")
+
+        if cache_read is None and cached_tokens is None and cache_creation is None and cache_savings is None:
+            return {}
+
+        cache_read_int = int(cache_read or 0)
+        cache_creation_int = int(cache_creation or 0)
+        cached_int = int(cached_tokens if cached_tokens is not None else cache_read_int)
+        uncached_input_tokens = max(0, int(input_tokens or 0) - cached_int)
+        cache_hit_rate = (cached_int / input_tokens) if input_tokens else 0.0
+        metrics: Dict[str, Any] = {
+            "cache_read_input_tokens": cache_read_int,
+            "cache_creation_input_tokens": cache_creation_int,
+            "cached_tokens": cached_int,
+            "uncached_input_tokens": uncached_input_tokens,
+            "cache_hit_rate": round(cache_hit_rate, 6),
+        }
+        if cache_savings is not None:
+            metrics["cache_savings_usd"] = cache_savings
+        return metrics
 
     # ------------------------------------------------------------------
     # Build prompt
@@ -312,6 +566,16 @@ class ClaudeStrategy(BaseStrategy):
         self._api_calls += 1
         self._total_input_tokens += response.usage.input_tokens
         self._total_output_tokens += response.usage.output_tokens
+        self._record_usage(
+            provider="claude",
+            requested_model=self.model,
+            resolved_model=self.model,
+            route=self.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            elapsed_ms=elapsed_ms,
+            usage=response.usage,
+        )
 
         log.info(
             "Claude: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
@@ -388,13 +652,25 @@ class ClaudeStrategy(BaseStrategy):
         # Track tokens
         usage = response.usage_metadata
         if usage:
-            self._total_input_tokens += usage.prompt_token_count or 0
-            self._total_output_tokens += usage.candidates_token_count or 0
+            input_tokens = usage.prompt_token_count or 0
+            output_tokens = usage.candidates_token_count or 0
+            self._total_input_tokens += input_tokens
+            self._total_output_tokens += output_tokens
+            self._record_usage(
+                provider="gemini",
+                requested_model=self.model,
+                resolved_model=self.model,
+                route=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=elapsed_ms,
+                usage=usage,
+            )
             log.info(
                 "Gemini: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
                 elapsed_ms,
-                usage.prompt_token_count or 0,
-                usage.candidates_token_count or 0,
+                input_tokens,
+                output_tokens,
                 self._api_calls,
                 self._total_input_tokens,
                 self._total_output_tokens,
@@ -452,11 +728,23 @@ class ClaudeStrategy(BaseStrategy):
         self._api_calls += 1
         usage = response.usage
         if usage:
-            self._total_input_tokens += usage.prompt_tokens or 0
-            self._total_output_tokens += usage.completion_tokens or 0
+            input_tokens = usage.prompt_tokens or 0
+            output_tokens = usage.completion_tokens or 0
+            self._total_input_tokens += input_tokens
+            self._total_output_tokens += output_tokens
+            self._record_usage(
+                provider="openai",
+                requested_model=self.model,
+                resolved_model=getattr(response, "model", self.model) or self.model,
+                route=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=elapsed_ms,
+                usage=usage,
+            )
             log.info(
                 "OpenAI: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
-                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                elapsed_ms, input_tokens, output_tokens,
                 self._api_calls, self._total_input_tokens, self._total_output_tokens,
             )
 
@@ -472,28 +760,69 @@ class ClaudeStrategy(BaseStrategy):
         import json as _json
 
         client = self._get_openrouter_client()
+        requested_model = self.model
+        resolved_model = self._resolve_openrouter_model()
+
+        if requested_model == "openrouter/fusion" and self._force_openrouter_fusion():
+            fusion_analysis = self._call_openrouter_fusion_preflight(
+                client=client,
+                requested_model=requested_model,
+                resolved_model=resolved_model,
+                user_msg=user_msg,
+            )
+            if fusion_analysis:
+                user_msg = (
+                    f"{user_msg}\n\n"
+                    "=== FORCED OPENROUTER FUSION ANALYSIS ===\n"
+                    f"{fusion_analysis[:4000]}"
+                )
+
         t0 = time.time()
 
-        response = client.chat.completions.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[
+        extra_body: Dict[str, Any] = {}
+        plugins = self._openrouter_fusion_plugins()
+        if plugins:
+            extra_body["plugins"] = plugins
+
+        request_kwargs: Dict[str, Any] = {
+            "model": resolved_model,
+            "max_tokens": self.max_tokens,
+            "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_msg},
             ],
-            tools=self._build_openai_tools(),
-            tool_choice="required",
+            "tools": self._build_openai_tools(),
+            "tool_choice": "required",
+        }
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
+
+        response = client.chat.completions.create(
+            **request_kwargs
         )
 
         elapsed_ms = (time.time() - t0) * 1000
         self._api_calls += 1
         usage = response.usage
         if usage:
-            self._total_input_tokens += usage.prompt_tokens or 0
-            self._total_output_tokens += usage.completion_tokens or 0
+            input_tokens = usage.prompt_tokens or 0
+            output_tokens = usage.completion_tokens or 0
+            response_model = getattr(response, "model", None) or resolved_model
+            metadata = self._fetch_openrouter_generation_metadata(getattr(response, "id", None))
+            self._total_input_tokens += input_tokens
+            self._total_output_tokens += output_tokens
+            self._record_openrouter_usage(
+                requested_model=requested_model,
+                resolved_model=response_model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=elapsed_ms,
+                usage=usage,
+                route_metadata=metadata,
+            )
             log.info(
                 "OpenRouter: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
-                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                elapsed_ms, input_tokens, output_tokens,
                 self._api_calls, self._total_input_tokens, self._total_output_tokens,
             )
 
@@ -504,6 +833,69 @@ class ClaudeStrategy(BaseStrategy):
                 args = _json.loads(tc.function.arguments) if tc.function.arguments else {}
                 decisions.extend(self._parse_tool_call(tc.function.name, args, snapshot))
         return decisions
+
+    def _call_openrouter_fusion_preflight(
+        self,
+        *,
+        client: Any,
+        requested_model: str,
+        resolved_model: str,
+        user_msg: str,
+    ) -> str:
+        """Force OpenRouter Fusion before the trading tool decision."""
+        max_tokens = int(os.environ.get("OPENROUTER_FUSION_PREFLIGHT_MAX_TOKENS", "384"))
+        plugins = self._openrouter_fusion_plugins(default_preset="general-budget") or [
+            {"id": "fusion", "preset": "general-budget"}
+        ]
+        t0 = time.time()
+
+        response = client.chat.completions.create(
+            model=resolved_model,
+            max_tokens=max_tokens,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Fusion routing preflight for a Hyperliquid trading agent. "
+                        "Use the OpenRouter Fusion tool to compare market interpretations, "
+                        "then summarize only the consensus, disagreements, and any action bias. "
+                        "Do not place orders."
+                    ),
+                },
+                {"role": "user", "content": user_msg},
+            ],
+            tool_choice="required",
+            extra_body={"plugins": plugins},
+        )
+
+        elapsed_ms = (time.time() - t0) * 1000
+        self._api_calls += 1
+        usage = response.usage
+        if usage:
+            input_tokens = usage.prompt_tokens or 0
+            output_tokens = usage.completion_tokens or 0
+            response_model = getattr(response, "model", None) or resolved_model
+            metadata = self._fetch_openrouter_generation_metadata(getattr(response, "id", None))
+            self._total_input_tokens += input_tokens
+            self._total_output_tokens += output_tokens
+            self._record_openrouter_usage(
+                requested_model=requested_model,
+                resolved_model=response_model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=elapsed_ms,
+                usage=usage,
+                route="openrouter/fusion:preflight",
+                route_metadata=metadata,
+            )
+            log.info(
+                "OpenRouter Fusion preflight: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
+                elapsed_ms, input_tokens, output_tokens,
+                self._api_calls, self._total_input_tokens, self._total_output_tokens,
+            )
+
+        msg = response.choices[0].message
+        return msg.content or ""
 
     # ------------------------------------------------------------------
     # ClawRouter / BlockRun backend (x402 — pay with USDC, no API key)
@@ -557,11 +949,23 @@ class ClaudeStrategy(BaseStrategy):
         self._api_calls += 1
         usage = response.usage
         if usage:
-            self._total_input_tokens += usage.prompt_tokens or 0
-            self._total_output_tokens += usage.completion_tokens or 0
+            input_tokens = usage.prompt_tokens or 0
+            output_tokens = usage.completion_tokens or 0
+            self._total_input_tokens += input_tokens
+            self._total_output_tokens += output_tokens
+            self._record_usage(
+                provider="blockrun",
+                requested_model=self.model,
+                resolved_model=getattr(response, "model", self.model) or self.model,
+                route=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=elapsed_ms,
+                usage=usage,
+            )
             log.info(
                 "ClawRouter: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
-                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                elapsed_ms, input_tokens, output_tokens,
                 self._api_calls, self._total_input_tokens, self._total_output_tokens,
             )
 
@@ -634,9 +1038,29 @@ class ClaudeStrategy(BaseStrategy):
             return []
 
         self._price_history.append((snapshot.mid_price, snapshot.timestamp_ms))
+        if not self._should_run_llm_decision(context):
+            tick = context.round_number if context else "?"
+            log.info(
+                "LLM decision cadence: skipping tick %s (interval=%d ticks)",
+                tick,
+                self._llm_decision_interval_ticks(),
+            )
+            return []
+
         user_msg = self._build_user_message(snapshot, context)
+        self._current_tick_index = context.round_number if context else None
+        run_id = (
+            self._cost_meter.context.run_id
+            if self._cost_meter is not None
+            else f"manual-{int(time.time())}"
+        )
+        tick_label = self._current_tick_index if self._current_tick_index is not None else "unknown"
+        self._current_decision_call_id = f"{self.strategy_id}:{run_id}:tick-{tick_label}"
+        self.last_decision_call_id = self._current_decision_call_id
 
         try:
+            if context:
+                self._last_llm_decision_tick = context.round_number
             provider = _detect_provider(self.model)
             if provider == "blockrun":
                 decisions = self._call_blockrun(user_msg, snapshot)
@@ -652,6 +1076,8 @@ class ClaudeStrategy(BaseStrategy):
                 decisions = self._call_gemini(user_msg, snapshot)
 
             for d in decisions:
+                if self._current_decision_call_id:
+                    d.meta = {**(d.meta or {}), "decision_call_id": self._current_decision_call_id}
                 if d.action == "place_order":
                     self._fill_history.append({
                         "side": d.side,
@@ -664,3 +1090,6 @@ class ClaudeStrategy(BaseStrategy):
         except Exception as e:
             log.error("LLM API call failed: %s", e)
             return []
+        finally:
+            self._current_tick_index = None
+            self._current_decision_call_id = None

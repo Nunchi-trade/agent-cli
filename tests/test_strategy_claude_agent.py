@@ -247,6 +247,84 @@ class TestBuildOpenAITools:
         assert "reasoning" in params["properties"]
 
 
+class TestOpenRouterFusion:
+    def test_fusion_defaults_to_requested_route(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.delenv("OPENROUTER_FUSION_MODEL", raising=False)
+        monkeypatch.delenv("NUNCHI_OPENROUTER_FUSION_MODEL", raising=False)
+        strat = ClaudeStrategy(model="openrouter/fusion")
+
+        assert strat._resolve_openrouter_model() == "openrouter/fusion"
+
+    def test_fusion_can_be_overridden(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.setenv("OPENROUTER_FUSION_MODEL", "anthropic/claude-haiku")
+        strat = ClaudeStrategy(model="openrouter/fusion")
+
+        assert strat._resolve_openrouter_model() == "anthropic/claude-haiku"
+
+    def test_fusion_plugin_uses_budget_preset(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.setenv("OPENROUTER_FUSION_PRESET", "general-budget")
+        strat = ClaudeStrategy(model="openrouter/fusion")
+
+        assert strat._openrouter_fusion_plugins() == [
+            {"id": "fusion", "preset": "general-budget"}
+        ]
+
+    def test_fusion_plugin_supports_explicit_panel(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.setenv(
+            "OPENROUTER_FUSION_ANALYSIS_MODELS",
+            "google/gemini-2.5-flash-lite, openai/gpt-5-nano",
+        )
+        monkeypatch.setenv("OPENROUTER_FUSION_JUDGE_MODEL", "openai/gpt-5-nano")
+        monkeypatch.setenv("OPENROUTER_FUSION_MAX_TOOL_CALLS", "1")
+        strat = ClaudeStrategy(model="openrouter/fusion")
+
+        assert strat._openrouter_fusion_plugins() == [
+            {
+                "id": "fusion",
+                "analysis_models": [
+                    "google/gemini-2.5-flash-lite",
+                    "openai/gpt-5-nano",
+                ],
+                "model": "openai/gpt-5-nano",
+                "max_tool_calls": 1,
+            }
+        ]
+
+    def test_force_fusion_env(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.setenv("OPENROUTER_FORCE_FUSION", "true")
+        strat = ClaudeStrategy(model="openrouter/fusion")
+
+        assert strat._force_openrouter_fusion() is True
+
+    def test_llm_decision_interval_skips_intermediate_ticks(self, monkeypatch):
+        from strategies.claude_agent import ClaudeStrategy
+
+        monkeypatch.setenv("NUNCHI_LLM_DECISION_INTERVAL_TICKS", "3")
+        calls = []
+        strat = ClaudeStrategy(model="gemini-2.0-flash")
+
+        def fake_call(user_msg, snapshot):
+            calls.append(strat._current_tick_index)
+            return []
+
+        monkeypatch.setattr(strat, "_call_gemini", fake_call)
+
+        for tick in range(1, 5):
+            strat.on_tick(_snap(), _ctx(round_num=tick))
+
+        assert calls == [1, 4]
+
+
 class TestClaudeStrategyOnTick:
     def test_zero_mid_returns_empty(self):
         from strategies.claude_agent import ClaudeStrategy

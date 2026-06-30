@@ -105,6 +105,7 @@ class TestTickCycle:
                 side="buy",
                 size=1.0,
                 limit_price=2500.0,
+                meta={"decision_call_id": "test_stub:run-1:tick-1"},
             )
         ]
         hl = MockHL()
@@ -118,6 +119,8 @@ class TestTickCycle:
         records = engine.trade_log.read_all()
         assert len(records) == 1
         assert records[0]["side"] == "buy"
+        assert records[0]["tick_index"] == 1
+        assert records[0]["decision_call_id"] == "test_stub:run-1:tick-1"
 
     def test_run_respects_max_ticks(self):
         engine = _make_engine()
@@ -214,7 +217,18 @@ class TestTickTimeout:
     def test_engine_has_timeout_state(self):
         engine = _make_engine()
         assert engine._consecutive_timeouts == 0
+        assert engine.tick_timeout_s == 30
+        assert engine.max_consecutive_timeouts == 3
         assert engine._tick_executor is not None
+
+    def test_timeout_can_be_configured_from_env(self, monkeypatch):
+        monkeypatch.setenv("TICK_TIMEOUT_S", "75")
+        monkeypatch.setenv("MAX_CONSECUTIVE_TIMEOUTS", "5")
+
+        engine = _make_engine()
+
+        assert engine.tick_timeout_s == 75
+        assert engine.max_consecutive_timeouts == 5
 
 
 class TestShutdownClose:

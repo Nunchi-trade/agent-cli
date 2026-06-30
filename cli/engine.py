@@ -21,11 +21,23 @@ from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 from cli.display import shutdown_summary, tick_line
 from cli.order_manager import OrderManager
 from execution.order_book import ManagedOrderBook
+from modules.cost_metering import ExperimentContext
 
 log = logging.getLogger("engine")
 ZERO = Decimal("0")
 TICK_TIMEOUT_S = 30  # max seconds per tick before timeout
 MAX_CONSECUTIVE_TIMEOUTS = 3
+
+
+def _env_number(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        log.warning("Invalid %s=%r; using default %s", name, raw, default)
+        return default
 
 
 class TradingEngine:
@@ -57,12 +69,28 @@ class TradingEngine:
         # Persistence
         self.state_db = StateDB(path=f"{data_dir}/state.db")
         self.trade_log = JSONLStore(path=f"{data_dir}/trades.jsonl")
+        self.experiment = ExperimentContext.from_env(strategy.strategy_id)
+        self.runtime_log = None
+        self.incident_log = None
+        if self.experiment.enabled:
+            self.runtime_log = JSONLStore(
+                os.environ.get("NUNCHI_RUNTIME_LEDGER_PATH")
+                or f"{data_dir}/agent_runtime_ledger.jsonl"
+            )
+            self.incident_log = JSONLStore(
+                os.environ.get("NUNCHI_INCIDENT_LEDGER_PATH")
+                or f"{data_dir}/incident_ledger.jsonl"
+            )
 
         # Runtime state
         self.tick_count = 0
         self.start_time_ms = 0
         self._running = False
         self._consecutive_timeouts = 0
+        self.tick_timeout_s = _env_number("TICK_TIMEOUT_S", float(TICK_TIMEOUT_S))
+        self.max_consecutive_timeouts = int(
+            _env_number("MAX_CONSECUTIVE_TIMEOUTS", float(MAX_CONSECUTIVE_TIMEOUTS))
+        )
         self._tick_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick")
 
         # Optional Guard (composable mode — set via guard_config)
@@ -109,22 +137,46 @@ class TradingEngine:
 
             try:
                 future = self._tick_executor.submit(self._tick)
-                future.result(timeout=TICK_TIMEOUT_S)
+                future.result(timeout=self.tick_timeout_s)
                 self._consecutive_timeouts = 0
             except FuturesTimeoutError:
                 self._consecutive_timeouts += 1
-                log.error("Tick %d timed out after %ds (%d/%d consecutive)",
-                          self.tick_count + 1, TICK_TIMEOUT_S,
-                          self._consecutive_timeouts, MAX_CONSECUTIVE_TIMEOUTS)
-                if self._consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                log.error("Tick %d timed out after %.1fs (%d/%d consecutive)",
+                          self.tick_count + 1, self.tick_timeout_s,
+                          self._consecutive_timeouts, self.max_consecutive_timeouts)
+                self._log_incident(
+                    "tick_timeout",
+                    "error",
+                    f"Tick timed out after {self.tick_timeout_s}s",
+                    impact_on_cost_data="heartbeat may be missing or delayed",
+                    recoverable=True,
+                    rerun_required=False,
+                )
+                if self._consecutive_timeouts >= self.max_consecutive_timeouts:
                     log.critical("Engine entering safe mode: %d consecutive tick timeouts",
                                  self._consecutive_timeouts)
                     self.risk_manager.state.safe_mode = True
             except APICircuitBreakerOpen as e:
                 log.critical("API circuit breaker open — entering safe mode: %s", e)
                 self.risk_manager.state.safe_mode = True
+                self._log_incident(
+                    "api_circuit_breaker_open",
+                    "critical",
+                    str(e),
+                    impact_on_cost_data="runtime degraded; trading halted by safe mode",
+                    recoverable=True,
+                    rerun_required=True,
+                )
             except Exception as e:
                 log.error("Tick %d failed: %s", self.tick_count, e, exc_info=True)
+                self._log_incident(
+                    "tick_exception",
+                    "error",
+                    str(e),
+                    impact_on_cost_data="tick failed before normal heartbeat completion",
+                    recoverable=True,
+                    rerun_required=True,
+                )
 
             if self._running and self.tick_interval > 0:
                 time.sleep(self.tick_interval)
@@ -235,6 +287,8 @@ class TradingEngine:
                 fill.quantity, fill.price,
             )
             self.trade_log.append({
+                **self._experiment_fields(),
+                **self._decision_fields(valid_decisions),
                 "tick": self.tick_count,
                 "oid": fill.oid,
                 "instrument": fill.instrument,
@@ -375,6 +429,8 @@ class TradingEngine:
                 fill.quantity, fill.price,
             )
             self.trade_log.append({
+                **self._experiment_fields(),
+                **self._decision_fields(),
                 "tick": self.tick_count,
                 "oid": fill.oid,
                 "instrument": fill.instrument,
@@ -459,6 +515,8 @@ class TradingEngine:
                 fill.quantity, fill.price,
             )
             self.trade_log.append({
+                **self._experiment_fields(),
+                **self._decision_fields(),
                 "tick": self.tick_count,
                 "oid": fill.oid,
                 "instrument": fill.instrument,
@@ -492,6 +550,83 @@ class TradingEngine:
             reduce_only=self.risk_manager.state.reduce_only,
         )
         log.info(line)
+        self._log_runtime_event(
+            "heartbeat",
+            **self._decision_fields(decisions),
+            uptime_seconds=round((time.time() * 1000 - self.start_time_ms) / 1000, 3),
+            process_status="running",
+            risk_ok=ok,
+            orders_sent=len(decisions),
+            orders_filled=len(fills),
+            mid=snapshot.mid_price,
+            position_qty=float(pos.net_qty),
+            unrealized_pnl=float(pos.unrealized_pnl(mid_dec)),
+            realized_pnl=float(pos.realized_pnl),
+        )
+
+    def _experiment_fields(self) -> Dict[str, Any]:
+        if not self.experiment.enabled:
+            return {}
+        return {
+            "experiment_id": self.experiment.experiment_id,
+            "run_id": self.experiment.run_id,
+            "agent_id": self.experiment.agent_id,
+            "job_type": self.experiment.job_type,
+        }
+
+    def _decision_fields(self, decisions=None) -> Dict[str, Any]:
+        fields: Dict[str, Any] = {"tick_index": self.tick_count}
+        decision_call_id = None
+        for decision in decisions or []:
+            meta = getattr(decision, "meta", None) or {}
+            decision_call_id = meta.get("decision_call_id")
+            if decision_call_id:
+                break
+        if decision_call_id is None:
+            decision_call_id = getattr(self.strategy, "last_decision_call_id", None)
+        if decision_call_id:
+            fields["decision_call_id"] = decision_call_id
+        return fields
+
+    def _log_runtime_event(self, event_type: str, **fields: Any) -> None:
+        if self.runtime_log is None:
+            return
+        self.runtime_log.append({
+            **self._experiment_fields(),
+            "ts": int(time.time() * 1000),
+            "strategy": self.strategy.strategy_id,
+            "event_type": event_type,
+            "restart_count": int(os.environ.get("NUNCHI_RESTART_COUNT", "0")),
+            "network": "mainnet" if os.environ.get("HL_TESTNET", "true").lower() == "false" else "testnet",
+            **fields,
+        })
+
+    def _log_incident(
+        self,
+        failure_type: str,
+        severity: str,
+        description: str,
+        *,
+        impact_on_cost_data: str,
+        recoverable: bool,
+        rerun_required: bool,
+    ) -> None:
+        if self.incident_log is None:
+            return
+        self.incident_log.append({
+            **self._experiment_fields(),
+            "ts": int(time.time() * 1000),
+            "strategy": self.strategy.strategy_id,
+            "tick_index": self.tick_count,
+            "failure_type": failure_type,
+            "severity": severity,
+            "description": description,
+            "impact_on_cost_data": impact_on_cost_data,
+            "recoverable": recoverable,
+            "rerun_required": rerun_required,
+            "fix_owner": "",
+            "status": "open",
+        })
 
     def _preflight_check(self) -> None:
         """Verify account has funds before starting. Warns loudly if not."""

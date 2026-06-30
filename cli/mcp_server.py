@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 
@@ -21,13 +22,27 @@ def _run_hl(*args: str, timeout: int = 30) -> str:
     return output or "(no output)"
 
 
+def _run_script(script_name: str, *args: str, timeout: int = 300) -> str:
+    """Run a repository script via subprocess and return stdout/stderr."""
+    script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
+    cmd = [sys.executable, str(script_path), *args]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    output = result.stdout.strip()
+    if result.returncode != 0 and result.stderr:
+        output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
+    return output or "(no output)"
+
+
 def create_mcp_server():
     """Create and configure the FastMCP server."""
     from mcp.server.fastmcp import FastMCP
 
     mcp = FastMCP(
         "yex-trader",
-        instructions="Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, REFLECT reviews, BTCSWP funding hedge proposals.",
+        instructions=(
+            "Autonomous Hyperliquid trading CLI — 18 strategies, APEX orchestrator, "
+            "REFLECT reviews, and BTCSWP funding hedge proposals."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -165,6 +180,11 @@ def create_mcp_server():
         }, indent=2)
 
     @mcp.tool()
+    def pair_status() -> str:
+        """Show web-auth paired wallet status."""
+        return _run_hl("pair", "status")
+
+    @mcp.tool()
     def funding_hedge_propose(
         asset: str = "BTC",
         perp_side: str = "long",
@@ -252,15 +272,133 @@ def create_mcp_server():
     # ------------------------------------------------------------------
 
     @mcp.tool()
-    def trade(instrument: str, side: str, size: float) -> str:
+    def trade(
+        instrument: str,
+        side: str,
+        size: float,
+        price: float = 0.0,
+        tif: str = "Ioc",
+        confirm: bool = False,
+        dry_run: bool = False,
+        max_notional_usd: Optional[float] = None,
+        decision_call_id: Optional[str] = None,
+        tick_index: Optional[int] = None,
+        generation_id: Optional[str] = None,
+        mainnet: bool = False,
+    ) -> str:
         """Place a single manual order.
 
         Args:
             instrument: Trading pair (e.g., ETH-PERP, BTC-PERP, VXX-USDYP)
             side: Order side — "buy" or "sell"
             size: Order size in contracts
+            price: Limit price. 0 uses the CLI market-price fallback.
+            tif: Time in force — Ioc, Gtc, or Alo.
+            confirm: Must be true to submit a live order.
+            dry_run: Resolve and print the order plan without submitting.
+            max_notional_usd: Optional USD notional cap.
+            decision_call_id: Optional LLM decision ID for ledger joins.
+            tick_index: Optional strategy tick index for ledger joins.
+            generation_id: Optional provider generation ID for ledger joins.
+            mainnet: Use Hyperliquid mainnet instead of testnet.
         """
-        return _run_hl("trade", instrument, side, str(size))
+        if not confirm and not dry_run:
+            return "Refusing to trade without confirm=true or dry_run=true."
+        args = [
+            "trade",
+            instrument,
+            side,
+            str(size),
+            "--price",
+            str(price),
+            "--tif",
+            tif,
+        ]
+        if confirm:
+            args.append("--yes")
+        if dry_run:
+            args.append("--dry-run")
+        if max_notional_usd is not None:
+            args.extend(["--max-notional", str(max_notional_usd)])
+        if decision_call_id:
+            args.extend(["--decision-call-id", decision_call_id])
+        if tick_index is not None:
+            args.extend(["--tick-index", str(tick_index)])
+        if generation_id:
+            args.extend(["--generation-id", generation_id])
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args)
+
+    @mcp.tool()
+    def approve_agent(confirm: bool = False, mainnet: bool = False) -> str:
+        """Fund-moving auth: approve the local key as a Hyperliquid agent.
+
+        Args:
+            confirm: Must be true to submit the approval request.
+            mainnet: Use Hyperliquid mainnet instead of testnet.
+        """
+        if not confirm:
+            return "Refusing to approve agent without confirm=true."
+        args = ["pair", "approve-agent", "--yes"]
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=300)
+
+    @mcp.tool()
+    def money_withdraw(amount: str, destination: str, confirm: bool = False, mainnet: bool = False) -> str:
+        """Fund-moving: withdraw USDC from Hyperliquid to Arbitrum.
+
+        Args:
+            amount: USDC amount.
+            destination: Arbitrum destination address.
+            confirm: Must be true to submit the withdrawal request.
+            mainnet: Use Hyperliquid mainnet instead of testnet.
+        """
+        if not confirm:
+            return "Refusing to move funds without confirm=true."
+        args = ["money", "withdraw", amount, destination, "--yes"]
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=300)
+
+    @mcp.tool()
+    def money_transfer_usd(amount: str, destination: str, confirm: bool = False, mainnet: bool = False) -> str:
+        """Fund-moving: send USDC internally on Hyperliquid.
+
+        Args:
+            amount: USDC amount.
+            destination: Hyperliquid destination address.
+            confirm: Must be true to submit the transfer request.
+            mainnet: Use Hyperliquid mainnet instead of testnet.
+        """
+        if not confirm:
+            return "Refusing to move funds without confirm=true."
+        args = ["money", "transfer", "usd", amount, destination, "--yes"]
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=300)
+
+    @mcp.tool()
+    def money_deposit(amount: str, confirm: bool = False, mainnet: bool = False) -> str:
+        """Fund-moving: deposit Arbitrum USDC into Hyperliquid Bridge2.
+
+        Args:
+            amount: USDC amount, minimum 5.
+            confirm: Must be true to submit the Arbitrum transaction request.
+            mainnet: Use Arbitrum/Hyperliquid mainnet instead of testnet.
+        """
+        if not confirm:
+            return "Refusing to move funds without confirm=true."
+        args = ["money", "deposit", amount, "--yes"]
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=300)
+
+    @mcp.tool()
+    def money_bridge_status() -> str:
+        """Explain why cross-chain bridge support is not enabled yet."""
+        return _run_hl("money", "bridge")
 
     @mcp.tool()
     def run_strategy(
@@ -293,6 +431,63 @@ def create_mcp_server():
         if mainnet:
             args.append("--mainnet")
         return _run_hl(*args, timeout=max(60, (max_ticks or 10) * tick + 30))
+
+    @mcp.tool()
+    def hedge_agent_smoke_test(
+        instrument: str = "ETH-PERP",
+        position_qty: float = 5.0,
+        inventory_threshold: float = 3.0,
+        notional_threshold: Optional[float] = None,
+        urgency_factor: float = 0.5,
+        max_hedge_size: float = 5.0,
+        slippage_bps: float = 10.0,
+        mainnet_account_check: bool = False,
+        sam_address: Optional[str] = None,
+        send_testnet_usdc: Optional[str] = None,
+        confirm_send_testnet_usdc: bool = False,
+    ) -> str:
+        """Run Sam's hedge_agent CLI smoke test through MCP.
+
+        Exercises the real `hl run hedge_agent` path in mock mode with seeded
+        long and short positions, then validates the first hedge fill. Optional
+        mainnet verification is read-only (`hl account --mainnet`). Optional
+        testnet USDC transfer requires confirm_send_testnet_usdc=true.
+
+        Args:
+            instrument: Trading instrument for the mock hedge run.
+            position_qty: Absolute seeded position size for long/short cases.
+            inventory_threshold: Quantity threshold used unless notional_threshold is set.
+            notional_threshold: Optional USD notional threshold.
+            urgency_factor: Hedge sizing multiplier.
+            max_hedge_size: Maximum hedge order size.
+            slippage_bps: IOC slippage budget in basis points.
+            mainnet_account_check: Also run read-only mainnet account verification.
+            sam_address: Destination address for optional testnet USDC transfer.
+            send_testnet_usdc: Optional testnet USDC amount to transfer to sam_address.
+            confirm_send_testnet_usdc: Must be true to submit the testnet transfer.
+        """
+        if send_testnet_usdc and not confirm_send_testnet_usdc:
+            return "Refusing to move testnet USDC without confirm_send_testnet_usdc=true."
+        if send_testnet_usdc and not sam_address:
+            return "Refusing to move testnet USDC without sam_address."
+
+        args = [
+            "--instrument", instrument,
+            "--position-qty", str(position_qty),
+            "--urgency-factor", str(urgency_factor),
+            "--max-hedge-size", str(max_hedge_size),
+            "--slippage-bps", str(slippage_bps),
+        ]
+        if notional_threshold is None:
+            args.extend(["--inventory-threshold", str(inventory_threshold)])
+        else:
+            args.extend(["--notional-threshold", str(notional_threshold)])
+        if mainnet_account_check:
+            args.append("--mainnet-account-check")
+        if send_testnet_usdc:
+            args.extend(["--sam-address", sam_address or "", "--send-testnet-usdc", send_testnet_usdc])
+
+        return _run_script("test_hedge_agent.py", *args, timeout=600)
 
     @mcp.tool()
     def radar_run(mock: bool = False) -> str:

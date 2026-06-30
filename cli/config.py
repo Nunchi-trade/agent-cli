@@ -8,6 +8,18 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
+DEFAULT_PAIR_AUTHORIZE_URL = "http://localhost:5174/ide/authorize"
+DEFAULT_PAIR_API_URL = "http://localhost:8422"
+DEFAULT_PAIR_WALLET_URL = "https://web-auth-opal.vercel.app/"
+DEFAULT_PAIRING_PATH = "~/.hl-agent/pairing.json"
+
+ARBITRUM_CHAIN_ID = 42161
+ARBITRUM_SEPOLIA_CHAIN_ID = 421614
+ARBITRUM_USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+HL_BRIDGE2_MAINNET_ADDRESS = "0x2df1c51e09aecf9cacb7bc98cb1742757f163df7"
+HL_BRIDGE2_TESTNET_ADDRESS = "0x08cfc1B6b2dCF36A1480b99353A354AA8AC56f89"
+
+
 @dataclass
 class TradingConfig:
     # Strategy
@@ -46,6 +58,49 @@ class TradingConfig:
 
     # Builder fee
     builder: Dict[str, Any] = field(default_factory=dict)
+
+    # web-auth pairing and wallet relay
+    web_auth_authorize_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "HL_WEB_AUTH_AUTHORIZE_URL",
+            os.environ.get("VITE_PAIR_AUTHORIZE_URL", DEFAULT_PAIR_AUTHORIZE_URL),
+        )
+    )
+    web_auth_api_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "HL_WEB_AUTH_API_URL",
+            os.environ.get("VITE_PAIR_API_URL", DEFAULT_PAIR_API_URL),
+        )
+    )
+    web_auth_wallet_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "HL_WEB_AUTH_WALLET_URL",
+            os.environ.get("VITE_PAIR_WALLET_URL", DEFAULT_PAIR_WALLET_URL),
+        )
+    )
+    web_auth_pairing_path: str = field(
+        default_factory=lambda: os.environ.get("HL_WEB_AUTH_PAIRING_PATH", DEFAULT_PAIRING_PATH)
+    )
+
+    # On-chain deposit config
+    arbitrum_chain_id: int = field(
+        default_factory=lambda: int(os.environ.get("HL_ARBITRUM_CHAIN_ID", str(ARBITRUM_CHAIN_ID)))
+    )
+    arbitrum_testnet_chain_id: int = field(
+        default_factory=lambda: int(os.environ.get("HL_ARBITRUM_TESTNET_CHAIN_ID", str(ARBITRUM_SEPOLIA_CHAIN_ID)))
+    )
+    arbitrum_usdc_address: str = field(
+        default_factory=lambda: os.environ.get("HL_ARBITRUM_USDC_ADDRESS", ARBITRUM_USDC_ADDRESS)
+    )
+    arbitrum_testnet_usdc_address: Optional[str] = field(
+        default_factory=lambda: os.environ.get("HL_ARBITRUM_TESTNET_USDC_ADDRESS")
+    )
+    hl_bridge2_mainnet_address: str = field(
+        default_factory=lambda: os.environ.get("HL_BRIDGE2_MAINNET_ADDRESS", HL_BRIDGE2_MAINNET_ADDRESS)
+    )
+    hl_bridge2_testnet_address: str = field(
+        default_factory=lambda: os.environ.get("HL_BRIDGE2_TESTNET_ADDRESS", HL_BRIDGE2_TESTNET_ADDRESS)
+    )
 
     # Logging
     log_level: str = "INFO"
