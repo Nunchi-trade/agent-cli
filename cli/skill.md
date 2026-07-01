@@ -1,6 +1,6 @@
 ---
 name: yex-trader
-description: Autonomous Hyperliquid trading — 14 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, DSL trailing stops, and builder fee revenue collection.
+description: Autonomous Hyperliquid trading — 19 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, Guard trailing stops, and builder fee revenue collection.
 user-invocable: true
 argument-hint: "<strategy> [options]"
 allowed-tools:
@@ -17,7 +17,7 @@ metadata:
 
 # YEX Trader
 
-Autonomous Hyperliquid trading via agent-cli. 14 strategies across market making, momentum, arbitrage, and LLM-powered trading. APEX multi-slot orchestrator. REFLECT nightly performance review. Builder fee revenue collection.
+Autonomous Hyperliquid trading via agent-cli. 19 strategies across market making, momentum, arbitrage, and LLM-powered trading. APEX multi-slot orchestrator. REFLECT nightly performance review. Builder fee revenue collection.
 
 ## Quick Start (Agent-Friendly)
 
@@ -137,13 +137,12 @@ hl reflect report [--date 2026-03-03]
 hl reflect history [-n 10]
 ```
 
-### Dynamic Stop Loss (DSL)
+### Guard Trailing Stop
 
 ```bash
-hl dsl start <instrument> [--entry-price 2500] [--direction long] [--preset tight|standard|wide]
-hl dsl check <instrument>
-hl dsl status
-hl dsl presets
+hl guard start ETH-PERP --entry 2500 --size 1 --direction long [--preset tight|moderate]
+hl guard status
+hl guard presets
 ```
 
 ### Radar & Movers
@@ -179,16 +178,16 @@ hl setup bootstrap                   # Auto-create venv and install
 hl setup claim-usdyp                 # Claim testnet USDyP tokens
 ```
 
-### MCP Server (16 Tools)
+### MCP Server (~21 Tools)
 
 ```bash
 hl mcp serve                         # Start MCP server (stdio transport)
 hl mcp serve --transport sse         # Start MCP server (SSE transport)
 ```
 
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `agent_memory`, `trade_journal`, `judge_report`
+Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `schedule_cancel`, `emergency_close_all`, `order_status`, `funding_rates`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
 
-## Strategies (14)
+## Strategies (19)
 
 | Name | Type | Description |
 |------|------|-------------|
@@ -204,13 +203,26 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 | momentum_breakout | Signal | Enters on volume + price breakout above/below N-period range |
 | aggressive_taker | Taker | Directional spread crossing with bias |
 | hedge_agent | Risk | Reduces excess exposure per deterministic mandate |
+| cfi_hedge | Risk | CFI-v2 funding-cost hedge (YEX testnet / Paragon mainnet BTCSWP) |
 | rfq_agent | RFQ | Block-size dark RFQ liquidity |
 | claude_agent | LLM | Claude/Gemini-powered autonomous trading agent |
+| simplified_ensemble | Signal | 6-signal ensemble vote |
+| funding_momentum | Signal | Funding rate mean-reversion with EMA confirmation |
+| oi_divergence | Signal | Price/OI divergence filter |
+| trend_follower | Signal | EMA crossover + ADX trend strength filter |
 
 ## Instruments
 
 - **Standard perps**: ETH-PERP, BTC-PERP, SOL-PERP, etc.
-- **YEX yield markets**: VXX-USDYP (yex:VXX), US3M-USDYP (yex:US3M)
+- **YEX yield markets (testnet)**: VXX-USDYP (`yex:VXX`), US3M-USDYP (`yex:US3M`), BTCSWP-USDYP (`yex:BTCSWP`)
+- **Paragon BTCSWP swap perps (HIP-3)**:
+
+| Network | Instrument | HL coin | Notes |
+|---------|------------|---------|-------|
+| Testnet | `BTCSWP-OSRS` | `osrs:BTCSWP` | Paragon swap perp on the `osrs` dex |
+| Mainnet | `BTCSWP-PARA` | `para:BTCSWP` | Paragon swap perp on the `para` dex |
+
+Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP` (YEX yield), mainnet → `BTCSWP-PARA`. Use `BTCSWP-OSRS` or `osrs:BTCSWP` for the explicit Paragon swap perp on testnet.
 
 ## Workflow
 

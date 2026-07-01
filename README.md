@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/strategies-19-C9A84C" alt="Strategies" />
   <img src="https://img.shields.io/badge/tests-1300%2B%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-20%20tools-8A2BE2" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP-21%20tools-8A2BE2" alt="MCP" />
 </p>
 
 <p align="center">
@@ -550,7 +550,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**20 MCP tools** for account state, trading, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
+**21 MCP tools** for account state, trading, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 

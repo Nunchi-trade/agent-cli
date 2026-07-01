@@ -21,6 +21,12 @@ from scripts.entrypoint import (
 # ---------------------------------------------------------------------------
 
 class TestBuildCommand:
+    def test_default_mode_is_mcp(self, monkeypatch):
+        monkeypatch.delenv("RUN_MODE", raising=False)
+
+        cmd = build_command()
+        assert cmd == [sys.executable, "-m", "cli.main", "mcp", "serve", "--transport", "sse"]
+
     def test_apex_mode_default(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "apex")
         monkeypatch.delenv("APEX_PRESET", raising=False)

@@ -66,7 +66,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             body = json.dumps({
                 "status": "ok",
-                "mode": os.environ.get("RUN_MODE", "apex"),
+                "mode": os.environ.get("RUN_MODE", "mcp"),
                 "uptime_s": int(time.time() - START_TIME),
                 "pid": CHILD_PROC.pid if CHILD_PROC else None,
                 "alive": runner_alive(),
@@ -225,7 +225,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 from cli.api.status_reader import read_strategies
                 data = read_strategies()
                 count = len(data.get("strategies", {}))
-                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}), cors=True)
+                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": len(MCP_ALL_TOOLS)}), cors=True)
             except Exception as e:
                 self.send_response(500)
                 self._send_cors_headers()
@@ -299,7 +299,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def build_command() -> list[str]:
     """Build the CLI command from environment variables."""
-    mode = os.environ.get("RUN_MODE", "apex").lower()
+    mode = os.environ.get("RUN_MODE", "mcp").lower()
     py = [sys.executable, "-m", "cli.main"]
 
     if mode in ("apex", "wolf"):
@@ -357,7 +357,7 @@ def build_command() -> list[str]:
 def runner_alive() -> bool:
     if CHILD_PROC is not None:
         return CHILD_PROC.poll() is None
-    return os.environ.get("RUN_MODE", "apex").lower() == "mcp"
+    return os.environ.get("RUN_MODE", "mcp").lower() == "mcp"
 
 
 def handle_mcp_json_rpc(raw_body: bytes, headers: Any) -> tuple[int, dict[str, Any]]:
@@ -723,7 +723,7 @@ def main():
         except Exception:
             pass  # best-effort
 
-    mode = os.environ.get("RUN_MODE", "apex")
+    mode = os.environ.get("RUN_MODE", "mcp")
     if mode.lower() == "mcp":
         log.info("Starting mcp mode: HTTP JSON-RPC wrapper active on /mcp/trading")
         while True:

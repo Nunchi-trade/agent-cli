@@ -6,6 +6,8 @@ from typing import Dict, List
 MARKET_STRATEGY_MAP: Dict[str, List[str]] = {
     "VXX-USDYP": ["mean_reversion", "simplified_ensemble"],
     "BTCSWP-USDYP": ["funding_arb", "funding_momentum", "basis_arb"],
+    "BTCSWP-OSRS": ["funding_arb", "funding_momentum", "basis_arb"],
+    "BTCSWP-PARA": ["funding_arb", "funding_momentum", "basis_arb"],
     "US3M-USDYP": ["trend_follower", "simplified_ensemble"],
 }
 

@@ -61,6 +61,10 @@ class TestResolveInstrument:
 
 
 
+    def test_osrs_btcswp_reverse_lookup(self):
+        assert resolve_instrument("osrs:BTCSWP", mainnet=False) == "BTCSWP-OSRS"
+        assert resolve_instrument("BTCSWP-OSRS", mainnet=False) == "BTCSWP-OSRS"
+
     def test_para_btcswp_reverse_lookup(self):
         assert resolve_instrument("para:BTCSWP", mainnet=True) == "BTCSWP-PARA"
         assert resolve_instrument("BTCSWP-PARA", mainnet=True) == "BTCSWP-PARA"
