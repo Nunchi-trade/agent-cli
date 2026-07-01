@@ -18,6 +18,7 @@ from typing import Any, Mapping, Optional
 import requests
 
 from cli.web_auth import PAIR_API_BASE, get_stored_pairing
+from cli.mcp_metering import report_tool_call
 
 FREE_TOOLS = {
     "strategies",
@@ -250,6 +251,7 @@ def check_tool_call(
 
     if record:
         _record_allowed_call(entitlement, tool_name)
+        report_tool_call(tool_name)
     return EntitlementDecision(True)
 
 

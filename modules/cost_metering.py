@@ -287,3 +287,16 @@ class CostMeter:
                     if key in route_metadata:
                         route_row[key] = route_metadata[key]
             self.route_log.append(route_row)
+        try:
+            from cli.mcp_metering import report_inference_cost
+
+            report_inference_cost(
+                inference_usd=str(usd_cost),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                cache_savings_usd=str(cache_savings) if cache_savings is not None else None,
+                model=resolved_model,
+            )
+        except Exception:
+            pass
