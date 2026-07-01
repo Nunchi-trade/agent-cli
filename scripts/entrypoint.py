@@ -575,7 +575,7 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
             env_overrides,
             mainnet=mainnet,
             confirmed=confirmed,
-            require_signing=True,
+            require_signing=not dry_run,
         )
         if error:
             return _json_error(error)

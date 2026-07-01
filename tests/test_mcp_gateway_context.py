@@ -249,3 +249,35 @@ def test_entrypoint_funding_hedge_execute_confirmed_dry_run_forwards_to_cli(monk
     assert captured["timeout"] == 120
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "5" * 40
+
+
+def test_entrypoint_funding_hedge_execute_confirmed_dry_run_allows_keyless_preview(monkeypatch, tmp_path):
+    import cli.mcp_server as mcp_server
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        captured["env_overrides"] = env_overrides
+        return "keyless hedge preview"
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+            "name": "funding_hedge_execute",
+            "arguments": {"coin": "BTC", "dry_run": True, "confirmed": True},
+        },
+    }).encode()
+
+    status, response = handle_mcp_json_rpc(body, {})
+
+    assert status == 200
+    assert response["result"]["content"][0]["text"] == "keyless hedge preview"
+    assert captured["args"] == ("hedge", "execute", "BTC", "--dry-run", "--yes")

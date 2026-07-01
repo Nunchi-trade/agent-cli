@@ -865,7 +865,7 @@ def create_mcp_server():
             env_overrides,
             mainnet=mainnet,
             confirmed=confirmed,
-            require_signing=True,
+            require_signing=not dry_run,
         )
         if error:
             return _json_error(error)
