@@ -115,7 +115,10 @@ def aggregate(args: argparse.Namespace) -> int:
                 cost_by_decision[str(decision_call_id)] += _decimal(row.get("usd_cost"))
         linked_trade_cost = Decimal("0")
         linked_trade_count = 0
+        dry_run_count = len([r for r in trades if r.get("dry_run")])
         for row in trades:
+            if row.get("dry_run"):
+                continue
             decision_call_id = row.get("decision_call_id")
             if decision_call_id and str(decision_call_id) in cost_by_decision:
                 linked_trade_count += 1
@@ -185,6 +188,7 @@ def aggregate(args: argparse.Namespace) -> int:
             "cache_hit_rate": cache_hit_rate,
             "cache_savings_total": cache_savings_total,
             "linked_trade_count": linked_trade_count,
+            "dry_run_count": dry_run_count,
             "avg_llm_per_linked_fill": avg_llm_per_linked_fill,
             "observability_total": observability_total,
             "total": total,
@@ -247,15 +251,15 @@ def _render_markdown(input_dir: Path, rows: List[dict], incidents: List[dict], a
         "",
         "## Cost By Job Type",
         "",
-        "| Job Type | Users | Accounts | Agents | Subs | Hours | Heartbeats | Linked Fills | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Job Type | Users | Accounts | Agents | Subs | Hours | Heartbeats | Linked Live Fills | Dry Runs | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ])
 
     for row in rows:
         lines.append(
             f"| `{row['job_type']}` | {row['user_count']} | {row['account_count']} | {row['agent_count']} | "
             f"{row['subscription_count']} | {float(row['duration_hours']):.2f} | "
-            f"{row['heartbeat_count']} | {row['linked_trade_count']} | {_money(row['avg_llm_per_linked_fill'])} | "
+            f"{row['heartbeat_count']} | {row['linked_trade_count']} | {row['dry_run_count']} | {_money(row['avg_llm_per_linked_fill'])} | "
             f"{float(row['cache_hit_rate']) * 100:.1f}% | {int(row['cached_token_total'])} | {_money(row['cache_savings_total'])} | "
             f"{_money(row['llm_total'])} | {_money(row['infra_total'])} | "
             f"{_money(row['fees_total'])} | {_money(row['total'])} | {_money(row['usd_per_heartbeat'])} | "

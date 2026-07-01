@@ -91,6 +91,53 @@ MCP tools: `funding_hedge_propose`, `funding_hedge_backtest`
 
 ---
 
+## Hosted MCP Entitlements
+
+Fully local/BYO MCP mode stays ungated by default. Hosted Nunchi MCP/tools or
+Nunchi inference enforcement activates only when one of these is configured:
+
+- `NUNCHI_MCP_ENTITLEMENT_JSON`: inline web-auth `GET /api/entitlements/mcp`
+  response.
+- `NUNCHI_MCP_ENTITLEMENT_FILE`: path to the entitlement JSON.
+- `NUNCHI_CONNECTION_MODE=hosted-mcp-tools` or
+  `NUNCHI_CONNECTION_MODE=hosted-mcp-tools-inference`: fetch entitlement from
+  web-auth with the stored pair token.
+- `NUNCHI_MCP_REQUIRE_ENTITLEMENT=true`: fail closed if no entitlement can be
+  fetched.
+
+When active, agent-cli enforces web-auth `allowedTools`, free/paid/safety tool
+buckets, local free-call accounting, and model policy (`openrouter/auto` and
+Fusion stay blocked unless the entitlement allows them). Safety-gated tools
+still require explicit `confirm=true`.
+
+Register local agent identity with web-auth:
+
+```bash
+hl pair register --agent-id local-mm-1 --agent-name "Local MM 1" --connection-mode clone-local
+```
+
+## Builder-Code Validation
+
+All direct Hyperliquid order broadcasts flow through `DirectHLProxy.place_order`.
+That adapter fails closed before calling `exchange.order` unless valid Nunchi
+builder-fee metadata is present. `hl trade --dry-run` prints the builder-code
+status and does not submit. Live trade ledgers include builder-code metadata so
+Mode 3 economics can be measured without implying Nunchi hosts the agent.
+
+## Pricing Dry Runs
+
+Use dry-run mode when OpenRouter keys or funded wallets are unavailable:
+
+```bash
+python scripts/pricing_experiment_suite.py --dry-run-only
+```
+
+The suite writes `experiment_manifest.json` with blocked live measurements
+instead of faking results. Fill-level validation still requires funded maker and
+taker wallet env vars.
+
+---
+
 ## Strategies
 
 14 built-in strategies across four categories. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling between strategies.

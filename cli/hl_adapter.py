@@ -36,8 +36,22 @@ class APICircuitBreakerOpen(Exception):
 def _default_builder() -> Optional[dict]:
     """Return the default Nunchi builder fee. Always active unless overridden."""
     from cli.builder_fee import BuilderFeeConfig
-    return BuilderFeeConfig().to_builder_info()
+    cfg = BuilderFeeConfig()
+    cfg.validate_for_broadcast()
+    return cfg.to_builder_info()
 ZERO = Decimal("0")
+
+
+def _validate_builder_info(builder: Optional[dict]) -> dict:
+    if not isinstance(builder, dict):
+        raise RuntimeError("builder-code validation failed: missing builder fee metadata")
+    address = builder.get("b")
+    fee = builder.get("f")
+    if not isinstance(address, str) or not address.startswith("0x") or len(address) != 42:
+        raise RuntimeError("builder-code validation failed: invalid builder address")
+    if not isinstance(fee, int) or fee <= 0:
+        raise RuntimeError("builder-code validation failed: builder fee must be a positive integer")
+    return builder
 
 
 def _to_hl_coin(instrument: str) -> str:
@@ -297,6 +311,7 @@ class DirectHLProxy:
         # This is the sole enforcement point — all order paths flow through here.
         if builder is None:
             builder = _default_builder()
+        builder = _validate_builder_info(builder)
         coin = _to_hl_coin(instrument)
         is_buy = side.lower() == "buy"
 
@@ -474,6 +489,7 @@ class DirectHLProxy:
         """
         if builder is None:
             builder = _default_builder()
+        builder = _validate_builder_info(builder)
         coin = self._to_coin(instrument)
         is_buy = side.lower() == "buy"
         sz = self._round_size(coin, size)

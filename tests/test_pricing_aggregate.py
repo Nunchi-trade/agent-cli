@@ -47,3 +47,5 @@ def test_pricing_aggregate_outputs_mode_specific_summary(tmp_path):
     assert "`mode_2_hosted_mcp_tools_inference`" in report
     assert "`mode_3_clone_local`" in report
     assert "gpt-4.1-mini" in report
+    assert "Linked Live Fills" in report
+    assert "Dry Runs" in report
