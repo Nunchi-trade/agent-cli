@@ -65,6 +65,26 @@ def test_trade_dry_run_does_not_submit(monkeypatch):
     assert FakeDirectHL.placed == []
 
 
+def test_trade_dry_run_skips_private_key_lookup(monkeypatch):
+    class ExplodingConfig(FakeConfig):
+        def get_private_key(self) -> str:
+            raise AssertionError("dry-run should not resolve private key")
+
+    import cli.config as config_module
+
+    _patch_trade_deps(monkeypatch)
+    monkeypatch.setattr(config_module, "TradingConfig", ExplodingConfig)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        _app(),
+        ["ETH-PERP", "buy", "0.01", "--price", "2500", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "Dry run: order not submitted." in result.output
+
+
 def test_trade_refuses_noninteractive_without_yes(monkeypatch):
     _patch_trade_deps(monkeypatch)
     runner = CliRunner()
