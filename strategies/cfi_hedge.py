@@ -22,8 +22,10 @@ NOT used here.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable, Optional
+
+from common.models import BTCSWP_ASSET, asset_to_coin, asset_to_instrument, is_mainnet
 
 HOURS_PER_YEAR = 8_760
 
@@ -58,18 +60,29 @@ class CFIAssetProfile:
     """YEX-local asset index. -1 = not deployed (sentinel)."""
 
 
-BTCSWP_PROFILE = CFIAssetProfile(
-    name="BTC",
-    vol_mult_l=15,
-    fixed_leg_initial=0.0000029,
-    k2_beta=0.080042,
-    baseline_b0=75_000,
-    scale_s=1_000_000,
-    hl_coin="BTC",
-    cfi_asset_name="yex:BTCSWP",
-    cfi_instrument="BTCSWP-USDYP",
-    cfi_asset_index=2,
-)
+def btcswp_profile(mainnet: Optional[bool] = None) -> CFIAssetProfile:
+    """Network-aware BTCSWP CFI v2 profile.
+
+    Testnet: yex:BTCSWP / BTCSWP-USDYP (YEX yield perp).
+    Mainnet: para:BTCSWP / BTCSWP-PARA (Paragon swap perp).
+    """
+    on_mainnet = is_mainnet(mainnet)
+    return CFIAssetProfile(
+        name="BTC",
+        vol_mult_l=15,
+        fixed_leg_initial=0.0000029,
+        k2_beta=0.080042,
+        baseline_b0=75_000,
+        scale_s=1_000_000,
+        hl_coin="BTC",
+        cfi_asset_name=asset_to_coin(BTCSWP_ASSET, mainnet=mainnet),
+        cfi_instrument=asset_to_instrument(BTCSWP_ASSET, mainnet=mainnet),
+        cfi_asset_index=2 if not on_mainnet else -1,
+    )
+
+
+# Back-compat alias — testnet profile (YEX).
+BTCSWP_PROFILE = btcswp_profile(mainnet=False)
 
 # ETHSWP placeholder — not yet deployed. Filled-in `vol_mult_l` etc. match
 # ~/hyperliquid-funding-rate-perps/tools/hedge_calculator.py.
@@ -87,14 +100,28 @@ ETHSWP_PROFILE = CFIAssetProfile(
 )
 
 CFI_PROFILES = {
-    "BTC": BTCSWP_PROFILE,
     "ETH": ETHSWP_PROFILE,
 }
 
 
-def get_cfi_profile(coin: str) -> Optional[CFIAssetProfile]:
+def get_cfi_profile(
+    coin: str,
+    mainnet: Optional[bool] = None,
+    hedge_instrument: Optional[str] = None,
+) -> Optional[CFIAssetProfile]:
     """Look up a deployed profile by coin ticker. Returns None for unknowns."""
-    return CFI_PROFILES.get(coin.upper())
+    upper = coin.upper()
+    if upper in ("BTC", BTCSWP_ASSET):
+        base = btcswp_profile(mainnet=mainnet)
+        if hedge_instrument is None:
+            return base
+        from cli.strategy_registry import resolve_instrument
+        from common.models import instrument_to_coin
+
+        resolved = resolve_instrument(hedge_instrument, mainnet=mainnet)
+        cfi_coin = instrument_to_coin(resolved, mainnet=mainnet)
+        return replace(base, cfi_asset_name=cfi_coin, cfi_instrument=resolved)
+    return CFI_PROFILES.get(upper)
 
 
 # ─── Rate conversions ───────────────────────────────────────────────────────
@@ -229,12 +256,18 @@ def build_cfi_hedge_proposal(
     k_fixed_hr: float,
     horizons: Optional[Iterable[tuple]] = None,
     now_ms: Optional[int] = None,
+    mainnet: Optional[bool] = None,
+    hedge_instrument: Optional[str] = None,
 ) -> Optional[CFIHedgeProposal]:
     """Build a CFI v2 hedge proposal for an existing HL perp position.
 
     Returns None if no CFI profile is deployed for the position's coin.
     """
-    profile = get_cfi_profile(position.coin)
+    profile = get_cfi_profile(
+        position.coin,
+        mainnet=mainnet,
+        hedge_instrument=hedge_instrument,
+    )
     if profile is None:
         return None
 
@@ -256,7 +289,7 @@ def build_cfi_hedge_proposal(
         role="existing",
     )
     hedge_leg = CFIHedgeLeg(
-        venue="YEX-HIP3",
+        venue="PARA-HIP3" if is_mainnet(mainnet) else "YEX-HIP3",
         # CFI v2 long pays you (funding − K2) per unit time. Same-side hedge
         # by the identity derivation: existing long → CFI long; existing
         # short → CFI short.

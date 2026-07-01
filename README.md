@@ -169,7 +169,7 @@ Exploit pricing dislocations across venues, instruments, or time horizons.
 
 | Strategy | Description | Key Parameters | When to Use |
 |----------|-------------|----------------|-------------|
-| `funding_arb` | Cross-venue funding rate arbitrage — captures funding divergence between HL and external venues. Quoting-engine powered with bias from funding delta. *Requires `quoting_engine` module.* | `divergence_threshold_bps`, `max_bias_bps` | When funding rates diverge between venues. Works well on high-funding instruments. |
+| `funding_arb` | Funding-biased MM on HL funding rate — cross-venue feeds not wired; HL-only bias from funding delta. *Requires `quoting_engine` module.* | `divergence_threshold_bps`, `max_bias_bps` | When HL funding is elevated and you want quote bias toward collecting premium. |
 | `basis_arb` | Trades implied basis from funding rate — enters when annualized basis (contango/backwardation) exceeds threshold. | `basis_threshold_bps`, `size` | Capturing contango/backwardation dislocations. Pairs well with funding_arb. |
 
 ### Signal / Directional
@@ -188,7 +188,7 @@ Supporting strategies for portfolio management, block liquidity, and autonomous 
 
 | Strategy | Description | Key Parameters | When to Use |
 |----------|-------------|----------------|-------------|
-| `hedge_agent` | Reduces excess exposure per deterministic mandate. Fires when net notional exceeds threshold. | `notional_threshold` | Always-on risk overlay. Pairs with any MM or signal strategy. |
+| `hedge_agent` | Reduces excess inventory per deterministic mandate. Fires when absolute position qty exceeds threshold. | `inventory_threshold` | Always-on risk overlay. Pairs with any MM or signal strategy. |
 | `rfq_agent` | Block-size dark RFQ liquidity — quotes for large orders with wider spreads. | `min_size`, `spread_bps` | Institutional/block flow. Provides hidden liquidity for large counterparties. |
 | `claude_agent` | Multi-model LLM trading agent. Sends market snapshot to an LLM (Gemini, Claude, or OpenAI), receives structured trade decisions. | `model`, `base_size` | **Experimental.** Autonomous decision-making using LLM reasoning. |
 

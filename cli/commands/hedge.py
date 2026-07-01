@@ -104,7 +104,13 @@ def _position_to_summary(raw: dict, coin_override: Optional[str] = None):
     )
 
 
-def _build_proposal(hl, coin: str):
+def _build_proposal(
+    hl,
+    coin: str,
+    *,
+    mainnet: bool = False,
+    hedge_instrument: Optional[str] = None,
+):
     """Build a hedge proposal for the user's current `coin` perp position.
 
     Returns (proposal, snapshot) or raises typer.Exit if no position open.
@@ -115,7 +121,11 @@ def _build_proposal(hl, coin: str):
         fetch_hl_current_funding_hr,
     )
 
-    profile = get_cfi_profile(coin)
+    profile = get_cfi_profile(
+        coin,
+        mainnet=mainnet,
+        hedge_instrument=hedge_instrument,
+    )
     if profile is None:
         typer.echo(f"Error: no deployed CFI v2 profile for coin '{coin}'", err=True)
         raise typer.Exit(2)
@@ -146,6 +156,8 @@ def _build_proposal(hl, coin: str):
         position=position,
         current_funding_hr=current_funding,
         k_fixed_hr=snapshot.k_fixed_hr,
+        mainnet=mainnet,
+        hedge_instrument=hedge_instrument,
     )
     return proposal, snapshot
 
@@ -171,7 +183,7 @@ def propose_cmd(
     raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
     hl = DirectHLProxy(raw_hl)
 
-    proposal, snapshot = _build_proposal(hl, coin)
+    proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
 
 
@@ -202,7 +214,7 @@ def execute_cmd(
     raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
     hl = DirectHLProxy(raw_hl)
 
-    proposal, snapshot = _build_proposal(hl, coin)
+    proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
 
     # Size the order in CFI v2 (BTCSWP) units. SDK rounds to szDecimals.
@@ -306,7 +318,11 @@ def status_cmd(
             if h.get("status") != "active":
                 live.append({"job": h, "snapshot": None, "drift_apy": 0.0, "savings_usd": h.get("cumulative_savings_usd", 0.0)})
                 continue
-            profile = get_cfi_profile(h.get("coin", "BTC"))
+            profile = get_cfi_profile(
+                h.get("coin", "BTC"),
+                mainnet=mainnet,
+                hedge_instrument=h.get("instrument"),
+            )
             if profile is None:
                 live.append({"job": h, "snapshot": None, "drift_apy": 0.0, "savings_usd": h.get("cumulative_savings_usd", 0.0)})
                 continue
@@ -502,7 +518,7 @@ def auto_cmd(
 
     # Parse + validate the coin list.
     coin_tuple = tuple(c.strip().upper() for c in coins.split(",") if c.strip())
-    unsupported = [c for c in coin_tuple if get_cfi_profile(c) is None]
+    unsupported = [c for c in coin_tuple if get_cfi_profile(c, mainnet=mainnet) is None]
     if unsupported:
         typer.echo(
             f"{RED}Error: no CFI v2 profile deployed for: {', '.join(unsupported)}{RESET}",
@@ -595,7 +611,7 @@ def auto_cmd(
                     coin=coin,
                     perp_notional_usd=notional,
                     active_hedge_coins=active_coins,
-                    profile_vol_mult_l=get_cfi_profile(coin).vol_mult_l,
+                    profile_vol_mult_l=get_cfi_profile(coin, mainnet=mainnet).vol_mult_l,
                     policy=policy,
                     daily=daily,
                     now_ms=now_ms,
@@ -616,7 +632,7 @@ def auto_cmd(
 
                 # Real fire — build proposal + place order via existing helper.
                 try:
-                    proposal, snapshot = _build_proposal(hl, coin)
+                    proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
                 except typer.Exit:
                     msg = f"build-proposal-failed for {coin}; skipping"
                     append_audit_log(msg)

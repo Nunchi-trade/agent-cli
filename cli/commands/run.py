@@ -126,6 +126,10 @@ def run_cmd(
     params = dict(cfg.strategy_params)
     if model:
         params["model"] = model
+    if cfg.strategy == "cfi_hedge":
+        params["mainnet"] = cfg.mainnet
+        if cfg.instrument.endswith(("-USDYP", "-PARA", "-OSRS")) or ":" in cfg.instrument:
+            params["hedge_instrument"] = cfg.instrument
 
     # Set up anomaly protection for YEX markets
     anomaly_thread = None

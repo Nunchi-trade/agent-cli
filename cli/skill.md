@@ -198,7 +198,7 @@ Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_chec
 | regime_mm | MM | Vol-regime adaptive — switches behavior by volatility regime (calm/normal/volatile/extreme) |
 | grid_mm | MM | Fixed-interval grid levels above and below mid |
 | liquidation_mm | MM | Provides liquidity during cascade/liquidation events |
-| funding_arb | Arb | Cross-venue funding rate arbitrage |
+| funding_arb | Arb | HL funding-biased MM (cross-venue feeds not wired) |
 | basis_arb | Arb | Trades implied basis from funding rate (contango/backwardation) |
 | mean_reversion | Signal | Trades when price deviates from SMA |
 | momentum_breakout | Signal | Enters on volume + price breakout above/below N-period range |

@@ -27,6 +27,7 @@ from sdk.strategy_sdk.base import StrategyContext
 from strategies.cfi_hedge import (
     BTCSWP_PROFILE,
     HLPositionSummary,
+    btcswp_profile,
     build_cfi_hedge_proposal,
 )
 from strategies.cfi_hedge_agent import CfiHedgeAgent
@@ -81,6 +82,30 @@ def test_cfi_hedge_sizing_is_notional_over_L():
     # Hedge leg is the YEX CFI v2 market, same side as the perp.
     assert prop.legs[1].market == "yex:BTCSWP"
     assert prop.legs[1].side == "long"
+
+
+def test_cfi_hedge_mainnet_uses_para_btcswp():
+    notional = 150_000.0
+    prop = build_cfi_hedge_proposal(
+        user_address="t",
+        position=_btc_position(notional),
+        current_funding_hr=0.00002,
+        k_fixed_hr=0.0000029,
+        mainnet=True,
+    )
+    assert prop is not None
+    assert prop.legs[1].market == "para:BTCSWP"
+    assert prop.profile.cfi_instrument == "BTCSWP-PARA"
+    assert prop.legs[1].venue == "PARA-HIP3"
+
+
+def test_btcswp_profile_network_defaults():
+    testnet = btcswp_profile(mainnet=False)
+    mainnet = btcswp_profile(mainnet=True)
+    assert testnet.cfi_asset_name == "yex:BTCSWP"
+    assert testnet.cfi_instrument == "BTCSWP-USDYP"
+    assert mainnet.cfi_asset_name == "para:BTCSWP"
+    assert mainnet.cfi_instrument == "BTCSWP-PARA"
 
 
 def test_cfi_hedge_unknown_coin_returns_none():
@@ -190,6 +215,15 @@ def test_agent_emits_cfi_leg_at_one_over_L():
     assert abs(d.size - 10_000.0 / BTCSWP_PROFILE.baseline_b0) < 1e-6
 
 
+def test_agent_mainnet_emits_para_btcswp():
+    agent = CfiHedgeAgent(mainnet=True)
+    snap = _btc_snap()
+    ctx = StrategyContext(snapshot=snap, position_qty=2.0, position_notional=150_000.0)
+    decisions = agent.on_tick(snap, ctx)
+    assert len(decisions) == 1
+    assert decisions[0].instrument == "BTCSWP-PARA"
+
+
 def test_agent_dedupes_and_respects_trigger():
     agent = CfiHedgeAgent()
     snap = _btc_snap()
@@ -243,7 +277,7 @@ def test_hedge_execute_dry_run_does_not_place_or_persist(monkeypatch):
     monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
     monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
     monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
-    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin: (proposal, snapshot))
+    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin, **kwargs: (proposal, snapshot))
     monkeypatch.setattr("cli.hedge_display.hedge_proposal_block", lambda proposal, snapshot, mainnet=False: "proposal")
     monkeypatch.setattr(hedge_cmd, "_save_hedges", fail_persist)
 
