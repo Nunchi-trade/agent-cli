@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import types
+import subprocess
 
 
 class FakeFastMCP:
@@ -140,6 +141,46 @@ def test_mcp_trade_confirm_builds_safe_subprocess(monkeypatch):
             "--mainnet",
         )
     ]
+
+
+def test_mcp_subprocess_helpers_do_not_inherit_stdin(monkeypatch):
+    import cli.mcp_server as mcp_server
+
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return Result()
+
+    monkeypatch.setattr(mcp_server.subprocess, "run", fake_run)
+
+    assert mcp_server._run_hl("trade", "ETH-PERP") == "ok"
+    assert mcp_server._run_script("test_hedge_agent.py") == "ok"
+    assert calls[0][1]["stdin"] == subprocess.DEVNULL
+    assert calls[1][1]["stdin"] == subprocess.DEVNULL
+
+
+def test_mcp_wallet_auto_requires_confirm(monkeypatch):
+    fastmcp_module = types.ModuleType("mcp.server.fastmcp")
+    fastmcp_module.FastMCP = FakeFastMCP
+    server_module = types.ModuleType("mcp.server")
+    server_module.fastmcp = fastmcp_module
+    mcp_module = types.ModuleType("mcp")
+    mcp_module.server = server_module
+    monkeypatch.setitem(sys.modules, "mcp", mcp_module)
+    monkeypatch.setitem(sys.modules, "mcp.server", server_module)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fastmcp_module)
+
+    from cli.mcp_server import create_mcp_server
+
+    server = create_mcp_server()
+
+    assert server.tools["wallet_auto"]() == "Refusing to create a wallet without confirm=true."
 
 
 def test_mcp_hedge_smoke_test_builds_script_call(monkeypatch):

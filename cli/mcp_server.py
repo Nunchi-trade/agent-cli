@@ -15,7 +15,13 @@ from typing import Optional
 def _run_hl(*args: str, timeout: int = 30) -> str:
     """Run an hl CLI command via subprocess and return stdout."""
     cmd = [sys.executable, "-m", "cli.main", *args]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        timeout=timeout,
+    )
     output = result.stdout.strip()
     if result.returncode != 0 and result.stderr:
         output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
@@ -26,7 +32,13 @@ def _run_script(script_name: str, *args: str, timeout: int = 300) -> str:
     """Run a repository script via subprocess and return stdout/stderr."""
     script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
     cmd = [sys.executable, str(script_path), *args]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        timeout=timeout,
+    )
     output = result.stdout.strip()
     if result.returncode != 0 and result.stderr:
         output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
@@ -92,16 +104,20 @@ def create_mcp_server():
         return json.dumps(keystores, indent=2) if keystores else "No keystores found."
 
     @mcp.tool()
-    def wallet_auto(save_env: bool = True) -> str:
+    def wallet_auto(save_env: bool = True, confirm: bool = False) -> str:
         """Create a new wallet non-interactively (agent-friendly).
 
         Args:
             save_env: Save credentials to ~/.hl-agent/env for auto-detection (default: True)
+            confirm: Must be true because this creates a new private key and writes credentials.
         """
         import secrets
         from pathlib import Path
         from eth_account import Account
         from cli.keystore import create_keystore
+
+        if not confirm:
+            return "Refusing to create a wallet without confirm=true."
 
         password = secrets.token_urlsafe(32)
         account = Account.create()
