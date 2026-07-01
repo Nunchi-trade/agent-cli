@@ -11,11 +11,26 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from cli.mcp_entitlements import check_tool_call, current_model_for_tool, entitlement_summary
+
+
+def _policy_denial(tool_name: str, *, confirm: bool = False, model: Optional[str] = None) -> Optional[str]:
+    decision = check_tool_call(tool_name, confirm=confirm, model=model)
+    if decision.allowed:
+        return None
+    return decision.as_message(tool_name)
+
 
 def _run_hl(*args: str, timeout: int = 30) -> str:
     """Run an hl CLI command via subprocess and return stdout."""
     cmd = [sys.executable, "-m", "cli.main", *args]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        timeout=timeout,
+    )
     output = result.stdout.strip()
     if result.returncode != 0 and result.stderr:
         output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
@@ -26,7 +41,13 @@ def _run_script(script_name: str, *args: str, timeout: int = 300) -> str:
     """Run a repository script via subprocess and return stdout/stderr."""
     script_path = Path(__file__).resolve().parent.parent / "scripts" / script_name
     cmd = [sys.executable, str(script_path), *args]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        timeout=timeout,
+    )
     output = result.stdout.strip()
     if result.returncode != 0 and result.stderr:
         output = output + "\n" + result.stderr.strip() if output else result.stderr.strip()
@@ -52,6 +73,8 @@ def create_mcp_server():
     @mcp.tool()
     def strategies() -> str:
         """List all available trading strategies with descriptions and default parameters."""
+        if denial := _policy_denial("strategies"):
+            return denial
         from cli.strategy_registry import STRATEGY_REGISTRY, YEX_MARKETS
 
         result = {"strategies": {}, "yex_markets": {}}
@@ -71,6 +94,8 @@ def create_mcp_server():
     @mcp.tool()
     def builder_status() -> str:
         """Get builder fee configuration status."""
+        if denial := _policy_denial("builder_status"):
+            return denial
         from cli.config import TradingConfig
 
         cfg = TradingConfig()
@@ -86,22 +111,30 @@ def create_mcp_server():
     @mcp.tool()
     def wallet_list() -> str:
         """List saved encrypted keystores."""
+        if denial := _policy_denial("wallet_list"):
+            return denial
         from cli.keystore import list_keystores
 
         keystores = list_keystores()
         return json.dumps(keystores, indent=2) if keystores else "No keystores found."
 
     @mcp.tool()
-    def wallet_auto(save_env: bool = True) -> str:
+    def wallet_auto(save_env: bool = True, confirm: bool = False) -> str:
         """Create a new wallet non-interactively (agent-friendly).
 
         Args:
             save_env: Save credentials to ~/.hl-agent/env for auto-detection (default: True)
+            confirm: Must be true because this creates a new private key and writes credentials.
         """
         import secrets
         from pathlib import Path
         from eth_account import Account
         from cli.keystore import create_keystore
+
+        if not confirm:
+            return "Refusing to create a wallet without confirm=true."
+        if denial := _policy_denial("wallet_auto", confirm=confirm):
+            return denial
 
         password = secrets.token_urlsafe(32)
         account = Account.create()
@@ -125,6 +158,8 @@ def create_mcp_server():
     @mcp.tool()
     def setup_check() -> str:
         """Validate environment — SDK, keys, network, builder fee."""
+        if denial := _policy_denial("setup_check"):
+            return denial
         import os
         from cli.keystore import list_keystores
         from cli.config import TradingConfig
@@ -176,12 +211,15 @@ def create_mcp_server():
             "ok": ok_items,
             "warnings": warnings,
             "issues": issues,
+            "mcpEntitlement": entitlement_summary(),
             "passed": len(issues) == 0,
         }, indent=2)
 
     @mcp.tool()
     def pair_status() -> str:
         """Show web-auth paired wallet status."""
+        if denial := _policy_denial("pair_status"):
+            return denial
         return _run_hl("pair", "status")
 
     @mcp.tool()
@@ -203,6 +241,8 @@ def create_mcp_server():
             funding_rate_8h: 8h funding rate as a decimal, used if funding_apr is omitted.
             vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
         """
+        if denial := _policy_denial("funding_hedge_propose"):
+            return denial
         from modules.funding_hedge import propose_funding_hedge
 
         try:
@@ -239,6 +279,8 @@ def create_mcp_server():
             perp_notional_usd: Absolute perp notional in USD.
             vol_multiplier: BTCSWP hedge multiplier. Default 15 means 1/15 notional.
         """
+        if denial := _policy_denial("funding_hedge_backtest"):
+            return denial
         from modules.funding_hedge import backtest_funding_hedge_csv
 
         try:
@@ -256,6 +298,8 @@ def create_mcp_server():
     @mcp.tool()
     def account(mainnet: bool = False) -> str:
         """Get Hyperliquid account state (balances, positions)."""
+        if denial := _policy_denial("account"):
+            return denial
         # Account requires live HL connection — use subprocess for isolation
         args = ["account"]
         if mainnet:
@@ -265,6 +309,8 @@ def create_mcp_server():
     @mcp.tool()
     def status() -> str:
         """Show current positions, PnL, and risk state."""
+        if denial := _policy_denial("status"):
+            return denial
         return _run_hl("status")
 
     # ------------------------------------------------------------------
@@ -304,6 +350,8 @@ def create_mcp_server():
         """
         if not confirm and not dry_run:
             return "Refusing to trade without confirm=true or dry_run=true."
+        if denial := _policy_denial("trade", confirm=confirm or dry_run):
+            return denial
         args = [
             "trade",
             instrument,
@@ -340,6 +388,8 @@ def create_mcp_server():
         """
         if not confirm:
             return "Refusing to approve agent without confirm=true."
+        if denial := _policy_denial("approve_agent", confirm=confirm):
+            return denial
         args = ["pair", "approve-agent", "--yes"]
         if mainnet:
             args.append("--mainnet")
@@ -357,6 +407,8 @@ def create_mcp_server():
         """
         if not confirm:
             return "Refusing to move funds without confirm=true."
+        if denial := _policy_denial("money_withdraw", confirm=confirm):
+            return denial
         args = ["money", "withdraw", amount, destination, "--yes"]
         if mainnet:
             args.append("--mainnet")
@@ -374,6 +426,8 @@ def create_mcp_server():
         """
         if not confirm:
             return "Refusing to move funds without confirm=true."
+        if denial := _policy_denial("money_transfer_usd", confirm=confirm):
+            return denial
         args = ["money", "transfer", "usd", amount, destination, "--yes"]
         if mainnet:
             args.append("--mainnet")
@@ -390,6 +444,8 @@ def create_mcp_server():
         """
         if not confirm:
             return "Refusing to move funds without confirm=true."
+        if denial := _policy_denial("money_deposit", confirm=confirm):
+            return denial
         args = ["money", "deposit", amount, "--yes"]
         if mainnet:
             args.append("--mainnet")
@@ -398,6 +454,8 @@ def create_mcp_server():
     @mcp.tool()
     def money_bridge_status() -> str:
         """Explain why cross-chain bridge support is not enabled yet."""
+        if denial := _policy_denial("money_bridge_status"):
+            return denial
         return _run_hl("money", "bridge")
 
     @mcp.tool()
@@ -421,6 +479,8 @@ def create_mcp_server():
             dry_run: Log decisions without placing orders
             mainnet: Use mainnet instead of testnet
         """
+        if denial := _policy_denial("run_strategy", model=current_model_for_tool("run_strategy")):
+            return denial
         args = ["run", strategy, "-i", instrument, "-t", str(tick)]
         if max_ticks is not None:
             args.extend(["--max-ticks", str(max_ticks)])
@@ -470,6 +530,8 @@ def create_mcp_server():
             return "Refusing to move testnet USDC without confirm_send_testnet_usdc=true."
         if send_testnet_usdc and not sam_address:
             return "Refusing to move testnet USDC without sam_address."
+        if denial := _policy_denial("hedge_agent_smoke_test", model=current_model_for_tool("hedge_agent_smoke_test")):
+            return denial
 
         args = [
             "--instrument", instrument,
@@ -492,6 +554,8 @@ def create_mcp_server():
     @mcp.tool()
     def radar_run(mock: bool = False) -> str:
         """Run opportunity radar — screen HL perps for trading setups."""
+        if denial := _policy_denial("radar_run", model=current_model_for_tool("radar_run")):
+            return denial
         args = ["radar", "once"]
         if mock:
             args.append("--mock")
@@ -500,6 +564,8 @@ def create_mcp_server():
     @mcp.tool()
     def apex_status() -> str:
         """Get APEX orchestrator status (slots, positions, daily PnL)."""
+        if denial := _policy_denial("apex_status"):
+            return denial
         return _run_hl("apex", "status")
 
     @mcp.tool()
@@ -517,6 +583,8 @@ def create_mcp_server():
             preset: Strategy preset (default, conservative, aggressive)
             mainnet: Use mainnet
         """
+        if denial := _policy_denial("apex_run", model=current_model_for_tool("apex_run")):
+            return denial
         args = ["apex", "run", "--preset", preset]
         if mock:
             args.append("--mock")
@@ -533,6 +601,8 @@ def create_mcp_server():
         Args:
             since: Start date for analysis (YYYY-MM-DD). Default: since last report.
         """
+        if denial := _policy_denial("reflect_run", model=current_model_for_tool("reflect_run")):
+            return denial
         args = ["reflect", "run"]
         if since:
             args.extend(["--since", since])
@@ -551,6 +621,8 @@ def create_mcp_server():
             limit: Max events to return (default 20)
             event_type: Filter by type (param_change, reflect_review, notable_trade, judge_finding, session_start, session_end)
         """
+        if denial := _policy_denial("agent_memory"):
+            return denial
         from modules.memory_guard import MemoryGuard
 
         guard = MemoryGuard()
@@ -569,6 +641,8 @@ def create_mcp_server():
             date: Filter by date (YYYY-MM-DD). Default: all dates.
             limit: Max entries to return (default 20)
         """
+        if denial := _policy_denial("trade_journal"):
+            return denial
         from modules.journal_guard import JournalGuard
 
         guard = JournalGuard()
@@ -578,6 +652,8 @@ def create_mcp_server():
     @mcp.tool()
     def judge_report() -> str:
         """Get latest Judge evaluation — signal quality, false positive rates, recommendations."""
+        if denial := _policy_denial("judge_report"):
+            return denial
         from modules.judge_guard import JudgeGuard
 
         guard = JudgeGuard()
@@ -589,6 +665,8 @@ def create_mcp_server():
     @mcp.tool()
     def obsidian_context() -> str:
         """Read trading context from Obsidian vault — watchlists, market theses, risk preferences."""
+        if denial := _policy_denial("obsidian_context"):
+            return denial
         from modules.obsidian_reader import ObsidianReader
 
         reader = ObsidianReader()

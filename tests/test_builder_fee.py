@@ -82,6 +82,21 @@ class TestBuilderFeeConfig:
         assert cfg.fee_bps == 0.5
         assert cfg.max_fee_rate_str == "0.005%"
 
+    def test_validate_for_broadcast_rejects_disabled(self):
+        cfg = BuilderFeeConfig(builder_address="", fee_rate_tenths_bps=0)
+        with pytest.raises(RuntimeError, match="builder-code validation failed"):
+            cfg.validate_for_broadcast()
+
+    def test_metadata_marks_builder_required(self):
+        cfg = BuilderFeeConfig(builder_address="0x0000000000000000000000000000000000000001", fee_rate_tenths_bps=10)
+        assert cfg.metadata() == {
+            "builder_code_required": True,
+            "builder_address": "0x0000000000000000000000000000000000000001",
+            "builder_fee_tenths_bps": 10,
+            "builder_fee_bps": 1.0,
+            "builder_fee_enabled": True,
+        }
+
 
 # ---------------------------------------------------------------------------
 # TradingConfig integration

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run bounded pricing experiments and emit aggregate reports."""
+"""Run bounded MCP/inference pricing experiments and emit aggregate reports."""
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -21,7 +22,7 @@ def _run(cmd: list[str], *, env: dict | None = None) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run hosted-agent pricing experiment suite")
+    parser = argparse.ArgumentParser(description="Run mode-specific MCP/inference pricing experiment suite")
     parser.add_argument(
         "--suite",
         choices=["cache", "monitoring", "hedge_heartbeat", "combined_dry_run", "all"],
@@ -30,17 +31,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment-id", default=f"pricing-suite-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}")
     parser.add_argument("--data-root", default="data/pricing_suite")
     parser.add_argument("--skip-live", action="store_true", help="Skip OpenRouter live calls")
+    parser.add_argument("--dry-run-only", action="store_true", help="Run only non-funded/non-secret dry-run measurements")
     parser.add_argument("--combined-price", type=float, default=24000.0)
     return parser.parse_args()
 
 
+def _write_manifest(root: Path, args: argparse.Namespace, blocked: list[str]) -> None:
+    manifest = {
+        "experiment_id": args.experiment_id,
+        "suite": args.suite,
+        "skip_live": bool(args.skip_live),
+        "dry_run_only": bool(args.dry_run_only),
+        "generated_at_ms": int(time.time() * 1000),
+        "modes": {
+            "mode_1_hosted_mcp_tools": "dry-run/runtime allocation only unless Railway runner metrics are supplied",
+            "mode_2_hosted_mcp_tools_inference": "OpenRouter measurements skipped when --skip-live or --dry-run-only is set",
+            "mode_3_clone_local": "builder-fee economics reported from dry-run/ledger metadata; fill validation needs funded wallets",
+        },
+        "blocked_live_measurements": blocked,
+    }
+    (root / "experiment_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", "utf-8")
+
+
 def main() -> int:
     args = parse_args()
+    if args.dry_run_only:
+        args.skip_live = True
+        if args.suite == "all":
+            args.suite = "combined_dry_run"
     root = Path(args.data_root) / args.experiment_id
     root.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.setdefault("HL_TESTNET", "true")
     exit_code = 0
+    blocked = []
+    if args.skip_live:
+        blocked.append("OpenRouter anchor measurements skipped because --skip-live/--dry-run-only was set.")
+    if not (os.environ.get("HL_TESTNET_MAKER_PRIVATE_KEY") and os.environ.get("HL_TESTNET_TAKER_PRIVATE_KEY")):
+        blocked.append("Fill-level maker/taker validation blocked: funded HL_TESTNET_MAKER_PRIVATE_KEY and HL_TESTNET_TAKER_PRIVATE_KEY are not configured.")
+    _write_manifest(root, args, blocked)
 
     if args.suite in {"cache", "all"} and not args.skip_live:
         cache_dir = root / "cache"
@@ -137,9 +166,13 @@ def main() -> int:
         exit_code = exit_code or code
         if not args.skip_live:
             _run([sys.executable, "scripts/validate_combined_ledger.py", "--input-dir", str(combined_dir)])
-            _run([sys.executable, "scripts/pricing_aggregate.py", "--input-dir", str(combined_dir)])
+        _run([sys.executable, "scripts/pricing_aggregate.py", "--input-dir", str(combined_dir)])
 
     print(f"Experiment suite complete under {root}")
+    if blocked:
+        print("Blocked live measurements:")
+        for item in blocked:
+            print(f"- {item}")
     return exit_code
 
 

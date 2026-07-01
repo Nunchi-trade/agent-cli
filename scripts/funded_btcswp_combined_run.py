@@ -22,8 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from cli.builder_fee import BuilderFeeConfig  # noqa: E402
 from modules.cost_metering import CostMeter, ExperimentContext  # noqa: E402
 from modules.openrouter_usage import extract_cache_metrics, usage_cost, usage_value  # noqa: E402
+from parent.store import JSONLStore  # noqa: E402
 
 
 def _hyperliquid_info(payload: dict, *, testnet: bool = True) -> Any:
@@ -186,6 +188,43 @@ def _run_trade(
     return result
 
 
+def _record_dry_run_trade(
+    *,
+    args: argparse.Namespace,
+    context: ExperimentContext,
+    decision_call_id: str,
+    generation_id: Optional[str],
+    side: str,
+    tif: str,
+) -> None:
+    trade_log = JSONLStore(os.environ.get("NUNCHI_TRADE_LEDGER_PATH") or str(Path(args.data_dir) / "trades.jsonl"))
+    builder_cfg = BuilderFeeConfig.from_env()
+    trade_log.append({
+        **context.ledger_fields(),
+        "ts": int(time.time() * 1000),
+        "tick": args.tick_index,
+        "tick_index": args.tick_index,
+        "decision_call_id": decision_call_id,
+        "generation_id": generation_id,
+        "oid": None,
+        "cloid": None,
+        "instrument": args.instrument,
+        "side": side,
+        "price": str(args.price),
+        "quantity": str(args.size),
+        "notional_usd": str(abs(args.price * args.size)),
+        "timestamp_ms": int(time.time() * 1000),
+        "fee": "0",
+        "strategy": "funded_btcswp_combined_run",
+        "route": "scripts.funded_btcswp_combined_run",
+        "network": "mainnet" if args.mainnet else "testnet",
+        "tif": tif,
+        "dry_run": True,
+        "fill_status": "dry_run_no_submission",
+        **builder_cfg.metadata(),
+    })
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Funded BTCSWP combined cost/fill smoke run")
     parser.add_argument("--instrument", default="osrs:BTCSWP")
@@ -235,6 +274,15 @@ def main() -> int:
             generation_id=generation_id,
             tif="Alo",
         )
+        if args.dry_run or not args.confirm:
+            _record_dry_run_trade(
+                args=args,
+                context=context,
+                decision_call_id=decision_call_id,
+                generation_id=generation_id,
+                side=maker_side,
+                tif="Alo",
+            )
         _run_trade(
             args=args,
             side=args.side,
@@ -243,6 +291,15 @@ def main() -> int:
             generation_id=generation_id,
             tif="Ioc",
         )
+        if args.dry_run or not args.confirm:
+            _record_dry_run_trade(
+                args=args,
+                context=context,
+                decision_call_id=decision_call_id,
+                generation_id=generation_id,
+                side=args.side,
+                tif="Ioc",
+            )
         validate_address = os.environ.get(args.taker_address_env, "")
     else:
         _run_trade(
@@ -253,6 +310,15 @@ def main() -> int:
             generation_id=generation_id,
             tif="Ioc",
         )
+        if args.dry_run or not args.confirm:
+            _record_dry_run_trade(
+                args=args,
+                context=context,
+                decision_call_id=decision_call_id,
+                generation_id=generation_id,
+                side=args.side,
+                tif="Ioc",
+            )
         validate_address = os.environ.get("HL_ADDRESS", "")
 
     if args.validate_fills and args.confirm and validate_address:

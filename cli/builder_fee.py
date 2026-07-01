@@ -10,12 +10,14 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+NUNCHI_BUILDER_ADDRESS = "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"
+
 
 @dataclass
 class BuilderFeeConfig:
     """Builder fee settings. Loaded from env vars or YAML config."""
 
-    builder_address: str = "0x0D1DB1C800184A203915757BbbC0ee3A8E12FfB0"  # Nunchi fee wallet
+    builder_address: str = NUNCHI_BUILDER_ADDRESS
     fee_rate_tenths_bps: int = 100  # 10 bps (0.1%)
 
     @property
@@ -38,6 +40,27 @@ class BuilderFeeConfig:
         if not self.enabled:
             return None
         return {"b": self.builder_address, "f": self.fee_rate_tenths_bps}
+
+    def metadata(self) -> Dict[str, Any]:
+        """Return ledger-safe builder-code metadata."""
+        return {
+            "builder_code_required": True,
+            "builder_address": self.builder_address or None,
+            "builder_fee_tenths_bps": self.fee_rate_tenths_bps,
+            "builder_fee_bps": self.fee_bps,
+            "builder_fee_enabled": self.enabled,
+        }
+
+    def validate_for_broadcast(self) -> None:
+        """Fail closed before a live order can leave agent-cli."""
+        if not self.enabled:
+            raise RuntimeError(
+                "builder-code validation failed: BUILDER_ADDRESS and BUILDER_FEE_TENTHS_BPS must configure a positive Nunchi builder fee"
+            )
+        if not isinstance(self.builder_address, str) or not self.builder_address.startswith("0x") or len(self.builder_address) != 42:
+            raise RuntimeError("builder-code validation failed: builder address must be a 20-byte hex address")
+        if self.fee_rate_tenths_bps <= 0:
+            raise RuntimeError("builder-code validation failed: builder fee must be positive")
 
     @classmethod
     def from_env(cls) -> "BuilderFeeConfig":

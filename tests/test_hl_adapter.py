@@ -16,6 +16,7 @@ from cli.hl_adapter import (
     CIRCUIT_BREAKER_THRESHOLD,
     MAX_RATE_LIMIT_RETRIES,
     _to_hl_coin,
+    _validate_builder_info,
 )
 
 
@@ -193,6 +194,16 @@ class TestPlaceOrder:
         }
         fill = proxy.place_order("ETH-PERP", "buy", 1.0, 2500.0)
         assert fill is None
+
+    def test_invalid_builder_metadata_fails_before_exchange_order(self):
+        proxy = _make_proxy()
+        with pytest.raises(RuntimeError, match="builder-code validation failed"):
+            proxy.place_order("ETH-PERP", "buy", 1.0, 2500.0, builder={"b": "", "f": 0})
+        proxy._exchange.order.assert_not_called()
+
+    def test_validate_builder_info_accepts_hl_builder_shape(self):
+        builder = {"b": "0x0000000000000000000000000000000000000001", "f": 10}
+        assert _validate_builder_info(builder) == builder
 
 
 class TestALOFallback:

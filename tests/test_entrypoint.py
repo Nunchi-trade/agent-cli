@@ -21,6 +21,13 @@ from scripts.entrypoint import (
 # ---------------------------------------------------------------------------
 
 class TestBuildCommand:
+    def test_default_mode_is_mcp_tools_runtime(self, monkeypatch):
+        monkeypatch.delenv("RUN_MODE", raising=False)
+
+        cmd = build_command()
+
+        assert cmd == [sys.executable, "-m", "cli.main", "mcp", "serve", "--transport", "sse"]
+
     def test_apex_mode_default(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "apex")
         monkeypatch.delenv("APEX_PRESET", raising=False)
@@ -166,7 +173,8 @@ class TestCheckAuth:
         ep.AUTH_TOKEN = None
         try:
             handler = self._make_handler()
-            assert handler._check_auth() is True
+            assert handler._check_auth() is False
+            handler.send_response.assert_called_with(503)
         finally:
             ep.AUTH_TOKEN = original
 

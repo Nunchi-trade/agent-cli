@@ -91,6 +91,53 @@ MCP tools: `funding_hedge_propose`, `funding_hedge_backtest`
 
 ---
 
+## Hosted MCP Entitlements
+
+Fully local/BYO MCP mode stays ungated by default. Hosted Nunchi MCP/tools or
+Nunchi inference enforcement activates only when one of these is configured:
+
+- `NUNCHI_MCP_ENTITLEMENT_JSON`: inline web-auth `GET /api/entitlements/mcp`
+  response.
+- `NUNCHI_MCP_ENTITLEMENT_FILE`: path to the entitlement JSON.
+- `NUNCHI_CONNECTION_MODE=hosted-mcp-tools` or
+  `NUNCHI_CONNECTION_MODE=hosted-mcp-tools-inference`: fetch entitlement from
+  web-auth with the stored pair token.
+- `NUNCHI_MCP_REQUIRE_ENTITLEMENT=true`: fail closed if no entitlement can be
+  fetched.
+
+When active, agent-cli enforces web-auth `allowedTools`, free/paid/safety tool
+buckets, local free-call accounting, and model policy (`openrouter/auto` and
+Fusion stay blocked unless the entitlement allows them). Safety-gated tools
+still require explicit `confirm=true`.
+
+Register local agent identity with web-auth:
+
+```bash
+hl pair register --agent-id local-mm-1 --agent-name "Local MM 1" --connection-mode clone-local
+```
+
+## Builder-Code Validation
+
+All direct Hyperliquid order broadcasts flow through `DirectHLProxy.place_order`.
+That adapter fails closed before calling `exchange.order` unless valid Nunchi
+builder-fee metadata is present. `hl trade --dry-run` prints the builder-code
+status and does not submit. Live trade ledgers include builder-code metadata so
+Mode 3 economics can be measured without implying Nunchi hosts the agent.
+
+## Pricing Dry Runs
+
+Use dry-run mode when OpenRouter keys or funded wallets are unavailable:
+
+```bash
+python scripts/pricing_experiment_suite.py --dry-run-only
+```
+
+The suite writes `experiment_manifest.json` with blocked live measurements
+instead of faking results. Fill-level validation still requires funded maker and
+taker wallet env vars.
+
+---
+
 ## Strategies
 
 14 built-in strategies across four categories. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling between strategies.
@@ -511,29 +558,34 @@ Every deployed agent also exposes an HTTP REST API and SSE real-time feed for da
 
 ## Deploy on Railway
 
-Two deployment options: **headless** (APEX runs strategies directly) or **OpenClaw agent** (conversational AI trading assistant with Telegram).
+The subscription product uses Railway as a **shared MCP tools runtime**, not as
+a per-user Hermes/OpenClaw/autonomous-agent host. The top-level Railway template
+defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
+`mcp-gateway`, while users run their own Cursor, Claude, Codex, or local
+`agent-cli` clients.
 
-### Option A: Headless APEX (Deterministic)
+### Shared MCP Tools Runtime
 
-One-click deploy to run APEX autonomously. No AI model needed — pure deterministic strategy execution.
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_TESTNET,RUN_MODE,DATA_DIR&HL_TESTNETDefault=true&RUN_MODEDefault=mcp&DATA_DIRDefault=/data)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
 | `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
-| `RUN_MODE` | No | `apex` | `apex`, `wolf` (alias), `strategy`, or `mcp` |
-| `APEX_PRESET` | No | `default` | `conservative`, `default`, or `aggressive` |
+| `RUN_MODE` | No | `mcp` | `mcp` for the hosted tools runtime; `apex`/`strategy` are local or legacy operator modes |
+| `DATA_DIR` | No | `/data` | Persistent ledgers, wallet state, and metering data |
+| `NUNCHI_METERING_URL` | No | - | Generic web-auth metering upload endpoint when the runner reports usage |
+| `NUNCHI_METERING_TOKEN` | No | - | Metering bearer token issued by web-auth/gateway config |
 
 **Run modes:**
-- **apex** (default) — APEX multi-slot orchestrator with autonomous entry, exit, Guard trailing stops, and REFLECT self-improvement loop
-- **strategy** — Single strategy loop (set `STRATEGY=engine_mm`, `avellaneda_mm`, etc.)
-- **mcp** — MCP server for AI agent integration (SSE transport)
+- **mcp** (default) - SSE MCP server for the shared Railway tools runtime.
+- **apex** / **strategy** - direct autonomous loops for local/self-hosted operators, not the Nunchi subscription product path.
 
-### Option B: OpenClaw Agent (Conversational AI)
+### Legacy OpenClaw Agent Template
 
-One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend. Talk to your trading bot via Telegram — it scans markets, enters trades, manages risk, and learns from its mistakes.
+`deploy/openclaw-railway` is retained as a legacy/reference self-host template.
+It is not part of the new hosted MCP subscription architecture because it
+provisions a user-facing conversational/autonomous agent. Do not expose it as
+the paid Nunchi product path.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli/tree/main/deploy/openclaw-railway&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
 
@@ -546,7 +598,7 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 | `TELEGRAM_USERNAME` | Yes | — | Your Telegram @username |
 | `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
 
-**What you get:**
+**Legacy behavior:**
 - OpenClaw gateway with web UI at `/openclaw`
 - Telegram integration — chat with your bot to start/stop trading, run scans, check status
 - Our 13 MCP trading tools as the agent's primary capabilities
@@ -561,7 +613,8 @@ One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend.
 4. Ask "how did we do?" → it runs REFLECT and reports performance metrics
 5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
 
-Both options persist state via Railway volume at `/data` — APEX state, REFLECT reports, Radar history, and agent memory survive redeploys.
+Both templates persist state via Railway volume at `/data`, but only the
+top-level `RUN_MODE=mcp` deployment reflects the shared hosted tools runtime.
 
 ---
 

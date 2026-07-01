@@ -130,10 +130,25 @@ def trade_cmd(
         f"Placing {side.upper()} {size} {instrument} @ {price} ({tif}) on {network} "
         f"(notional=${notional_usd:.2f}, max=${notional_cap:.2f})"
     )
+    builder_cfg = cfg.get_builder_config()
+    try:
+        builder_cfg.validate_for_broadcast()
+        builder_validation = "ok"
+    except RuntimeError as exc:
+        builder_validation = str(exc)
+    builder_info = builder_cfg.to_builder_info()
+    typer.echo(
+        "Builder-code: "
+        f"{builder_validation}; address={builder_cfg.builder_address or '-'}; "
+        f"fee_tenths_bps={builder_cfg.fee_rate_tenths_bps}"
+    )
 
     if dry_run:
         typer.echo("Dry run: order not submitted.")
         return
+    if builder_validation != "ok":
+        typer.echo(builder_validation, err=True)
+        raise typer.Exit(1)
 
     if hl is None:
         private_key = cfg.get_private_key()
@@ -148,6 +163,7 @@ def trade_cmd(
         size=size,
         price=price,
         tif=tif,
+        builder=builder_info,
     )
 
     if fill:
@@ -180,6 +196,7 @@ def trade_cmd(
                 "strategy": "manual_trade",
                 "route": "cli.trade",
                 "network": network,
+                **builder_cfg.metadata(),
             })
     else:
         typer.echo("No fill (order may have been rejected or not matched)")

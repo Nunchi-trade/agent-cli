@@ -37,6 +37,13 @@ def pair_connect(
     no_browser: bool = typer.Option(False, "--no-browser", help="Print the URL instead of opening a browser."),
     timeout: int = typer.Option(300, "--timeout", help="Seconds to wait for browser approval."),
     app_name: str = typer.Option("HL Agent CLI", "--app-name", help="Display name shown on the authorize page."),
+    agent_id: str = typer.Option("", "--agent-id", help="Stable local agent id to include in pairing metadata."),
+    agent_name: str = typer.Option("", "--agent-name", help="Human-readable local agent name."),
+    connection_mode: str = typer.Option(
+        "clone-local",
+        "--connection-mode",
+        help="clone-local, hosted-mcp-tools, or hosted-mcp-tools-inference.",
+    ),
 ) -> None:
     _ensure_path()
     from cli.web_auth import PairingTimedOutError, get_stored_pairing, start_pairing
@@ -69,6 +76,9 @@ def pair_connect(
     try:
         result = start_pairing(
             app_name=app_name,
+            agent_id=agent_id or None,
+            agent_name=agent_name or app_name,
+            connection_mode=connection_mode,
             no_browser=no_browser,
             on_url=_on_url,
             on_polling=_on_polling,
@@ -125,6 +135,9 @@ def pair_status() -> None:
     typer.echo(f"  paired: {_humanize_age(pairing.paired_at_ms)}")
     if pairing.account_id:
         typer.echo(f"  account: {pairing.account_id}")
+    if pairing.agent_id:
+        typer.echo(f"  agent: {pairing.agent_name or pairing.agent_id} ({pairing.agent_id})")
+        typer.echo(f"  runtime: {pairing.runtime_location or 'local'} / {pairing.connection_mode or 'clone-local'}")
     if pairing.master_address:
         typer.echo(f"  master: {pairing.master_address}")
     typer.echo(f"  addresses ({len(pairing.addresses)}):")
@@ -152,6 +165,10 @@ def pair_list() -> None:
                 "ok": True,
                 "label": pairing.label,
                 "accountId": pairing.account_id,
+                "agentId": pairing.agent_id,
+                "agentName": pairing.agent_name,
+                "runtimeLocation": pairing.runtime_location,
+                "connectionMode": pairing.connection_mode,
                 "masterAddress": pairing.master_address,
                 "selectedAddress": pairing.selected_or_master_address,
                 "wallets": [
@@ -190,6 +207,11 @@ def pair_open(
     account_id: str = typer.Option("", "--account-id", help="Optional account id for agent-wallet binding view."),
     agent_id: str = typer.Option("", "--agent-id", help="Optional agent id for agent-wallet binding view."),
     agent_name: str = typer.Option("", "--agent-name", help="Optional display name for the agent-wallet binding view."),
+    connection_mode: str = typer.Option(
+        "clone-local",
+        "--connection-mode",
+        help="clone-local, hosted-mcp-tools, or hosted-mcp-tools-inference.",
+    ),
     include_pair_token: bool = typer.Option(
         False,
         "--include-pair-token",
@@ -204,6 +226,8 @@ def pair_open(
         account_id=account_id or None,
         agent_id=agent_id or None,
         agent_name=agent_name or None,
+        runtime_location="local",
+        connection_mode=connection_mode,
         include_pair_token=include_pair_token,
     )
     typer.echo(f"web-auth: {url}")
@@ -215,6 +239,7 @@ def pair_bind_role(
     account_id: str = typer.Option("", "--account-id", help="web-auth account id for the binding. Defaults to the paired account."),
     agent_id: str = typer.Option("", "--agent-id", help="Override agent id. Defaults to agent-cli-cost-e2e-<role>."),
     agent_name: str = typer.Option("", "--agent-name", help="Override display name in web-auth."),
+    connection_mode: str = typer.Option("clone-local", "--connection-mode", help="Connection mode to tag in web-auth."),
     timeout: int = typer.Option(300, "--timeout", help="Seconds to wait for the web-auth selection."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Print the URL instead of opening a browser."),
 ) -> None:
@@ -247,6 +272,8 @@ def pair_bind_role(
             account_id=resolved_account_id,
             agent_id=resolved_agent_id,
             agent_name=resolved_agent_name,
+            runtime_location="local",
+            connection_mode=connection_mode,
             include_pair_token=True,
         )
     except PairingMissingError as exc:
@@ -281,6 +308,44 @@ def pair_bind_role(
     typer.echo(f"Bound {role}: {binding.get('walletAddress')}")
     typer.echo(f"  accountId: {resolved_account_id}")
     typer.echo(f"  agentId: {resolved_agent_id}")
+
+
+@pair_app.command("register", help="Register or update this local agent identity in web-auth")
+def pair_register(
+    agent_id: str = typer.Option(..., "--agent-id", help="Stable local agent id."),
+    agent_name: str = typer.Option("", "--agent-name", help="Human-readable agent name."),
+    account_id: str = typer.Option("", "--account-id", help="web-auth account id. Defaults to paired account."),
+    connection_mode: str = typer.Option(
+        "clone-local",
+        "--connection-mode",
+        help="clone-local, hosted-mcp-tools, or hosted-mcp-tools-inference.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response."),
+) -> None:
+    _ensure_path()
+    from cli.web_auth import PairingInvalidError, PairingMissingError, register_agent
+
+    try:
+        result = register_agent(
+            account_id=account_id or None,
+            agent_id=agent_id,
+            agent_name=agent_name or agent_id,
+            connection_mode=connection_mode,
+        )
+    except (PairingMissingError, PairingInvalidError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+    except Exception as exc:
+        typer.echo(f"Agent register failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if json_output:
+        typer.echo(json.dumps(result, indent=2))
+        return
+    agent = result.get("agent") or {}
+    typer.echo(f"Registered agent: {agent.get('agentName') or agent_name or agent_id}")
+    typer.echo(f"  agentId: {agent.get('agentId') or agent.get('agent_id') or agent_id}")
+    typer.echo(f"  runtime: {agent.get('runtimeLocation') or 'local'} / {agent.get('connectionMode') or connection_mode}")
 
 
 @pair_app.command("roles", help="Show maker/taker wallet-role selections stored for this pairing")

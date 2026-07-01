@@ -55,6 +55,10 @@ class PairingResult:
     active_session: Optional[dict[str, Any]] = None
     agent_wallet_binding: Optional[dict[str, Any]] = None
     role_addresses: Optional[dict[str, str]] = None
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    runtime_location: str = "local"
+    connection_mode: str = "clone-local"
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -72,6 +76,10 @@ class PairingResult:
             active_session=raw.get("active_session") or raw.get("activeSession"),
             agent_wallet_binding=raw.get("agent_wallet_binding") or raw.get("agentWalletBinding"),
             role_addresses=raw.get("role_addresses") or raw.get("roleAddresses") or {},
+            agent_id=raw.get("agent_id") or raw.get("agentId"),
+            agent_name=raw.get("agent_name") or raw.get("agentName"),
+            runtime_location=raw.get("runtime_location") or raw.get("runtimeLocation") or "local",
+            connection_mode=raw.get("connection_mode") or raw.get("connectionMode") or "clone-local",
         )
 
     @property
@@ -212,12 +220,20 @@ def _auth_headers(pairing: PairingResult) -> dict[str, str]:
     return {"Authorization": f"Bearer {pairing.token}", "Accept": "application/json"}
 
 
+def normalize_connection_mode(value: Optional[str]) -> str:
+    if value in {"clone-local", "hosted-mcp-tools", "hosted-mcp-tools-inference"}:
+        return value
+    return "clone-local"
+
+
 def open_wallet_ui(
     *,
     no_browser: bool = False,
     account_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     agent_name: Optional[str] = None,
+    runtime_location: str = "local",
+    connection_mode: str = "clone-local",
     include_pair_token: bool = False,
 ) -> str:
     pairing = get_stored_pairing()
@@ -232,6 +248,8 @@ def open_wallet_ui(
             params.append(("agentId", agent_id))
         if agent_name:
             params.append(("agentName", agent_name))
+        params.append(("runtimeLocation", runtime_location or "local"))
+        params.append(("connectionMode", normalize_connection_mode(connection_mode)))
         if include_pair_token and pairing is not None:
             params.append(("pairToken", pairing.token))
     separator = "&" if "?" in WALLET_AUTH_URL else "?"
@@ -331,6 +349,9 @@ def _open_browser(url: str, no_browser: bool = False) -> None:
 def start_pairing(
     app_name: str = "HL Agent CLI",
     deep_link: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    connection_mode: str = "clone-local",
     on_polling: Optional[Callable[[], None]] = None,
     no_browser: bool = False,
     on_url: Optional[Callable[[str], None]] = None,
@@ -341,6 +362,12 @@ def start_pairing(
     params: list[tuple[str, str]] = [("code", code), ("app", app_name)]
     if deep_link:
         params.append(("redirect", deep_link))
+    if agent_id:
+        params.append(("agentId", agent_id))
+    if agent_name:
+        params.append(("agentName", agent_name))
+    params.append(("runtimeLocation", "local"))
+    params.append(("connectionMode", normalize_connection_mode(connection_mode)))
     url = f"{AUTHORIZE_URL}?{urlencode(params)}"
 
     if on_url:
@@ -381,6 +408,10 @@ def start_pairing(
             master_address=body.get("masterAddress"),
             active_session=body.get("activeSession"),
             agent_wallet_binding=body.get("agentWalletBinding"),
+            agent_id=body.get("agentId") or agent_id,
+            agent_name=body.get("agentName") or agent_name or app_name,
+            runtime_location=body.get("runtimeLocation") or "local",
+            connection_mode=body.get("connectionMode") or normalize_connection_mode(connection_mode),
         )
         _persist(result)
         return result
@@ -405,6 +436,52 @@ def verify_pairing() -> Optional[dict[str, Any]]:
         raise PairingInvalidError("token rejected by web-auth (401)")
     if not resp.ok:
         return None
+    return resp.json()
+
+
+def register_agent(
+    *,
+    account_id: Optional[str] = None,
+    agent_id: str,
+    agent_name: Optional[str] = None,
+    connection_mode: str = "clone-local",
+    extra: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    pairing = require_pairing()
+    resolved_account_id = account_id or pairing.account_id
+    if not resolved_account_id:
+        raise PairingInvalidError("pairing does not include an account id")
+    mode = normalize_connection_mode(connection_mode)
+    name = agent_name or pairing.agent_name or agent_id
+    record: dict[str, Any] = {
+        "agentId": agent_id,
+        "agent_id": agent_id,
+        "agentName": name,
+        "name": name,
+        "runtimeLocation": "local",
+        "runtime_location": "local",
+        "connectionMode": mode,
+        "connection_mode": mode,
+        "accountId": resolved_account_id,
+        "account_id": resolved_account_id,
+    }
+    if extra:
+        record.update(extra)
+    resp = requests.post(
+        f"{PAIR_API_BASE}/api/agents/register",
+        headers={**_auth_headers(pairing), "Content-Type": "application/json"},
+        json={"accountId": resolved_account_id, "agentId": agent_id, "agent": record},
+        timeout=15,
+    )
+    if resp.status_code == 401:
+        raise PairingInvalidError("token rejected by web-auth (401)")
+    if not resp.ok:
+        raise RuntimeError(f"/api/agents/register returned {resp.status_code}: {resp.text[:200]}")
+    pairing.agent_id = agent_id
+    pairing.agent_name = name
+    pairing.runtime_location = "local"
+    pairing.connection_mode = mode
+    _persist(pairing)
     return resp.json()
 
 

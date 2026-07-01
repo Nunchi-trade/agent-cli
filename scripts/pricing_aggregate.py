@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate hosted-agent pricing ledgers into COGS and launch pricing."""
+"""Aggregate MCP/inference pricing ledgers into COGS and launch pricing."""
 from __future__ import annotations
 
 import argparse
@@ -115,7 +115,10 @@ def aggregate(args: argparse.Namespace) -> int:
                 cost_by_decision[str(decision_call_id)] += _decimal(row.get("usd_cost"))
         linked_trade_cost = Decimal("0")
         linked_trade_count = 0
+        dry_run_count = len([r for r in trades if r.get("dry_run")])
         for row in trades:
+            if row.get("dry_run"):
+                continue
             decision_call_id = row.get("decision_call_id")
             if decision_call_id and str(decision_call_id) in cost_by_decision:
                 linked_trade_count += 1
@@ -185,6 +188,7 @@ def aggregate(args: argparse.Namespace) -> int:
             "cache_hit_rate": cache_hit_rate,
             "cache_savings_total": cache_savings_total,
             "linked_trade_count": linked_trade_count,
+            "dry_run_count": dry_run_count,
             "avg_llm_per_linked_fill": avg_llm_per_linked_fill,
             "observability_total": observability_total,
             "total": total,
@@ -217,17 +221,21 @@ def _render_markdown(input_dir: Path, rows: List[dict], incidents: List[dict], a
     generated = time.strftime("%Y-%m-%d")
     lines = [
         "---",
-        "title: Hosted Agent Pricing Results",
+        "title: MCP and Inference Pricing Results",
         f"date: {generated}",
-        "tags: [pricing, hosted-agents, cost-experiment, agent-cli]",
+        "tags: [pricing, mcp, inference, cost-experiment, agent-cli]",
         "---",
         "",
-        "# Hosted Agent Pricing Results",
+        "# MCP and Inference Pricing Results",
         "",
-        "**Source:** [[2026-06-25-hosted-agent-pricing-qualification-loop]]",
+        "**Source:** [[2026-07-01-mcp-subscription-rework]]",
         "",
         f"Input directory: `{input_dir}`",
         f"Target margin: {args.target_margin}%",
+        "",
+        "## Mode-Specific Pricing Inputs",
+        "",
+        *_render_mode_summary(rows, args),
         "",
         "## Executive Recommendation",
         "",
@@ -243,15 +251,15 @@ def _render_markdown(input_dir: Path, rows: List[dict], incidents: List[dict], a
         "",
         "## Cost By Job Type",
         "",
-        "| Job Type | Users | Accounts | Agents | Subs | Hours | Heartbeats | Linked Fills | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Job Type | Users | Accounts | Agents | Subs | Hours | Heartbeats | Linked Live Fills | Dry Runs | Avg LLM/Linked Fill | Cache Hit | Cached Tokens | Cache Savings | LLM | Infra | Fees | Total | USD/Heartbeat | USD/Month | p95 Monthly COGS | Recommended |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ])
 
     for row in rows:
         lines.append(
             f"| `{row['job_type']}` | {row['user_count']} | {row['account_count']} | {row['agent_count']} | "
             f"{row['subscription_count']} | {float(row['duration_hours']):.2f} | "
-            f"{row['heartbeat_count']} | {row['linked_trade_count']} | {_money(row['avg_llm_per_linked_fill'])} | "
+            f"{row['heartbeat_count']} | {row['linked_trade_count']} | {row['dry_run_count']} | {_money(row['avg_llm_per_linked_fill'])} | "
             f"{float(row['cache_hit_rate']) * 100:.1f}% | {int(row['cached_token_total'])} | {_money(row['cache_savings_total'])} | "
             f"{_money(row['llm_total'])} | {_money(row['infra_total'])} | "
             f"{_money(row['fees_total'])} | {_money(row['total'])} | {_money(row['usd_per_heartbeat'])} | "
@@ -282,19 +290,40 @@ def _render_markdown(input_dir: Path, rows: List[dict], incidents: List[dict], a
         "",
         "## Assumptions",
         "",
-        f"- Infra allocation: {_money(rows[0]['infra_hourly']) if rows else '$0.0000'}/agent-hour ({rows[0]['infra_source'] if rows else 'unknown'}).",
+        f"- Hosted MCP `C_seat` uses `--hosted-mcp-seats={args.hosted_mcp_seats}` and amortizes shared tools runtime/observability over seats; it is not a per-user autonomous hosted-agent cost.",
+        f"- Infra allocation input: {_money(rows[0]['infra_hourly']) if rows else '$0.0000'}/runtime-hour ({rows[0]['infra_source'] if rows else 'unknown'}).",
         f"- Railway assumption: {args.railway_vcpu_per_agent} vCPU, {args.railway_ram_gb_per_agent} GB RAM, "
-        f"{args.railway_volume_gb_per_agent} GB volume, {args.railway_egress_gb_per_agent_month} GB monthly egress per agent.",
-        f"- Observability allocation: ${args.observability_usd_per_agent_hour}/agent-hour.",
+        f"{args.railway_volume_gb_per_agent} GB volume, {args.railway_egress_gb_per_agent_month} GB monthly egress for the measured runtime allocation.",
+        f"- Observability allocation: ${args.observability_usd_per_agent_hour}/runtime-hour.",
         "- Cache savings are reported only when provider usage metadata includes a savings value; otherwise cached tokens and hit rate are shown without assumed dollar savings.",
+        "- OpenRouter anchors from current experiments: openrouter/auto ~= $0.0036-$0.00375 per heartbeat; gpt-4.1-mini ~= $0.0002-$0.000222; Fusion capped ~= $0.033 and is premium-only until cheaper routing is proven.",
         "- Pricing uses p95 monthly COGS rather than average COGS.",
         "- Testnet measurements still need mainnet fee and production infra validation before final launch pricing.",
     ])
     return "\n".join(lines) + "\n"
 
 
+def _render_mode_summary(rows: List[dict], args: argparse.Namespace) -> List[str]:
+    if not rows:
+        return ["No mode-specific rows available yet."]
+    seats = Decimal(max(1, int(args.hosted_mcp_seats)))
+    mode_2_inference = sum((row["llm_total"] for row in rows), Decimal("0"))
+    mode_3_builder = sum((row["fees_total"] for row in rows), Decimal("0"))
+    p95_runtime = sum((row["p95_monthly_cogs"] - row["llm_total"] - row["fees_total"] for row in rows), Decimal("0"))
+    c_seat = p95_runtime / seats if seats > 0 else Decimal("0")
+    return [
+        "| Mode | What Nunchi Pays | Measured Input | Pricing Note |",
+        "| --- | --- | ---: | --- |",
+        f"| `mode_1_hosted_mcp_tools` | Shared Railway tools runtime, gateway, audit/control plane | `C_seat` ~= {_money(c_seat)} / seat-month at {int(seats)} seats | User pays their own inference; paid tools and call volume decide final tier. |",
+        f"| `mode_2_hosted_mcp_tools_inference` | Mode 1 plus Nunchi/OpenRouter budget | `C_inference` observed {_money(mode_2_inference)} in input ledgers | Cheap model default; auto/Fusion are premium cost centers. |",
+        f"| `mode_3_clone_local` | No hosted tools/runtime unless user opts in | Builder-fee metadata observed {_money(mode_3_builder)} | Economics are builder-code capture plus optional paid controls. |",
+        "",
+        "**OpenRouter anchor reminders:** `gpt-4.1-mini` ~= $0.0002/heartbeat, `openrouter/auto` ~= $0.0037/heartbeat, Fusion ~= $0.033/heartbeat in prior capped runs.",
+    ]
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Aggregate hosted-agent pricing ledgers")
+    parser = argparse.ArgumentParser(description="Aggregate MCP/inference pricing ledgers")
     parser.add_argument("--input-dir", required=True)
     parser.add_argument("--output")
     parser.add_argument("--infra-usd-per-agent-hour", type=float, default=None)
@@ -303,6 +332,7 @@ def main() -> int:
     parser.add_argument("--railway-volume-gb-per-agent", type=float, default=0.0)
     parser.add_argument("--railway-egress-gb-per-agent-month", type=float, default=0.0)
     parser.add_argument("--observability-usd-per-agent-hour", type=float, default=0.0)
+    parser.add_argument("--hosted-mcp-seats", type=int, default=5, help="Seats used to amortize shared hosted MCP runtime cost")
     parser.add_argument("--target-margin", choices=["70", "80", "85", "90"], default="80")
     args = parser.parse_args()
     return aggregate(args)
