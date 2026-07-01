@@ -22,7 +22,7 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     "hedge_agent": {
         "path": "strategies.hedge_agent:HedgeAgent",
         "description": "inventory reducer (delta control)",
-        "params": {"notional_threshold": 15000.0},
+        "params": {"inventory_threshold": 3.0},
     },
     "cfi_hedge": {
         "path": "strategies.cfi_hedge_agent:CfiHedgeAgent",
@@ -56,7 +56,7 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "funding_arb": {
         "path": "strategies.funding_arb:FundingArbStrategy",
-        "description": "Cross-venue funding rate arbitrage — captures funding dislocations",
+        "description": "HL funding-rate bias MM — cross-venue arb not wired; HL-only",
         "params": {"divergence_threshold_bps": 2.0, "max_bias_bps": 5.0},
     },
     "regime_mm": {

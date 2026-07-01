@@ -243,7 +243,7 @@ def test_hedge_execute_dry_run_does_not_place_or_persist(monkeypatch):
     monkeypatch.setattr(cfgmod.TradingConfig, "get_private_key", lambda self: "0x" + "1" * 64)
     monkeypatch.setattr(proxy_mod, "HLProxy", lambda private_key, testnet: object())
     monkeypatch.setattr(adapter_mod, "DirectHLProxy", FakeDirectHLProxy)
-    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin: (proposal, snapshot))
+    monkeypatch.setattr(hedge_cmd, "_build_proposal", lambda hl, coin, **kwargs: (proposal, snapshot))
     monkeypatch.setattr("cli.hedge_display.hedge_proposal_block", lambda proposal, snapshot, mainnet=False: "proposal")
     monkeypatch.setattr(hedge_cmd, "_save_hedges", fail_persist)
 

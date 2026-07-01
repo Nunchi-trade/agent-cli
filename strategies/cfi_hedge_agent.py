@@ -6,7 +6,7 @@ deterministic auto-open decision (`modules/hedge_auto.py`) into the
 strategy loop alongside the inventory-control `HedgeAgent`.
 
 This is the canonical "hedge" strategy: it neutralises funding-rate cost
-on an existing perp position by opening a 1/L CFI v2 (yex:{COIN}SWP) leg.
+on an existing perp position by opening a 1/L CFI v2 ({yex|para}:{COIN}SWP) leg.
 Contrast with `strategies/hedge_agent.py`, which is a delta/inventory
 reducer.
 
@@ -23,7 +23,7 @@ from __future__ import annotations
 import time
 from typing import List, Optional
 
-from common.models import MarketSnapshot, StrategyDecision, instrument_to_coin
+from common.models import MarketSnapshot, StrategyDecision, instrument_to_coin, is_mainnet
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 from strategies.cfi_hedge import (
@@ -48,7 +48,7 @@ class CfiHedgeAgent(BaseStrategy):
       3. Run the pure `compute_hedge_open_action` gate (trigger + caps + interval).
       4. If it fires, size the CFI v2 leg via `build_cfi_hedge_proposal`
          (1/L ratio) and emit a `place_order` StrategyDecision on the
-         yex:{COIN}SWP instrument.
+         network-appropriate CFI v2 instrument (yex:BTCSWP testnet, para:BTCSWP mainnet).
 
     State (daily action counter / last-action timestamp) is held in-memory
     for the life of the strategy instance — the standalone `hl hedge auto`
@@ -62,12 +62,16 @@ class CfiHedgeAgent(BaseStrategy):
         max_hedge_notional: float = 50_000.0,
         max_per_day: int = 5,
         min_interval_seconds: int = 300,
+        mainnet: Optional[bool] = None,
+        hedge_instrument: Optional[str] = None,
     ):
         super().__init__(strategy_id=strategy_id)
         self.notional_trigger = notional_trigger
         self.max_hedge_notional = max_hedge_notional
         self.max_per_day = max_per_day
         self.min_interval_seconds = min_interval_seconds
+        self.mainnet = is_mainnet(mainnet)
+        self.hedge_instrument = hedge_instrument
         # In-memory daily counters (CLI verb owns the disk-backed copy).
         self._daily = DailyHedgeState.fresh(today_utc_iso())
         # Coins already hedged in this strategy session.
@@ -83,11 +87,15 @@ class CfiHedgeAgent(BaseStrategy):
 
         # Normalise the snapshot instrument to a bare ticker (BTC-PERP → BTC,
         # yex:BTCSWP → BTCSWP) so it keys into the deployed CFI v2 profiles.
-        coin = instrument_to_coin(snapshot.instrument)
+        coin = instrument_to_coin(snapshot.instrument, mainnet=self.mainnet)
         if ":" in coin:
             coin = coin.split(":", 1)[1]
         coin = coin.upper()
-        profile = get_cfi_profile(coin)
+        profile = get_cfi_profile(
+            coin,
+            mainnet=self.mainnet,
+            hedge_instrument=self.hedge_instrument,
+        )
         if profile is None:
             return []
 
@@ -170,6 +178,8 @@ class CfiHedgeAgent(BaseStrategy):
             position=position,
             current_funding_hr=snapshot.funding_rate,
             k_fixed_hr=profile.fixed_leg_initial,
+            mainnet=self.mainnet,
+            hedge_instrument=self.hedge_instrument,
         )
         if proposal is None:
             return None
