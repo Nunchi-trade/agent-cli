@@ -510,106 +510,75 @@ Every deployed agent also exposes an HTTP REST API and SSE real-time feed for da
 
 ## Deploy on Railway
 
-Three deployment options: **headless** (APEX runs strategies directly), or a conversational AI trading assistant on either the **OpenClaw** or **Hermes** agent harness (with optional Telegram).
+The subscription product uses Railway as a **shared MCP tools runtime**, not as
+a per-user Hermes/OpenClaw/autonomous-agent host. The top-level Railway template
+defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
+`mcp-gateway`, while users run their own Cursor, Claude, Codex, or local
+`agent-cli` clients.
 
-### Option A: Headless APEX (Deterministic)
+### Shared MCP Tools Runtime
 
-One-click deploy to run APEX autonomously. No AI model needed — pure deterministic strategy execution.
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_TESTNET,RUN_MODE,DATA_DIR&HL_TESTNETDefault=true&RUN_MODEDefault=mcp&DATA_DIRDefault=/data)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
 | `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
-| `RUN_MODE` | No | `apex` | `apex`, `wolf` (alias), `strategy`, or `mcp` |
-| `APEX_PRESET` | No | `default` | `conservative`, `default`, or `aggressive` |
+| `RUN_MODE` | No | `mcp` | `mcp` for the hosted tools runtime; `apex`/`strategy` are local or legacy operator modes |
+| `DATA_DIR` | No | `/data` | Persistent ledgers, wallet state, and metering data |
+| `NUNCHI_METERING_URL` | No | — | Generic web-auth metering upload endpoint when the runner reports usage |
+| `NUNCHI_METERING_TOKEN` | No | — | Metering bearer token issued by web-auth/gateway config |
 
 **Run modes:**
-- **apex** (default) — APEX multi-slot orchestrator with autonomous entry, exit, Guard trailing stops, and REFLECT self-improvement loop
-- **strategy** — Single strategy loop (set `STRATEGY=engine_mm`, `avellaneda_mm`, etc.)
-- **mcp** — MCP server for AI agent integration (SSE transport)
+- **mcp** (default) — SSE MCP server for the shared Railway tools runtime.
+- **apex** / **strategy** — direct autonomous loops for local/self-hosted operators, not the Nunchi subscription product path.
 
-### Option B: OpenClaw Agent (Conversational AI)
+### Legacy Agent Templates
 
-One-click deploy of a full OpenClaw agent that uses our CLI as the tool backend. Talk to your trading bot via Telegram — it scans markets, enters trades, manages risk, and learns from its mistakes.
+The OpenClaw and Hermes Railway templates are retained as legacy/reference
+self-host templates. They are not part of the new hosted MCP subscription
+architecture because they provision user-facing conversational/autonomous
+agents. Do not expose them as the paid Nunchi product path.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
-
-> **Setup:** This image bundles the full agent-cli source, so the build context must be the repo root. After creating the service, in **Settings → Build** leave **Root Directory** at `/` (repo root) and set the **Config-as-code path** to `deploy/openclaw-railway/railway.toml`. (The Dockerfile lives at `deploy/openclaw-railway/Dockerfile` and `COPY`s from the repo root — pointing the service Root Directory at the subdirectory makes the build context too narrow and `pip install` of the CLI fails.)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
-| `AI_PROVIDER` | Yes | — | `anthropic`, `openai`, `gemini`, or `openrouter` |
-| `AI_API_KEY` | Yes | — | API key for the chosen AI provider |
-| `TELEGRAM_BOT_TOKEN` | Yes | — | Telegram bot token (from @BotFather) |
-| `TELEGRAM_USERNAME` | Yes | — | Your Telegram @username |
-| `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
-
-**What you get:**
-- OpenClaw gateway with web UI at `/openclaw`
-- Telegram integration — chat with your bot to start/stop trading, run scans, check status
-- Our 13 MCP trading tools as the agent's primary capabilities
-- Persistent state across redeploys via `/data` volume
-- Auto-onboard: bot sends "Agent ready" to Telegram on first deploy
-- REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
-
-**How it works:**
-1. Deploy sets up OpenClaw + our `hl mcp serve` as the tool provider
-2. Bot auto-configures Telegram and sends you a ready message
-3. Tell it "start trading" → it runs APEX with autonomous entry, exit, and risk management
-4. Ask "how did we do?" → it runs REFLECT and reports performance metrics
-5. The agent reads workspace files (AGENTS.md, SOUL.md) that define its trading behavior
-
-### Option C: Hermes Agent (Nous Research)
-
-One-click deploy of a full [Hermes](https://github.com/NousResearch/hermes-agent) agent (Nous Research) that uses our CLI as the MCP tool backend. Same conversational trading experience as OpenClaw, on a different harness — chat via Telegram while the agent scans markets, enters trades, manages risk, and reflects on its performance. An Express front door proxies to the internal Hermes dashboard.
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,AI_PROVIDER,AI_API_KEY,TELEGRAM_BOT_TOKEN,TELEGRAM_USERNAME,HL_TESTNET&HL_TESTNETDefault=true)
-
-> **Setup:** This image bundles the full agent-cli source, so the build context must be the repo root. After creating the service, in **Settings → Build** leave **Root Directory** at `/` (repo root) and set the **Config-as-code path** to `deploy/hermes-railway/railway.toml`. (The Dockerfile lives at `deploy/hermes-railway/Dockerfile` and `COPY`s from the repo root — pointing the service Root Directory at the subdirectory makes the build context too narrow and `pip install` of the CLI fails.)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `HL_PRIVATE_KEY` | Yes | — | Your Hyperliquid private key |
-| `AI_PROVIDER` | Yes | — | `anthropic`, `openai`, `openrouter`, `gemini`, `google`, `nous`, `zai`, `kimi`, or `huggingface` |
-| `AI_API_KEY` | Yes | — | API key for the chosen AI provider |
-| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token (from @BotFather); enables Telegram chat + auto-onboard |
-| `TELEGRAM_USERNAME` | No | — | Your Telegram @username (used to resolve your chat ID) |
-| `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
-| `HERMES_MODEL` | No | — | Override the default model for the chosen provider |
-| `DISCORD_BOT_TOKEN` | No | — | Discord bot token (optional messaging platform) |
-| `SLACK_BOT_TOKEN` | No | — | Slack bot token (optional messaging platform) |
-
-The following are preset by `deploy/hermes-railway/railway.toml` and normally need no change: `PORT` (`8080`), `INTERNAL_GATEWAY_HOST`/`INTERNAL_GATEWAY_PORT` (the internal Hermes dashboard bind), and `HERMES_HOME`/`HERMES_DASHBOARD_HOST`/`HERMES_DASHBOARD_PORT`.
-
-**What you get:**
-- Hermes dashboard (web UI) proxied through the Express front door, plus our MCP trading tools registered as the `nunchi_trading` MCP server (the same toolset the OpenClaw deploy uses)
-- Optional Telegram integration — chat with your bot to start/stop trading, run scans, check status
-- Persistent state across redeploys via `/data` volume (Hermes config, memories, sessions under `HERMES_HOME`)
-- Auto-onboard: when Telegram credentials are present, the bot sends a "ready" message on first deploy
-- REFLECT self-improvement: the agent analyzes its own trades and adjusts strategy parameters
-
-Both conversational options persist state via Railway volume at `/data` — APEX state, REFLECT reports, Radar history, and agent memory survive redeploys.
+For legacy experiments, use `deploy/openclaw-railway/railway.toml` or
+`deploy/hermes-railway/railway.toml` as the config-as-code path and keep the
+Railway build root at the repo root.
 
 ---
 
-## YEX Yield Markets
+## YEX Yield Markets (testnet) & BTCSWP (mainnet)
 
-[YEX](https://yex.nunchi.trade) (Nunchi HIP-3) yield perpetuals on Hyperliquid:
+[YEX](https://yex.nunchi.trade) (Nunchi HIP-3) yield perpetuals on Hyperliquid testnet:
 
 | Instrument | HL Coin | Description |
 |------------|---------|-------------|
 | VXX-USDYP | yex:VXX | Volatility index yield perp |
 | US3M-USDYP | yex:US3M | US 3M Treasury rate yield perp |
-| BTCSWP-USDYP | yex:BTCSWP | BTC interest rate swap yield perp — tracks the BTC-denominated swap curve |
+| BTCSWP-USDYP | yex:BTCSWP | BTC interest rate swap yield perp (testnet) |
+
+Paragon BTCSWP on Hyperliquid **mainnet** uses the `para` HIP-3 dex:
+
+| Instrument | HL Coin | Description |
+|------------|---------|-------------|
+| BTCSWP-PARA | para:BTCSWP | BTC interest rate swap yield perp (mainnet) |
+
+Mainnet requires `--mainnet` and `HL_TESTNET=false`. Approve builder fees on mainnet before live trading:
+
+```bash
+export HL_TESTNET=false
+hl builder approve --mainnet --yes
+hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
+hl trade buy 0.1 -i SOL-PERP --mainnet --yes
+```
+
+Testnet examples:
 
 ```bash
 hl run avellaneda_mm -i VXX-USDYP --tick 15
 hl run funding_arb -i US3M-USDYP --tick 30
 hl run engine_mm -i BTCSWP-USDYP --tick 10
 ```
+
+Native HL perps (`ETH-PERP`, `SOL-PERP`, etc.) resolve generically on mainnet without a whitelist.
 
 ---
 

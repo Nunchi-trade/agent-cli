@@ -17,7 +17,7 @@ def run_cmd(
     ),
     instrument: str = typer.Option(
         "ETH-PERP", "--instrument", "-i",
-        help="Trading instrument (ETH-PERP, VXX-USDYP, US3M-USDYP)",
+        help="Trading instrument (any HL perp, e.g. ETH-PERP, SOL-PERP, BTCSWP-PARA)",
     ),
     tick_interval: float = typer.Option(
         10.0, "--tick", "-t",
@@ -81,7 +81,7 @@ def run_cmd(
         cfg = TradingConfig()
 
     cfg.strategy = strategy
-    cfg.instrument = resolve_instrument(instrument)
+    cfg.instrument = resolve_instrument(instrument, mainnet=mainnet)
     cfg.tick_interval = tick_interval
     cfg.mainnet = mainnet
     cfg.dry_run = dry_run

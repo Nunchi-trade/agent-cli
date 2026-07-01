@@ -16,7 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from common.models import HIP3_DEXS, instrument_to_coin
+from common.models import active_hip3_dex_ids, instrument_to_coin
 from parent.hl_proxy import HLFill, HLProxy, MockHLProxy
 
 log = logging.getLogger("hl_adapter")
@@ -111,7 +111,11 @@ def _default_builder() -> Optional[dict]:
 ZERO = Decimal("0")
 
 
-def _assemble_account_state(info, address: str) -> Dict:
+def _mainnet_from_info(info) -> bool:
+    return "testnet" not in getattr(info, "base_url", "").lower()
+
+
+def _assemble_account_state(info, address: str, *, mainnet: Optional[bool] = None) -> Dict:
     """Build the unified account-state dict from an HL Info client + address.
 
     Pure read path: only calls public Info endpoints (user_state /
@@ -146,7 +150,8 @@ def _assemble_account_state(info, address: str) -> Dict:
         return {}
 
     # Merge HIP-3 DEX state (asset positions + account value/margin/withdrawable).
-    for dex_id in HIP3_DEXS:
+    net_mainnet = mainnet if mainnet is not None else _mainnet_from_info(info)
+    for dex_id in active_hip3_dex_ids(mainnet=net_mainnet):
         try:
             dex_state = info.post("/info", {
                 "type": "clearinghouseState", "user": address, "dex": dex_id,
@@ -247,17 +252,12 @@ def read_only_account_state(address: str, testnet: bool = True) -> Dict:
     info = _retry_on_429(
         Info, base_url, skip_ws=True, timeout=10,
     )
-    return _assemble_account_state(info, address)
+    return _assemble_account_state(info, address, mainnet=not testnet)
 
 
-def _to_hl_coin(instrument: str) -> str:
-    """Map instrument name to HL coin for API calls.
-
-    Standard perps:  ETH-PERP -> ETH
-    YEX markets:     VXX-USDYP -> yex:VXX
-                     US3M-USDYP -> yex:US3M
-    """
-    return instrument_to_coin(instrument)
+def _to_hl_coin(instrument: str, mainnet: Optional[bool] = None) -> str:
+    """Map instrument name to HL coin for API calls."""
+    return instrument_to_coin(instrument, mainnet=mainnet)
 
 
 def _funding_rates_from_markets(data: Any, coin: Optional[str] = None) -> Dict[str, float]:
@@ -328,7 +328,7 @@ class DirectHLProxy:
             )
 
         try:
-            hl_coin = instrument_to_coin(instrument)
+            hl_coin = instrument_to_coin(instrument, mainnet=not self._hl.testnet)
             if ":" in hl_coin:
                 snap = self._get_hip3_snapshot(instrument, hl_coin)
             else:
@@ -390,7 +390,9 @@ class DirectHLProxy:
         "** NO FUNDS DETECTED **" at preflight even though they hold $1000
         USDYP in yex, because the universal clearinghouse query returns $0.
         """
-        return _assemble_account_state(self._info, self._address)
+        return _assemble_account_state(
+            self._info, self._address, mainnet=not self._hl.testnet,
+        )
 
     def _get_price_tick(self, coin: str, price: float) -> float:
         """Get the price tick size for an asset.
@@ -432,7 +434,7 @@ class DirectHLProxy:
                     if name:
                         self._sz_decimals_cache[name] = int(asset.get("szDecimals", 1))
                 # Include HIP-3 DEX assets
-                for dex_id in HIP3_DEXS:
+                for dex_id in active_hip3_dex_ids(mainnet=not self._hl.testnet):
                     try:
                         dex_meta = self._info.meta(dex=dex_id)
                         for asset in dex_meta.get("universe", []):
@@ -473,7 +475,7 @@ class DirectHLProxy:
         # This is the sole enforcement point — all order paths flow through here.
         if builder is None:
             builder = _default_builder()
-        coin = _to_hl_coin(instrument)
+        coin = self._to_coin(instrument)
         is_buy = side.lower() == "buy"
 
         # Round size to instrument's szDecimals (e.g. BTC=3, DOGE=0, ETH=4)
@@ -613,7 +615,7 @@ class DirectHLProxy:
 
     def cancel_order(self, instrument: str, oid: str) -> bool:
         """Cancel an open order by OID."""
-        coin = _to_hl_coin(instrument)
+        coin = self._to_coin(instrument)
         try:
             self._exchange.cancel(coin, oid)
             return True
@@ -626,7 +628,7 @@ class DirectHLProxy:
         try:
             orders = self._info.open_orders(self._address)
             if instrument:
-                coin = _to_hl_coin(instrument)
+                coin = self._to_coin(instrument)
                 orders = [o for o in orders if o.get("coin") == coin]
             return orders
         except Exception as e:
@@ -769,7 +771,7 @@ class DirectHLProxy:
 
     def _to_coin(self, instrument: str) -> str:
         """Map instrument to HL coin symbol."""
-        return _to_hl_coin(instrument)
+        return _to_hl_coin(instrument, mainnet=not self._hl.testnet)
 
     def _round_size(self, coin: str, size: float) -> float:
         """Round size to instrument's szDecimals."""

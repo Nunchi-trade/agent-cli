@@ -12,7 +12,7 @@ import typer
 def trade_cmd(
     instrument: str = typer.Argument(
         "ETH-PERP",
-        help="Instrument (ETH-PERP, VXX-USDYP, US3M-USDYP)",
+        help="Instrument (any HL perp, e.g. ETH-PERP, SOL-PERP, BTCSWP-PARA, BTCSWP-USDYP)",
     ),
     side: str = typer.Argument(
         ...,
@@ -65,7 +65,7 @@ def trade_cmd(
     from cli.strategy_registry import resolve_instrument
     from parent.hl_proxy import HLProxy
 
-    instrument = resolve_instrument(instrument)
+    instrument = resolve_instrument(instrument, mainnet=mainnet)
     network = "mainnet" if mainnet else "testnet"
     policy_path = str(policy) if policy else None
 

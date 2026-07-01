@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Set
 
-from common.models import MarketSnapshot, StrategyDecision, asset_to_instrument, instrument_to_asset
+from common.models import MarketSnapshot, StrategyDecision, asset_to_instrument, coin_to_instrument, hl_coin_to_asset, instrument_to_asset
 from sdk.strategy_sdk.base import BaseStrategy, StrategyContext
 
 log = logging.getLogger("strategy_guard")
@@ -241,7 +241,9 @@ class StrategyGuard:
             if not name:
                 continue
 
-            if only_assets is not None and name not in only_assets:
+            asset = hl_coin_to_asset(name)
+
+            if only_assets is not None and asset not in only_assets:
                 continue
 
             try:
@@ -259,8 +261,8 @@ class StrategyGuard:
                 funding = float(ctx.get("funding", 0) or 0)
                 oi = float(ctx.get("openInterest", 0) or 0)
 
-                snapshots[name] = MarketSnapshot(
-                    instrument=asset_to_instrument(name),
+                snapshots[asset] = MarketSnapshot(
+                    instrument=coin_to_instrument(name) if ":" in name else asset_to_instrument(name),
                     mid_price=mid,
                     bid=bid,
                     ask=ask,

@@ -27,6 +27,7 @@ def _mock_hl_proxy():
     hl._info = MagicMock()
     hl._exchange = MagicMock()
     hl._address = "0xTEST"
+    hl.testnet = True
     hl._ensure_client = MagicMock()
     hl.get_snapshot = MagicMock(return_value=MarketSnapshot(
         instrument="ETH-PERP",
@@ -54,6 +55,20 @@ class TestCoinMapping:
 
     def test_lowercase_perp(self):
         assert _to_hl_coin("sol-perp") == "sol"
+
+    def test_yex_usdyp(self):
+        assert _to_hl_coin("VXX-USDYP") == "yex:VXX"
+        assert _to_hl_coin("BTCSWP-USDYP") == "yex:BTCSWP"
+
+    def test_para_btcswp(self):
+        assert _to_hl_coin("BTCSWP-PARA", mainnet=True) == "para:BTCSWP"
+        assert _to_hl_coin("para:BTCSWP") == "para:BTCSWP"
+
+
+
+    def test_para_btcswp(self):
+        assert _to_hl_coin("BTCSWP-PARA", mainnet=True) == "para:BTCSWP"
+        assert _to_hl_coin("para:BTCSWP") == "para:BTCSWP"
 
 
 class TestRoundPrice:

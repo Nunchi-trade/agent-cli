@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from common.models import HIP3_DEXS, MarketSnapshot, instrument_to_coin
+from common.models import HIP3_DEXS, MarketSnapshot, active_hip3_dex_ids, instrument_to_coin
 
 log = logging.getLogger("hl_proxy")
 
@@ -235,14 +235,43 @@ class MockHLProxy:
             "ARB": "1.2", "OP": "2.5", "AVAX": "35.0", "MATIC": "0.8",
             "LINK": "15.0", "UNI": "7.0", "AAVE": "100.0", "CRV": "0.5",
             "MKR": "1500.0", "SNX": "3.0", "COMP": "50.0",
+            "yex:VXX": "25.0", "yex:US3M": "4.5", "yex:BTCSWP": "0.05",
+            "osrs:BTCSWP": "57869.0",
+            "para:BTCSWP": "0.05",
         }
 
     def get_dex_markets(self, dex: str) -> list:
-        """Return empty HIP-3 DEX markets for mock."""
+        """Return mock HIP-3 DEX markets."""
+        if dex == "yex":
+            universe = [
+                {"name": "yex:VXX", "szDecimals": 1},
+                {"name": "yex:US3M", "szDecimals": 0},
+                {"name": "yex:BTCSWP", "szDecimals": 1},
+            ]
+            ctxs = [
+                {"midPx": "25.0", "markPx": "25.0", "dayNtlVlm": "100000", "funding": "0.0001", "openInterest": "50000"},
+                {"midPx": "4.5", "markPx": "4.5", "dayNtlVlm": "80000", "funding": "0.0001", "openInterest": "40000"},
+                {"midPx": "0.05", "markPx": "0.05", "dayNtlVlm": "60000", "funding": "0.0002", "openInterest": "30000"},
+            ]
+            return [{"universe": universe}, ctxs]
+        if dex == "osrs":
+            universe = [{"name": "osrs:BTCSWP", "szDecimals": 3}]
+            ctxs = [{"midPx": "57869.0", "markPx": "57869.0", "dayNtlVlm": "60000", "funding": "0.0002", "openInterest": "30000"}]
+            return [{"universe": universe}, ctxs]
+        if dex == "para":
+            universe = [{"name": "para:BTCSWP", "szDecimals": 1}]
+            ctxs = [{"midPx": "0.05", "markPx": "0.05", "dayNtlVlm": "60000", "funding": "0.0002", "openInterest": "30000"}]
+            return [{"universe": universe}, ctxs]
         return [{"universe": []}, []]
 
     def get_dex_mids(self, dex: str) -> Dict[str, str]:
-        """Return empty HIP-3 DEX mids for mock."""
+        """Return mock HIP-3 DEX mids."""
+        if dex == "yex":
+            return {"yex:VXX": "25.0", "yex:US3M": "4.5", "yex:BTCSWP": "0.05"}
+        if dex == "osrs":
+            return {"osrs:BTCSWP": "57869.0"}
+        if dex == "para":
+            return {"para:BTCSWP": "0.05"}
         return {}
 
     def get_fills(self, since_ms: int = 0) -> List[HLFill]:
@@ -293,7 +322,7 @@ class HLProxy:
         _patch_spot_meta_indexing()
 
         base_url = constants.TESTNET_API_URL if self.testnet else constants.MAINNET_API_URL
-        perp_dexs = [""] + list(HIP3_DEXS.keys())
+        perp_dexs = [""] + active_hip3_dex_ids(mainnet=not self.testnet)
         # Info() constructor calls perp_dexs() which hits HL API —
         # wrap with retry so startup 429s don't crash the agent.
         self._info = _retry_on_429(
@@ -324,7 +353,7 @@ class HLProxy:
             log.info("HL client initialized: %s (testnet=%s)", self._address, self.testnet)
 
         # Enable HIP-3 DEX abstraction for agent trading
-        if HIP3_DEXS:
+        if active_hip3_dex_ids(mainnet=not self.testnet):
             try:
                 self._exchange.agent_enable_dex_abstraction()
                 log.info("HIP-3 DEX abstraction enabled")

@@ -106,7 +106,7 @@ STRATEGY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# YEX market definitions — Nunchi HIP-3 yield perpetuals
+# YEX market definitions — Nunchi HIP-3 yield perpetuals (testnet)
 YEX_MARKETS: Dict[str, Dict[str, str]] = {
     "VXX-USDYP": {
         "hl_coin": "yex:VXX",
@@ -118,7 +118,15 @@ YEX_MARKETS: Dict[str, Dict[str, str]] = {
     },
     "BTCSWP-USDYP": {
         "hl_coin": "yex:BTCSWP",
-        "description": "BTC interest rate swap yield perpetual — tracks the BTC-denominated swap curve",
+        "description": "BTC interest rate swap yield perpetual (YEX testnet)",
+    },
+}
+
+# Paragon mainnet HIP-3 markets
+PARA_MARKETS: Dict[str, Dict[str, str]] = {
+    "BTCSWP-PARA": {
+        "hl_coin": "para:BTCSWP",
+        "description": "BTC interest rate swap yield perpetual (Paragon mainnet)",
     },
 }
 
@@ -138,17 +146,22 @@ def resolve_strategy_path(name_or_path: str) -> str:
     return entry["path"]
 
 
-def resolve_instrument(name: str) -> str:
-    """Resolve an instrument name to the HL coin symbol.
+def resolve_instrument(name: str, mainnet: bool | None = None) -> str:
+    """Resolve an instrument name to the canonical form."""
+    from common.models import BTCSWP_ASSET, coin_to_instrument, is_mainnet
 
-    Handles:
-      - Standard perps: 'ETH-PERP' -> 'ETH-PERP' (unchanged, HLProxy maps internally)
-      - YEX markets: 'VXX-USDYP' -> 'VXX-USDYP' (DirectHLProxy maps to yex:VXX)
-      - Direct HL coins: 'yex:VXX' -> 'VXX-USDYP' (reverse lookup)
-    """
-    # Direct YEX coin reference -> canonical name
-    for name_key, info in YEX_MARKETS.items():
-        if name.lower() == info["hl_coin"].lower():
-            return name_key
-    # Already a known YEX market or standard perp
-    return name
+    normalized = name.strip()
+    lower = normalized.lower()
+
+    for markets in (PARA_MARKETS, YEX_MARKETS):
+        for name_key, info in markets.items():
+            if lower == info["hl_coin"].lower():
+                return name_key
+
+    if lower.startswith("yex:") or lower.startswith("para:"):
+        return coin_to_instrument(normalized, mainnet=mainnet)
+
+    if lower == BTCSWP_ASSET.lower():
+        return "BTCSWP-PARA" if is_mainnet(mainnet) else "BTCSWP-USDYP"
+
+    return normalized

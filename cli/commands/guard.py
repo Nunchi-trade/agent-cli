@@ -120,7 +120,7 @@ def guard_start(
         typer.echo(f"Mode: LIVE ({'mainnet' if mainnet else 'testnet'})")
 
     from cli.strategy_registry import resolve_instrument
-    resolved = resolve_instrument(instrument)
+    resolved = resolve_instrument(instrument, mainnet=mainnet)
 
     typer.echo(f"Instrument: {resolved}")
     typer.echo(f"Direction: {direction} | Entry: {entry_price} | Size: {size} | Leverage: {leverage}x")

@@ -53,5 +53,18 @@ class TestResolveInstrument:
         assert resolve_instrument("yex:VXX") == "VXX-USDYP"
         assert resolve_instrument("yex:US3M") == "US3M-USDYP"
 
+    def test_yex_btcswp_reverse_lookup(self):
+        assert resolve_instrument("yex:BTCSWP") == "BTCSWP-USDYP"
+
+
+
+    def test_para_btcswp_reverse_lookup(self):
+        assert resolve_instrument("para:BTCSWP", mainnet=True) == "BTCSWP-PARA"
+        assert resolve_instrument("BTCSWP-PARA", mainnet=True) == "BTCSWP-PARA"
+
+    def test_bare_btcswp_network_default(self):
+        assert resolve_instrument("BTCSWP", mainnet=False) == "BTCSWP-USDYP"
+        assert resolve_instrument("BTCSWP", mainnet=True) == "BTCSWP-PARA"
+
     def test_unknown_instrument_passthrough(self):
         assert resolve_instrument("UNKNOWN-PERP") == "UNKNOWN-PERP"
