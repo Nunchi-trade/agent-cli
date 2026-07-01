@@ -40,6 +40,9 @@ class TestResolveStrategyPath:
             assert "path" in entry
             assert "description" in entry
 
+    def test_hedge_agent_param_matches_class(self):
+        assert STRATEGY_REGISTRY["hedge_agent"]["params"] == {"inventory_threshold": 3.0}
+
 
 class TestResolveInstrument:
     def test_standard_perp_unchanged(self):

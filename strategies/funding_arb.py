@@ -4,6 +4,9 @@ Captures funding rate dislocations between HL and external venues.
 When HL funding diverges from the cross-venue median, biases quotes
 to collect the premium. Especially valuable for YEX yield perps
 where funding IS the product.
+
+Note: external venue feeds (CrossVenueFundingRate) are not wired in
+production — today this strategy biases quotes from HL funding only.
 """
 from __future__ import annotations
 
