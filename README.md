@@ -5,7 +5,7 @@
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
 
 <p align="center">
-  14 strategies &bull; APEX multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
+  19 strategies &bull; APEX multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
 </p>
 
 <p align="center">
@@ -18,25 +18,27 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/strategies-14-C9A84C" alt="Strategies" />
-  <img src="https://img.shields.io/badge/tests-483%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/strategies-19-C9A84C" alt="Strategies" />
+  <img src="https://img.shields.io/badge/tests-1300%2B%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-16%20tools-8A2BE2" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP-20%20tools-8A2BE2" alt="MCP" />
 </p>
 
 <p align="center">
-  <a href="https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_PRIVATE_KEY,HL_TESTNET,RUN_MODE,APEX_PRESET&HL_TESTNETDefault=true&RUN_MODEDefault=apex&APEX_PRESETDefault=default">
+  <a href="https://railway.com/new/template?template=https://github.com/Nunchi-trade/agent-cli&envs=HL_TESTNET,RUN_MODE,DATA_DIR&HL_TESTNETDefault=true&RUN_MODEDefault=mcp&DATA_DIRDefault=/data">
     <img src="https://railway.com/button.svg" alt="Deploy on Railway" height="36" />
   </a>
 </p>
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps and [YEX](https://yex.nunchi.trade) yield markets. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
+Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps, Paragon HIP-3 swap markets, and [YEX](https://yex.nunchi.trade) yield perpetuals. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
 
 ---
 
 ## Quick Start
+
+**Testnet is the default.** You do not need `--mainnet` or `HL_TESTNET=false` for local development. The CLI refuses to start if `--mainnet` and `HL_TESTNET=true` disagree.
 
 ```bash
 git clone https://github.com/Nunchi-trade/agent-cli.git && cd agent-cli
@@ -48,38 +50,105 @@ bash scripts/bootstrap.sh        # Creates venv, installs, validates
 ```bash
 hl wallet auto --save-env        # Create wallet + save creds (no prompts)
 hl setup claim-usdyp             # Claim testnet USDyP
-hl builder approve               # Approve builder fee (one-time)
+hl builder approve               # Approve builder fee (one-time, testnet)
 hl run avellaneda_mm --mock --max-ticks 3   # Validate
 hl apex run --mock --max-ticks 5            # Full pipeline test
 ```
 
-### Manual Setup
+### Manual Setup (testnet)
 
 ```bash
 export HL_PRIVATE_KEY=0x...
-export HL_TESTNET=true           # default
+# HL_TESTNET defaults to true — omit or set explicitly
 
-hl setup check                   # Validate environment
-hl builder approve               # Approve builder fee
-hl run engine_mm -i ETH-PERP --tick 10
+hl setup check
+hl builder approve
+hl run avellaneda_mm -i ETH-PERP --tick 10
 ```
 
 ### Mainnet
+
+Set the environment **and** pass `--mainnet` on trading commands:
 
 ```bash
 export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
 
 hl builder approve --mainnet
-hl run engine_mm -i ETH-PERP --tick 10 --mainnet
+hl run avellaneda_mm -i ETH-PERP --tick 10 --mainnet
 hl apex run --mainnet
+```
+
+See [Markets & Instruments](#markets--instruments) for native perps, Paragon BTCSWP, and YEX symbols.
+
+---
+
+## Markets & Instruments
+
+Three instrument families — do not conflate them.
+
+### Native Hyperliquid Perps
+
+Standard HL perpetuals work on both networks. Examples: `ETH-PERP`, `BTC-PERP`, `SOL-PERP`. Mainnet lists hundreds of markets; no whitelist required.
+
+```bash
+# Testnet (default)
+hl run avellaneda_mm -i ETH-PERP --tick 10
+
+# Mainnet
+hl run avellaneda_mm -i BTC-PERP --mainnet --tick 10
+```
+
+### Paragon BTCSWP Swap Perps (HIP-3)
+
+BTC interest-rate swap perps on separate HIP-3 dexes — **not** YEX yield markets.
+
+| Network | Instrument | HL coin | Notes |
+|---------|------------|---------|-------|
+| Testnet | `BTCSWP-OSRS` | `osrs:BTCSWP` | Paragon swap perp on the `osrs` dex |
+| Mainnet | `BTCSWP-PARA` | `para:BTCSWP` | Paragon swap perp on the `para` dex (when live) |
+
+Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP` (YEX), mainnet → `BTCSWP-PARA`. Use `BTCSWP-OSRS` or `osrs:BTCSWP` when you explicitly want the Paragon **swap** perp on testnet.
+
+```bash
+# Paragon swap perp (testnet osrs dex)
+hl run avellaneda_mm -i BTCSWP-OSRS --tick 10
+
+# Paragon swap perp (mainnet)
+export HL_TESTNET=false
+hl builder approve --mainnet
+hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
+```
+
+### YEX Yield Markets (testnet)
+
+[Nunchi YEX](https://yex.nunchi.trade) HIP-3 yield perpetuals — volatility, rates, and YEX-denominated BTCSWP. Testnet only today.
+
+| Instrument | HL coin | Description |
+|------------|---------|-------------|
+| `VXX-USDYP` | `yex:VXX` | Volatility index yield perp |
+| `US3M-USDYP` | `yex:US3M` | US 3M Treasury rate yield perp |
+| `BTCSWP-USDYP` | `yex:BTCSWP` | YEX yield perp (distinct from `BTCSWP-OSRS` / `BTCSWP-PARA`) |
+
+```bash
+hl run avellaneda_mm -i VXX-USDYP --tick 15
+hl run funding_arb -i US3M-USDYP --tick 30
+hl run engine_mm -i BTCSWP-USDYP --tick 10   # YEX yield BTCSWP, not osrs/para swap
 ```
 
 ---
 
 ## Strategies
 
-14 built-in strategies across four categories. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling between strategies.
+19 built-in strategies. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling.
+
+| Tier | Strategies | Notes |
+|------|------------|-------|
+| **Quoting engine** | `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm` | Require the bundled `quoting_engine` package (composite FV, dynamic spreads, oracle monitor) |
+| **Standalone** | `avellaneda_mm`, `simple_mm`, `grid_mm`, `mean_reversion`, `momentum_breakout`, `basis_arb`, `aggressive_taker`, `hedge_agent`, `rfq_agent` | Self-contained; good defaults for testnet and production MM |
+| **Experimental / research** | `claude_agent`, `cfi_hedge`, `simplified_ensemble`, `funding_momentum`, `oi_divergence`, `trend_follower` | Less battle-tested; `claude_agent` needs an LLM API key |
+
+Run `hl strategies` for the full registry and default parameters.
 
 ### Market Making
 
@@ -91,7 +160,7 @@ Provide two-sided liquidity and earn the spread. These strategies quote bids and
 | `avellaneda_mm` | Avellaneda-Stoikov optimal market maker. Reservation price adjusts with inventory; optimal spread from risk aversion `gamma` and order flow intensity `k`. Vol-bin classifier + drawdown amplifier. | `gamma`, `k`, `base_size` | When you want theoretically grounded inventory-aware quoting with well-understood parameters. |
 | `regime_mm` | Vol-regime adaptive — classifies market into 4 volatility regimes (quiet/normal/volatile/extreme), switches spread width, sizing, and aggressiveness per regime. *Requires `quoting_engine` module.* | `base_size` | Volatile markets where a single spread width doesn't work. Auto-adapts without manual tuning. |
 | `simple_mm` | Symmetric bid/ask quoting at fixed spread around mid. No inventory adjustment. | `spread_bps`, `size` | Testnet validation, baseline benchmarking, or low-vol stable pairs. |
-| `grid_mm` | Fixed-interval grid levels above and below mid. Places N orders at equal spacing. *Requires `quoting_engine` module.* | `grid_spacing_bps`, `num_levels`, `size_per_level` | Range-bound markets where you want to accumulate and distribute across a price band. |
+| `grid_mm` | Fixed-interval grid levels above and below mid. Places N orders at equal spacing. | `grid_spacing_bps`, `num_levels`, `size_per_level` | Range-bound markets where you want to accumulate and distribute across a price band. |
 | `liquidation_mm` | Provides liquidity during cascade/liquidation events. Detects OI drops and widens spreads to capture forced-seller flow. *Requires `quoting_engine` module.* | `oi_drop_threshold_pct`, `cascade_spread_mult` | Liquidation-heavy markets. Only active during cascade conditions — sits idle otherwise. |
 
 ### Arbitrage
@@ -121,7 +190,7 @@ Supporting strategies for portfolio management, block liquidity, and autonomous 
 |----------|-------------|----------------|-------------|
 | `hedge_agent` | Reduces excess exposure per deterministic mandate. Fires when net notional exceeds threshold. | `notional_threshold` | Always-on risk overlay. Pairs with any MM or signal strategy. |
 | `rfq_agent` | Block-size dark RFQ liquidity — quotes for large orders with wider spreads. | `min_size`, `spread_bps` | Institutional/block flow. Provides hidden liquidity for large counterparties. |
-| `claude_agent` | Multi-model LLM trading agent. Sends market snapshot to an LLM (Gemini, Claude, or OpenAI), receives structured trade decisions. | `model`, `base_size` | Experimental/research. Autonomous decision-making using LLM reasoning. |
+| `claude_agent` | Multi-model LLM trading agent. Sends market snapshot to an LLM (Gemini, Claude, or OpenAI), receives structured trade decisions. | `model`, `base_size` | **Experimental.** Autonomous decision-making using LLM reasoning. |
 
 ### Quoting Engine Pipeline
 
@@ -481,7 +550,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**17 tools exposed:** `account`, `status`, `trade`, `run_strategy`, `strategies`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `setup_check`, `builder_status`, `wallet_list`, `wallet_auto`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
+**20 MCP tools** for account state, trading, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
@@ -545,54 +614,17 @@ Railway build root at the repo root.
 
 ---
 
-## YEX Yield Markets (testnet) & BTCSWP (mainnet)
-
-[YEX](https://yex.nunchi.trade) (Nunchi HIP-3) yield perpetuals on Hyperliquid testnet:
-
-| Instrument | HL Coin | Description |
-|------------|---------|-------------|
-| VXX-USDYP | yex:VXX | Volatility index yield perp |
-| US3M-USDYP | yex:US3M | US 3M Treasury rate yield perp |
-| BTCSWP-USDYP | yex:BTCSWP | BTC interest rate swap yield perp (testnet) |
-
-Paragon BTCSWP on Hyperliquid **mainnet** uses the `para` HIP-3 dex:
-
-| Instrument | HL Coin | Description |
-|------------|---------|-------------|
-| BTCSWP-PARA | para:BTCSWP | BTC interest rate swap yield perp (mainnet) |
-
-Mainnet requires `--mainnet` and `HL_TESTNET=false`. Approve builder fees on mainnet before live trading:
-
-```bash
-export HL_TESTNET=false
-hl builder approve --mainnet --yes
-hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
-hl trade buy 0.1 -i SOL-PERP --mainnet --yes
-```
-
-Testnet examples:
-
-```bash
-hl run avellaneda_mm -i VXX-USDYP --tick 15
-hl run funding_arb -i US3M-USDYP --tick 30
-hl run engine_mm -i BTCSWP-USDYP --tick 10
-```
-
-Native HL perps (`ETH-PERP`, `SOL-PERP`, etc.) resolve generically on mainnet without a whitelist.
-
----
-
 ## Architecture
 
 ```
 cli/           CLI commands and trading engine
   commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
-  mcp_server.py  MCP server (16 tools via FastMCP)
+  mcp_server.py  MCP server (20 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)
-  strategy_registry.py  Strategy + YEX market definitions
-strategies/    14 trading strategy implementations
+  strategy_registry.py  Strategy + HIP-3 market definitions (YEX, OSRS, PARA)
+strategies/    19 trading strategy implementations
 modules/       Pure logic modules (zero I/O)
   apex_engine.py     APEX decision engine
   radar_engine.py    Opportunity radar
@@ -611,7 +643,7 @@ skills/        Agent Skills (SKILL.md + runners)
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management
 scripts/       Backtest harness, bootstrap
-tests/         Test suite (483 tests)
+tests/         Test suite (1300+ tests)
 ```
 
 ---
@@ -675,7 +707,7 @@ hl run my_strategies.my_strategy:MyStrategy -i ETH-PERP --tick 10
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                  # 483 tests
+pytest tests/ -v                  # 1300+ tests
 ```
 
 ## Attribution 
