@@ -178,14 +178,14 @@ hl setup bootstrap                   # Auto-create venv and install
 hl setup claim-usdyp                 # Claim testnet USDyP tokens
 ```
 
-### MCP Server (~21 Tools)
+### MCP Server (~24 Tools)
 
 ```bash
 hl mcp serve                         # Start MCP server (stdio transport)
 hl mcp serve --transport sse         # Start MCP server (SSE transport)
 ```
 
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `schedule_cancel`, `emergency_close_all`, `order_status`, `funding_rates`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
+Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `schedule_cancel`, `emergency_close_all`, `order_status`, `funding_rates`, `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
 
 ## Strategies (19)
 

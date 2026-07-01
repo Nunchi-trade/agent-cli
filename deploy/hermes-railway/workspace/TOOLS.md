@@ -2,7 +2,7 @@
 
 ## MCP Server: nunchi_trading
 
-The primary tool provider, registered in `config.yaml` under `mcp_servers.nunchi_trading`. Exposes 13 trading tools via Model Context Protocol:
+The primary tool provider, registered in `config.yaml` under `mcp_servers.nunchi_trading`. Exposes 24 trading tools via Model Context Protocol, including:
 
 - `account` — Show HL account state (balance, margin, positions)
 - `status` — Current positions, PnL, and risk state
@@ -17,6 +17,10 @@ The primary tool provider, registered in `config.yaml` under `mcp_servers.nunchi
 - `builder_status` — Check builder fee approval status
 - `wallet_list` — List available wallets
 - `wallet_auto` — Create wallet automatically
+- `funding_rates` — Read current funding rates
+- `funding_hedge_propose` — Build a CFI v2 funding hedge proposal
+- `funding_hedge_backtest` — Run the reference funding hedge backtest
+- `funding_hedge_execute` — Execute or dry-run a CFI v2 hedge; requires `confirmed=true`
 
 ## CLI: hl
 

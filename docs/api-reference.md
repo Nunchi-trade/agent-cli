@@ -1055,6 +1055,9 @@ else:
 | `emergency_close_all` | Subprocess | 1-10s | Closes all positions on HL |
 | `order_status` | Subprocess | 1-5s | None |
 | `funding_rates` | Subprocess | 1-5s | None |
+| `funding_hedge_propose` | Subprocess | 1-10s | None |
+| `funding_hedge_backtest` | Subprocess | 1-120s | None |
+| `funding_hedge_execute` | Subprocess | 1-120s | Places a CFI v2 hedge order unless `dry_run=true`; requires `confirmed=true` |
 | `agent_memory` | Fast | <100ms | None |
 | `trade_journal` | Fast | <100ms | None |
 | `judge_report` | Fast | <100ms | None |

@@ -550,7 +550,7 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**21 MCP tools** for account state, trading, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
+**24 MCP tools** for account state, trading, CFI funding hedges, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
@@ -619,7 +619,7 @@ Railway build root at the repo root.
 ```
 cli/           CLI commands and trading engine
   commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
-  mcp_server.py  MCP server (20 tools via FastMCP)
+  mcp_server.py  MCP server (24 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)

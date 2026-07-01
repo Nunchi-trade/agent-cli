@@ -187,3 +187,65 @@ def test_entrypoint_trade_forwards_trusted_context_to_subprocess(monkeypatch, tm
     assert captured["args"] == ("trade", "ETH-PERP", "buy", "0.1", "--yes")
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "4" * 40
+
+
+def test_entrypoint_funding_hedge_execute_refuses_without_confirm():
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "funding_hedge_execute",
+            "arguments": {"coin": "BTC", "dry_run": True},
+        },
+    }).encode()
+
+    status, response = handle_mcp_json_rpc(body, {})
+
+    assert status == 200
+    assert "confirmed=true" in response["result"]["content"][0]["text"]
+
+
+def test_entrypoint_funding_hedge_execute_confirmed_dry_run_forwards_to_cli(monkeypatch, tmp_path):
+    import cli.mcp_server as mcp_server
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    captured = {}
+
+    def fake_run_hl(*args, timeout=30, env_overrides=None):
+        captured["args"] = args
+        captured["timeout"] = timeout
+        captured["env_overrides"] = env_overrides
+        return "hedge preview"
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NUNCHI_RUNNER_CONTEXT_SECRET", "shared-secret")
+    monkeypatch.setattr(mcp_server, "_run_hl", fake_run_hl)
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+            "name": "funding_hedge_execute",
+            "arguments": {"coin": "BTC", "dry_run": True, "confirmed": True},
+        },
+    }).encode()
+    headers = {
+        "x-nunchi-secret-nunchi-runner-context-secret": "shared-secret",
+        "x-nunchi-secret-nunchi-web-auth-pair-token": "pair-token",
+        "x-nunchi-secret-nunchi-web-auth-address": "0x" + "5" * 40,
+        "x-nunchi-trading-permission-tier": "testnet_trading",
+        "x-nunchi-trading-network": "testnet",
+    }
+
+    status, response = handle_mcp_json_rpc(body, headers)
+
+    assert status == 200
+    assert response["result"]["content"][0]["text"] == "hedge preview"
+    assert captured["args"] == ("hedge", "execute", "BTC", "--dry-run", "--yes")
+    assert captured["timeout"] == 120
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
+    assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "5" * 40
