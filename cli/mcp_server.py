@@ -28,12 +28,14 @@ except Exception:  # pragma: no cover - optional mcp dependency
 _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
     "account", "status", "apex_status",
+    "funding_hedge_propose", "funding_hedge_backtest",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
     "order_status", "funding_rates",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
-    "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
+    "trade", "run_strategy", "apex_run", "funding_hedge_execute",
+    "schedule_cancel", "emergency_close_all",
 }
 # Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
@@ -357,8 +359,9 @@ def create_mcp_server():
         instructions=(
             "Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, "
             "REFLECT reviews. Always confirm details with the user before calling "
-            "destructive tools (trade, run_strategy, apex_run, schedule_cancel, "
-            "emergency_close_all). "
+            "destructive tools (trade, run_strategy, apex_run, funding_hedge_execute, "
+            "schedule_cancel, emergency_close_all). "
+            "funding_hedge_execute requires confirmed=true. "
             "emergency_close_all requires confirm=true."
         ),
     )
@@ -795,6 +798,84 @@ def create_mcp_server():
         if mainnet:
             args.append("--mainnet")
         return _run_hl(*args, env_overrides=_request_env(ctx))
+
+    @mcp.tool(**_ann("funding_hedge_propose", "Funding hedge proposal"))
+    def funding_hedge_propose(
+        coin: str = "BTC",
+        mainnet: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Build a CFI v2 funding hedge proposal without placing an order.
+
+        Args:
+            coin: Perp coin to hedge (for example BTC).
+            mainnet: Use mainnet instead of testnet.
+        """
+        args = ["hedge", "propose", coin]
+        if mainnet:
+            args.append("--mainnet")
+        return _run_hl(*args, timeout=60, env_overrides=_request_env(ctx))
+
+    @mcp.tool(**_ann("funding_hedge_backtest", "Funding hedge backtest"))
+    def funding_hedge_backtest(
+        coin: str = "BTC",
+        days: int = 365,
+        notional: float = 1_000_000,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Run the reference CFI v2 funding hedge backtest.
+
+        Args:
+            coin: Perp coin to backtest (for example BTC).
+            days: Backtest window; passed through for CLI compatibility.
+            notional: Source perp notional in USD.
+        """
+        return _run_hl(
+            "hedge", "backtest",
+            "--coin", coin,
+            "--days", str(days),
+            "--notional", str(notional),
+            timeout=120,
+            env_overrides=_request_env(ctx),
+        )
+
+    @mcp.tool(**_ann("funding_hedge_execute", "Execute funding hedge"))
+    def funding_hedge_execute(
+        coin: str = "BTC",
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Build and execute a CFI v2 funding hedge through `hl hedge execute`.
+
+        WARNING: with dry_run=False this can place a real CFI v2 hedge order.
+
+        Args:
+            coin: Perp coin to hedge (for example BTC).
+            dry_run: Preview the order only; no submit and no hedge-state write.
+            mainnet: Use mainnet instead of testnet.
+            confirmed: Must be true after explicit user approval.
+        """
+        if not confirmed:
+            return _json_error("funding_hedge_execute requires confirmed=true after explicit user approval.")
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "funding_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        args = ["hedge", "execute", coin]
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        args.append("--yes")
+        return _run_hl(*args, timeout=120, env_overrides=env_overrides)
 
     # ------------------------------------------------------------------
     # Self-improvement tools — memory, journal, judge, obsidian

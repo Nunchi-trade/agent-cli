@@ -16,6 +16,18 @@ class TestMarketStrategyMap:
         assert "mean_reversion" in strats
         assert "simplified_ensemble" in strats
 
+    def test_btcswp_osrs_mapping(self):
+        strats = get_strategies_for_market("BTCSWP-OSRS")
+        assert "funding_arb" in strats
+        assert "funding_momentum" in strats
+        assert "basis_arb" in strats
+
+    def test_btcswp_para_mapping(self):
+        strats = get_strategies_for_market("BTCSWP-PARA")
+        assert "funding_arb" in strats
+        assert "funding_momentum" in strats
+        assert "basis_arb" in strats
+
     def test_btcswp_mapping(self):
         strats = get_strategies_for_market("BTCSWP-USDYP")
         assert "funding_arb" in strats

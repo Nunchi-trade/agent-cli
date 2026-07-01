@@ -221,7 +221,9 @@ curl $AGENT_URL/api/strategies
   "markets": {
     "VXX-USDYP": "Volatility index yield perpetual",
     "US3M-USDYP": "US 3-month Treasury rate yield perpetual",
-    "BTCSWP-USDYP": "BTC interest rate swap yield perpetual"
+    "BTCSWP-USDYP": "BTC interest rate swap yield perpetual (YEX testnet)",
+    "BTCSWP-OSRS": "BTC interest rate swap perp (OSRS testnet)",
+    "BTCSWP-PARA": "BTC interest rate swap perp (Paragon mainnet)"
   }
 }
 ```
@@ -267,8 +269,8 @@ curl -X POST $AGENT_URL/api/skill/install \
 ```json
 {
   "installed": true,
-  "strategies": 14,
-  "tools": 13
+  "strategies": 19,
+  "tools": 21
 }
 ```
 
@@ -575,24 +577,13 @@ async function fetchLeaderboard(network = 'testnet') {
 setInterval(() => fetchLeaderboard().then(renderTable), 30000);
 ```
 
-**CLI usage:**
-
-```bash
-# Register an address
-python leaderboard.py register 0x1234...abcd --name "my-agent" --network testnet
-
-# List current rankings
-python leaderboard.py list --network testnet
-
-# Start the HTTP server
-python leaderboard.py serve --port 8090
-```
+**CLI usage:** Use the HTTP endpoints above (`/api/register`, `/api/leaderboard`). This repo does not ship a `leaderboard.py` CLI — deploy the separate leaderboard microservice from the cli-UI repo.
 
 ---
 
 ## MCP Server
 
-The MCP server exposes 16 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
+The MCP server exposes 21 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
 
 ### Starting the Server
 
@@ -627,7 +618,7 @@ These execute directly in Python with no subprocess overhead.
 
 #### `strategies()`
 
-List all 14 trading strategies with descriptions and default parameters.
+List all 19 trading strategies with descriptions and default parameters.
 
 ```
 Tool: strategies
@@ -1060,6 +1051,13 @@ else:
 | `apex_status` | Subprocess | <1s | None |
 | `apex_run` | Subprocess | Minutes+ | Runs APEX loop |
 | `reflect_run` | Subprocess | 5-15s | None |
+| `schedule_cancel` | Subprocess | 1-5s | Cancels open orders on HL |
+| `emergency_close_all` | Subprocess | 1-10s | Closes all positions on HL |
+| `order_status` | Subprocess | 1-5s | None |
+| `funding_rates` | Subprocess | 1-5s | None |
+| `funding_hedge_propose` | Subprocess | 1-10s | None |
+| `funding_hedge_backtest` | Subprocess | 1-120s | None |
+| `funding_hedge_execute` | Subprocess | 1-120s | Places a CFI v2 hedge order unless `dry_run=true`; requires `confirmed=true` |
 | `agent_memory` | Fast | <100ms | None |
 | `trade_journal` | Fast | <100ms | None |
 | `judge_report` | Fast | <100ms | None |

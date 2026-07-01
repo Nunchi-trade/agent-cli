@@ -44,12 +44,15 @@ MCP_READ_TOOLS = {
     "obsidian_context",
     "order_status",
     "funding_rates",
+    "funding_hedge_propose",
+    "funding_hedge_backtest",
 }
 MCP_WRITE_TOOLS = {
     "wallet_auto",
     "trade",
     "run_strategy",
     "apex_run",
+    "funding_hedge_execute",
     "schedule_cancel",
     "emergency_close_all",
 }
@@ -66,7 +69,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             body = json.dumps({
                 "status": "ok",
-                "mode": os.environ.get("RUN_MODE", "apex"),
+                "mode": os.environ.get("RUN_MODE", "mcp"),
                 "uptime_s": int(time.time() - START_TIME),
                 "pid": CHILD_PROC.pid if CHILD_PROC else None,
                 "alive": runner_alive(),
@@ -225,7 +228,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 from cli.api.status_reader import read_strategies
                 data = read_strategies()
                 count = len(data.get("strategies", {}))
-                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}), cors=True)
+                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": len(MCP_ALL_TOOLS)}), cors=True)
             except Exception as e:
                 self.send_response(500)
                 self._send_cors_headers()
@@ -299,7 +302,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def build_command() -> list[str]:
     """Build the CLI command from environment variables."""
-    mode = os.environ.get("RUN_MODE", "apex").lower()
+    mode = os.environ.get("RUN_MODE", "mcp").lower()
     py = [sys.executable, "-m", "cli.main"]
 
     if mode in ("apex", "wolf"):
@@ -357,7 +360,7 @@ def build_command() -> list[str]:
 def runner_alive() -> bool:
     if CHILD_PROC is not None:
         return CHILD_PROC.poll() is None
-    return os.environ.get("RUN_MODE", "apex").lower() == "mcp"
+    return os.environ.get("RUN_MODE", "mcp").lower() == "mcp"
 
 
 def handle_mcp_json_rpc(raw_body: bytes, headers: Any) -> tuple[int, dict[str, Any]]:
@@ -449,6 +452,24 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
         if _bool_arg(arguments, "mainnet"):
             cmd.append("--mainnet")
         return _run_hl(*cmd, env_overrides=env_overrides)
+    if name == "funding_hedge_propose":
+        coin = _str_arg(arguments, "coin") or "BTC"
+        cmd = ["hedge", "propose", coin]
+        if _bool_arg(arguments, "mainnet"):
+            cmd.append("--mainnet")
+        return _run_hl(*cmd, timeout=60, env_overrides=env_overrides)
+    if name == "funding_hedge_backtest":
+        coin = _str_arg(arguments, "coin") or "BTC"
+        days = _int_arg(arguments, "days") or 365
+        notional = _float_arg(arguments, "notional") or 1_000_000
+        return _run_hl(
+            "hedge", "backtest",
+            "--coin", coin,
+            "--days", str(days),
+            "--notional", str(notional),
+            timeout=120,
+            env_overrides=env_overrides,
+        )
     if name == "agent_memory":
         return _agent_memory_text(arguments)
     if name == "trade_journal":
@@ -541,6 +562,30 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
         if mainnet:
             cmd.append("--mainnet")
         return _run_hl(*cmd, timeout=max(120, (effective_max_ticks or 10) * 60 + 30), env_overrides=env_overrides)
+
+    if name == "funding_hedge_execute":
+        coin = _str_arg(arguments, "coin") or "BTC"
+        dry_run = _bool_arg(arguments, "dry_run")
+        mainnet = _bool_arg(arguments, "mainnet")
+        confirmed = _bool_arg(arguments, "confirmed")
+        if not confirmed:
+            return _json_error("funding_hedge_execute requires confirmed=true after explicit user approval.")
+        error = _context_limit_error(
+            "funding_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+        cmd = ["hedge", "execute", coin]
+        if dry_run:
+            cmd.append("--dry-run")
+        if mainnet:
+            cmd.append("--mainnet")
+        cmd.append("--yes")
+        return _run_hl(*cmd, timeout=120, env_overrides=env_overrides)
 
     if name == "wallet_auto":
         return _json_error("wallet_auto is disabled on the hosted keyless runner")
@@ -723,7 +768,7 @@ def main():
         except Exception:
             pass  # best-effort
 
-    mode = os.environ.get("RUN_MODE", "apex")
+    mode = os.environ.get("RUN_MODE", "mcp")
     if mode.lower() == "mcp":
         log.info("Starting mcp mode: HTTP JSON-RPC wrapper active on /mcp/trading")
         while True:

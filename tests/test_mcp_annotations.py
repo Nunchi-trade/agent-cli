@@ -13,13 +13,28 @@ def test_classification_sets_are_disjoint():
 
 def test_destructive_set_covers_fund_movers():
     from cli.mcp_server import _DESTRUCTIVE_TOOLS
-    for name in ("trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all"):
+    for name in (
+        "trade",
+        "run_strategy",
+        "apex_run",
+        "funding_hedge_execute",
+        "schedule_cancel",
+        "emergency_close_all",
+    ):
         assert name in _DESTRUCTIVE_TOOLS
 
 
 def test_read_only_set_covers_reads():
     from cli.mcp_server import _READ_ONLY_TOOLS
-    for name in ("account", "status", "strategies", "order_status", "funding_rates"):
+    for name in (
+        "account",
+        "status",
+        "strategies",
+        "order_status",
+        "funding_rates",
+        "funding_hedge_propose",
+        "funding_hedge_backtest",
+    ):
         assert name in _READ_ONLY_TOOLS
 
 
@@ -40,7 +55,9 @@ def test_server_applies_annotations():
     assert by_name["trade"].annotations is not None
     assert by_name["trade"].annotations.destructiveHint is True
     assert by_name["trade"].annotations.readOnlyHint is False
+    assert by_name["funding_hedge_execute"].annotations.destructiveHint is True
     assert by_name["schedule_cancel"].annotations.destructiveHint is True
     assert by_name["emergency_close_all"].annotations.destructiveHint is True
     assert by_name["account"].annotations.readOnlyHint is True
     assert by_name["funding_rates"].annotations.readOnlyHint is True
+    assert by_name["funding_hedge_propose"].annotations.readOnlyHint is True
