@@ -122,6 +122,15 @@ YEX_MARKETS: Dict[str, Dict[str, str]] = {
     },
 }
 
+
+# OSRS swap perp (testnet HIP-3 dex, explicit instrument)
+SWAP_MARKETS: Dict[str, Dict[str, str]] = {
+    "BTCSWP-OSRS": {
+        "hl_coin": "osrs:BTCSWP",
+        "description": "BTC interest rate swap perp (OSRS testnet)",
+    },
+}
+
 # Paragon mainnet HIP-3 markets
 PARA_MARKETS: Dict[str, Dict[str, str]] = {
     "BTCSWP-PARA": {
@@ -153,12 +162,12 @@ def resolve_instrument(name: str, mainnet: bool | None = None) -> str:
     normalized = name.strip()
     lower = normalized.lower()
 
-    for markets in (PARA_MARKETS, YEX_MARKETS):
+    for markets in (PARA_MARKETS, SWAP_MARKETS, YEX_MARKETS):
         for name_key, info in markets.items():
             if lower == info["hl_coin"].lower():
                 return name_key
 
-    if lower.startswith("yex:") or lower.startswith("para:"):
+    if lower.startswith("yex:") or lower.startswith("para:") or lower.startswith("osrs:"):
         return coin_to_instrument(normalized, mainnet=mainnet)
 
     if lower == BTCSWP_ASSET.lower():
