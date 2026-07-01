@@ -91,25 +91,28 @@ def trade_cmd(
 
     instrument = resolve_instrument(instrument)
     cfg = TradingConfig()
-    private_key = cfg.get_private_key()
 
-    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-    hl = DirectHLProxy(raw_hl)
+    network = "mainnet" if mainnet else "testnet"
+    if price <= 0 and dry_run:
+        typer.echo("Dry run requires an explicit --price when skipping market lookup.", err=True)
+        raise typer.Exit(1)
 
-    # If no price given, use mid from snapshot
     if price <= 0:
+        private_key = cfg.get_private_key()
+        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+        hl = DirectHLProxy(raw_hl)
         snap = hl.get_snapshot(instrument)
         if snap.mid_price <= 0:
             typer.echo("Error: could not fetch market data for price", err=True)
             raise typer.Exit(1)
-        # For IOC: use mid + slippage
         if side.lower() == "buy":
             price = round(snap.ask * 1.001, 4)
         else:
             price = round(snap.bid * 0.999, 4)
         typer.echo(f"Using market price: {price}")
+    else:
+        hl = None
 
-    network = "mainnet" if mainnet else "testnet"
     notional_usd = abs(size * price)
     notional_cap = cfg.max_notional_usd if max_notional_usd is None else max_notional_usd
     if notional_cap <= 0:
@@ -131,6 +134,11 @@ def trade_cmd(
     if dry_run:
         typer.echo("Dry run: order not submitted.")
         return
+
+    if hl is None:
+        private_key = cfg.get_private_key()
+        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+        hl = DirectHLProxy(raw_hl)
 
     _confirm_trade(yes)
 
