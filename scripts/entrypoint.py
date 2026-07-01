@@ -69,7 +69,7 @@ def _pricing_snapshot(data_dir: str, limit: int = 20) -> dict:
         "trades": base / "trades.jsonl",
     }
     return {
-        "mode": os.environ.get("RUN_MODE", "apex"),
+        "mode": os.environ.get("RUN_MODE", "mcp"),
         "strategy": os.environ.get("STRATEGY"),
         "ai_provider": os.environ.get("AI_PROVIDER"),
         "ai_model": os.environ.get("AI_MODEL"),
@@ -98,7 +98,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             body = json.dumps({
                 "status": "ok",
-                "mode": os.environ.get("RUN_MODE", "apex"),
+                "mode": os.environ.get("RUN_MODE", "mcp"),
                 "strategy": os.environ.get("STRATEGY"),
                 "ai_provider": os.environ.get("AI_PROVIDER"),
                 "ai_model": os.environ.get("AI_MODEL"),
@@ -360,7 +360,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def build_command() -> list[str]:
     """Build the CLI command from environment variables."""
-    mode = os.environ.get("RUN_MODE", "apex").lower()
+    mode = os.environ.get("RUN_MODE", "mcp").lower()
     py = [sys.executable, "-m", "cli.main"]
 
     if mode in ("apex", "wolf"):
@@ -479,7 +479,7 @@ def main():
 
     # Build and run main command
     cmd = build_command()
-    mode = os.environ.get("RUN_MODE", "apex")
+    mode = os.environ.get("RUN_MODE", "mcp")
     safe_cmd = _SECRET_RE.sub("0x[REDACTED]", ' '.join(cmd))
     log.info("Starting %s mode: %s", mode, safe_cmd)
 

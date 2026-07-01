@@ -1,4 +1,10 @@
-# APEX Operational Runbook
+# Agent CLI Railway Runbook
+
+The default Railway deployment is the shared MCP/tools runtime used behind
+`mcp-gateway`. It should run `RUN_MODE=mcp` and expose tools only; it must not
+run a per-user Hermes/OpenClaw/autonomous-agent loop for the subscription
+product. The APEX sections below apply only when an operator explicitly opts
+into self-hosted autonomous modes.
 
 ## Starting / Stopping
 
@@ -7,7 +13,7 @@
 # Deploy via Railway dashboard or CLI
 railway up
 ```
-The entrypoint starts a health server on `$PORT` (default 8080) then launches the configured `RUN_MODE`.
+The entrypoint starts a health server on `$PORT` (default 8080) then launches the configured `RUN_MODE`. For the hosted MCP product, leave `RUN_MODE=mcp`.
 
 ### Start (Local)
 ```bash
@@ -113,7 +119,7 @@ railway logs | jq '.level, .message'
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `RUN_MODE` | `apex` | `apex`, `strategy`, `mcp` |
+| `RUN_MODE` | `mcp` | `mcp` for shared hosted tools; `apex`/`strategy` only for self-hosted operators |
 | `APEX_PRESET` | `default` | `conservative`, `default`, `aggressive` |
 | `APEX_BUDGET` | auto | Total trading capital |
 | `APEX_SLOTS` | `3` | Max concurrent positions |
@@ -126,11 +132,12 @@ railway logs | jq '.level, .message'
 
 ## Railway Deployment Checklist
 
-- [ ] `HL_PRIVATE_KEY` or keystore credentials configured
-- [ ] `HL_TESTNET=false` for mainnet
-- [ ] `APEX_BUDGET` set to desired capital
+- [ ] `RUN_MODE=mcp` for Nunchi-hosted shared tools runtime
+- [ ] `HL_TESTNET=true` unless the runner is explicitly approved for mainnet
+- [ ] Do not deploy Hermes/OpenClaw as a Nunchi subscription product surface
+- [ ] Configure generic metering upload when reporting usage: `NUNCHI_METERING_URL`, `NUNCHI_METERING_TOKEN`
 - [ ] `API_AUTH_TOKEN` set for control endpoint security
 - [ ] Persistent volume mounted at `/data`
 - [ ] Health check endpoint `/health` responds with 200
-- [ ] Run `hl apex reconcile` after first deploy to verify clean state
-- [ ] Monitor `/metrics` endpoint for tick latency and error counts
+- [ ] Gateway points at this runner with `NUNCHI_MCP_TOOLS_RUNNER_URL`
+- [ ] For self-hosted APEX/strategy modes only: run `hl apex reconcile` after first deploy and monitor `/metrics`
