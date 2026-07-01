@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Railway entrypoint — health check server + strategy runner.
+"""Hosted-agent entrypoint — health check server + strategy runner.
 
-Starts a lightweight HTTP health server (required by Railway), then launches
-the configured trading mode (apex, strategy, or mcp) as a subprocess.
+Starts a lightweight HTTP health server, then launches the configured trading
+mode (apex, strategy, or mcp) as a subprocess.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import re
 log = logging.getLogger("entrypoint")
 START_TIME = time.time()
 CHILD_PROC: subprocess.Popen | None = None
+METERING_PROC: subprocess.Popen | None = None
 MAX_BODY_SIZE = 1_048_576  # 1MB max POST body
 AUTH_TOKEN = os.environ.get("API_AUTH_TOKEN")
 
@@ -30,14 +31,79 @@ AUTH_TOKEN = os.environ.get("API_AUTH_TOKEN")
 _SECRET_RE = re.compile(r'0x[a-fA-F0-9]{64}')
 
 
+def _tail_jsonl(path: Path, limit: int = 20) -> list[dict]:
+    """Read the last N valid JSONL rows from a hosted-agent ledger."""
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    return rows[-limit:]
+
+
+def _pricing_snapshot(data_dir: str, limit: int = 20) -> dict:
+    """Return non-secret pricing-loop status and recent ledger rows."""
+    base = Path(data_dir)
+    quota_status_path = Path(os.environ.get("NUNCHI_METERING_QUOTA_STATUS_PATH") or base / ".metering_quota_status.json")
+    quota_status = None
+    if quota_status_path.exists():
+        try:
+            quota_status = json.loads(quota_status_path.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            quota_status = {"status": "unreadable"}
+    ledgers = {
+        "cost": base / "cost_ledger.jsonl",
+        "route": base / "route_ledger.jsonl",
+        "runtime": base / "agent_runtime_ledger.jsonl",
+        "incident": base / "incident_ledger.jsonl",
+        "trades": base / "trades.jsonl",
+    }
+    return {
+        "mode": os.environ.get("RUN_MODE", "apex"),
+        "strategy": os.environ.get("STRATEGY"),
+        "ai_provider": os.environ.get("AI_PROVIDER"),
+        "ai_model": os.environ.get("AI_MODEL"),
+        "hl_testnet": os.environ.get("HL_TESTNET", "true"),
+        "experiment_id": os.environ.get("NUNCHI_EXPERIMENT_ID"),
+        "run_id": os.environ.get("NUNCHI_RUN_ID"),
+        "user_id": os.environ.get("NUNCHI_USER_ID"),
+        "account_id": os.environ.get("NUNCHI_ACCOUNT_ID"),
+        "job_type": os.environ.get("NUNCHI_JOB_TYPE"),
+        "agent_id": os.environ.get("NUNCHI_AGENT_ID"),
+        "plan_id": os.environ.get("NUNCHI_PLAN_ID"),
+        "subscription_id": os.environ.get("NUNCHI_SUBSCRIPTION_ID"),
+        "metering_enabled": bool(os.environ.get("NUNCHI_METERING_URL") and os.environ.get("NUNCHI_METERING_TOKEN")),
+        "quota_status": quota_status,
+        "data_dir": data_dir,
+        "child_alive": CHILD_PROC.poll() is None if CHILD_PROC else False,
+        "ledger_exists": {name: path.exists() for name, path in ledgers.items()},
+        "ledgers": {name: _tail_jsonl(path, limit=limit) for name, path in ledgers.items()},
+    }
+
+
 class HealthHandler(BaseHTTPRequestHandler):
-    """Minimal health check handler for Railway."""
+    """Minimal health check handler for hosted-agent monitoring."""
 
     def do_GET(self):
         if self.path == "/health":
             body = json.dumps({
                 "status": "ok",
                 "mode": os.environ.get("RUN_MODE", "apex"),
+                "strategy": os.environ.get("STRATEGY"),
+                "ai_provider": os.environ.get("AI_PROVIDER"),
+                "ai_model": os.environ.get("AI_MODEL"),
+                "experiment_id": os.environ.get("NUNCHI_EXPERIMENT_ID"),
+                "job_type": os.environ.get("NUNCHI_JOB_TYPE"),
                 "uptime_s": int(time.time() - START_TIME),
                 "pid": CHILD_PROC.pid if CHILD_PROC else None,
                 "alive": CHILD_PROC.poll() is None if CHILD_PROC else False,
@@ -65,8 +131,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_status(data_dir))
             except Exception as e:
                 body = json.dumps({"status": "error", "error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/strategies":
             try:
@@ -74,8 +139,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_strategies())
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/feed":
             self.send_response(200)
@@ -109,8 +173,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_trades(data_dir, limit=limit))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/api/reflect":
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -119,8 +182,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_reflect(data_dir))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path == "/metrics":
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -142,8 +204,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_radar(data_dir))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
-            self._json_response(body)
+            self._json_response(body, cors=True)
 
         elif self.path.startswith("/api/journal"):
             data_dir = os.environ.get("DATA_DIR", "/data")
@@ -155,7 +216,18 @@ class HealthHandler(BaseHTTPRequestHandler):
                 body = json.dumps(read_journal(data_dir, limit=limit))
             except Exception as e:
                 body = json.dumps({"error": str(e)})
-            self._cors_headers()
+            self._json_response(body, cors=True)
+
+        elif self.path.startswith("/api/pricing"):
+            data_dir = os.environ.get("DATA_DIR", "/data")
+            try:
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                limit = int(qs.get("limit", ["20"])[0])
+                limit = max(1, min(limit, 200))
+                body = json.dumps(_pricing_snapshot(data_dir, limit=limit))
+            except Exception as e:
+                body = json.dumps({"error": str(e)})
             self._json_response(body)
 
         else:
@@ -163,17 +235,37 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _check_auth(self) -> bool:
-        """Check bearer token auth if API_AUTH_TOKEN is configured."""
+        """Require bearer token auth for mutating control endpoints."""
         if not AUTH_TOKEN:
-            return True  # no auth configured
+            self._discard_body()
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.write(json.dumps({
+                "error": "control_auth_required",
+                "message": "Set API_AUTH_TOKEN to enable mutating control endpoints.",
+            }))
+            return False
         auth_header = self.headers.get("Authorization", "")
-        if auth_header == f"Bearer {AUTH_TOKEN}":
+        bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        provided = bearer or self.headers.get("X-API-Token", "")
+        if provided == AUTH_TOKEN:
             return True
+        self._discard_body()
         self.send_response(401)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.write(json.dumps({"error": "unauthorized"}))
         return False
+
+    def _discard_body(self) -> None:
+        """Drain a request body when returning before normal body parsing."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            content_length = 0
+        if 0 < content_length <= MAX_BODY_SIZE:
+            self.rfile.read(content_length)
 
     def _read_body(self) -> bytes | None:
         """Read POST body with size limit. Returns None if too large."""
@@ -192,8 +284,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 from cli.api.status_reader import read_strategies
                 data = read_strategies()
                 count = len(data.get("strategies", {}))
-                self._cors_headers()
-                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}))
+                self._json_response(json.dumps({"installed": True, "strategies": count, "tools": 13}), cors=True)
             except Exception as e:
                 self.send_response(500)
                 self._cors_headers()
@@ -212,8 +303,7 @@ class HealthHandler(BaseHTTPRequestHandler):
                 data_dir = os.environ.get("DATA_DIR", "/data")
                 from cli.api.status_reader import write_config_override
                 write_config_override(data_dir, config)
-                self._cors_headers()
-                self._json_response(json.dumps({"status": "ok", "applied_at": "next_tick"}))
+                self._json_response(json.dumps({"status": "ok", "applied_at": "next_tick"}), cors=True)
             except Exception as e:
                 self.send_response(400)
                 self._cors_headers()
@@ -224,18 +314,18 @@ class HealthHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/pause":
             if not self._check_auth():
                 return
+            self._discard_body()
             if CHILD_PROC and CHILD_PROC.poll() is None:
                 os.kill(CHILD_PROC.pid, signal.SIGSTOP)
-            self._cors_headers()
-            self._json_response(json.dumps({"status": "paused"}))
+            self._json_response(json.dumps({"status": "paused"}), cors=True)
 
         elif self.path == "/api/resume":
             if not self._check_auth():
                 return
+            self._discard_body()
             if CHILD_PROC and CHILD_PROC.poll() is None:
                 os.kill(CHILD_PROC.pid, signal.SIGCONT)
-            self._cors_headers()
-            self._json_response(json.dumps({"status": "resumed"}))
+            self._json_response(json.dumps({"status": "resumed"}), cors=True)
 
         else:
             self.send_response(404)
@@ -250,8 +340,10 @@ class HealthHandler(BaseHTTPRequestHandler):
     def write(self, body: str):
         self.wfile.write(body.encode())
 
-    def _json_response(self, body: str):
+    def _json_response(self, body: str, cors: bool = False):
         self.send_response(200)
+        if cors:
+            self._cors_headers()
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.write(body)
@@ -260,7 +352,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         origin = os.environ.get("CORS_ORIGIN", "*")
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Token")
 
     def log_message(self, format, *args):
         pass  # suppress access logs
@@ -298,7 +390,14 @@ def build_command() -> list[str]:
         strategy = os.environ.get("STRATEGY", "engine_mm")
         instrument = os.environ.get("INSTRUMENT", "ETH-PERP")
         tick = os.environ.get("TICK_INTERVAL", "10")
-        cmd = py + ["run", strategy, "-i", instrument, "-t", tick]
+        data_dir = os.environ.get("DATA_DIR", "/data/cli")
+        cmd = py + ["run", strategy, "-i", instrument, "-t", tick, "--data-dir", data_dir]
+        model = os.environ.get("AI_MODEL")
+        if model:
+            cmd += ["--model", model]
+        max_ticks = os.environ.get("MAX_TICKS")
+        if max_ticks:
+            cmd += ["--max-ticks", max_ticks]
         if os.environ.get("HL_TESTNET", "true").lower() == "false":
             cmd.append("--mainnet")
         return cmd
@@ -319,7 +418,13 @@ def build_command() -> list[str]:
 
 def shutdown(signum, frame):
     """Forward shutdown signal to child process."""
-    global CHILD_PROC
+    global CHILD_PROC, METERING_PROC
+    if METERING_PROC and METERING_PROC.poll() is None:
+        METERING_PROC.terminate()
+        try:
+            METERING_PROC.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            METERING_PROC.kill()
     if CHILD_PROC and CHILD_PROC.poll() is None:
         log.info("Received signal %d, forwarding to child (pid=%d)", signum, CHILD_PROC.pid)
         CHILD_PROC.send_signal(signal.SIGTERM)
@@ -331,7 +436,7 @@ def shutdown(signum, frame):
 
 
 def main():
-    global CHILD_PROC
+    global CHILD_PROC, METERING_PROC
 
     logging.basicConfig(
         level=logging.INFO,
@@ -377,6 +482,17 @@ def main():
     mode = os.environ.get("RUN_MODE", "apex")
     safe_cmd = _SECRET_RE.sub("0x[REDACTED]", ' '.join(cmd))
     log.info("Starting %s mode: %s", mode, safe_cmd)
+
+    if os.environ.get("NUNCHI_METERING_URL") and os.environ.get("NUNCHI_METERING_TOKEN"):
+        interval = os.environ.get("NUNCHI_METERING_UPLOAD_INTERVAL_S", "60")
+        METERING_PROC = subprocess.Popen([
+            sys.executable,
+            str(Path(__file__).resolve().parent / "metering_upload.py"),
+            "--loop",
+            "--interval",
+            interval,
+        ])
+        log.info("Started metering uploader (pid=%d interval=%ss)", METERING_PROC.pid, interval)
 
     CHILD_PROC = subprocess.Popen(cmd)
 
