@@ -18,6 +18,22 @@ def test_runtime_c_seat_requires_explicit_input():
     assert computed["byPlan"]["team"]["cSeatUsd"] == 5
 
 
+def test_tool_classification_counts_match_task7_buckets():
+    counts = pricing.tool_bucket_counts()
+    assert counts["free_read"] == 15
+    assert counts["paid_compute"] == 5
+    assert counts["safety_gated"] == 7
+    assert counts["total"] == 27
+    assert counts["costedWithoutWalletAuto"] == 26
+
+
+def test_inference_anchor_budget_capacity_uses_prompt_anchors():
+    capacity = pricing.inference_anchor_budget_capacity({"starter": 10.0})
+    assert capacity["openai/gpt-4.1-mini"]["heartbeatsByPlan"]["starter"] == 50_000
+    assert round(capacity["openrouter/auto"]["heartbeatsByPlan"]["starter"], 2) == 2702.7
+    assert capacity["fusion"]["providedRatioVsMini"] == 146
+
+
 def test_entrypoint_refusal_measurement_is_safe():
     result = pricing.measure_entrypoint_tool(
         "funding_hedge_execute",

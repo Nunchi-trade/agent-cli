@@ -36,6 +36,189 @@ HOSTED_INFERENCE_BUDGETS = {
     "team": 250.0,
 }
 
+FREE_TOOL_CALL_LIMIT_RECOMMENDATION = 20
+
+TOOL_CLASSIFICATION = [
+    {
+        "tool": "strategies",
+        "bucket": "free_read",
+        "marginalCost": "local registry read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "builder_status",
+        "bucket": "free_read",
+        "marginalCost": "local config read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "wallet_list",
+        "bucket": "free_read",
+        "marginalCost": "local keystore metadata read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "setup_check",
+        "bucket": "free_read",
+        "marginalCost": "local environment/config checks; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "pair_status",
+        "bucket": "free_read",
+        "marginalCost": "web-auth pair/session read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "account",
+        "bucket": "free_read",
+        "marginalCost": "Hyperliquid/Hydromancer info read; no inference",
+        "policy": "free tier with light rate limit",
+    },
+    {
+        "tool": "status",
+        "bucket": "free_read",
+        "marginalCost": "position/risk read; no inference",
+        "policy": "free tier with light rate limit",
+    },
+    {
+        "tool": "funding_hedge_propose",
+        "bucket": "free_read",
+        "marginalCost": "deterministic hedge proposal; no LLM by default",
+        "policy": "free tier",
+    },
+    {
+        "tool": "funding_hedge_backtest",
+        "bucket": "free_read",
+        "marginalCost": "bounded CPU/backtest work; no inference",
+        "policy": "free tier with abuse cap",
+    },
+    {
+        "tool": "apex_status",
+        "bucket": "free_read",
+        "marginalCost": "local status read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "agent_memory",
+        "bucket": "free_read",
+        "marginalCost": "local memory file read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "trade_journal",
+        "bucket": "free_read",
+        "marginalCost": "local journal read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "judge_report",
+        "bucket": "free_read",
+        "marginalCost": "latest report read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "obsidian_context",
+        "bucket": "free_read",
+        "marginalCost": "local vault/context read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "money_bridge_status",
+        "bucket": "free_read",
+        "marginalCost": "bridge status read; no inference",
+        "policy": "free tier",
+    },
+    {
+        "tool": "run_strategy",
+        "bucket": "paid_compute",
+        "marginalCost": "strategy loop CPU/API calls; may invoke inference depending on strategy",
+        "policy": "paid compute quota",
+    },
+    {
+        "tool": "radar_run",
+        "bucket": "paid_compute",
+        "marginalCost": "market scan CPU/API calls; may be inference-backed in premium paths",
+        "policy": "paid compute quota",
+    },
+    {
+        "tool": "apex_run",
+        "bucket": "paid_compute",
+        "marginalCost": "multi-slot orchestrator; highest sustained runtime/API risk",
+        "policy": "paid compute quota",
+    },
+    {
+        "tool": "reflect_run",
+        "bucket": "paid_compute",
+        "marginalCost": "post-trade review; likely LLM-backed when reports are generated",
+        "policy": "paid compute quota",
+    },
+    {
+        "tool": "hedge_agent_smoke_test",
+        "bucket": "paid_compute",
+        "marginalCost": "agent smoke/eval path; possibly inference-backed",
+        "policy": "paid compute quota",
+    },
+    {
+        "tool": "trade",
+        "bucket": "safety_gated",
+        "marginalCost": "order submission; not inference-heavy and can create builder economics",
+        "policy": "free or low-friction, confirmation and limit gated",
+    },
+    {
+        "tool": "funding_hedge_execute",
+        "bucket": "safety_gated",
+        "marginalCost": "hedge order path; fund-moving when dry_run=false",
+        "policy": "confirmation gated; dry-run preview safe",
+    },
+    {
+        "tool": "money_withdraw",
+        "bucket": "safety_gated",
+        "marginalCost": "fund-moving transfer; no inference",
+        "policy": "confirmation and entitlement gated",
+    },
+    {
+        "tool": "money_transfer_usd",
+        "bucket": "safety_gated",
+        "marginalCost": "fund-moving transfer; no inference",
+        "policy": "confirmation and entitlement gated",
+    },
+    {
+        "tool": "money_deposit",
+        "bucket": "safety_gated",
+        "marginalCost": "fund-moving deposit flow; no inference",
+        "policy": "confirmation and entitlement gated",
+    },
+    {
+        "tool": "approve_agent",
+        "bucket": "safety_gated",
+        "marginalCost": "approval/signing control; no inference",
+        "policy": "confirmation and policy gated",
+    },
+    {
+        "tool": "wallet_auto",
+        "bucket": "safety_gated",
+        "marginalCost": "wallet creation/write; no inference",
+        "policy": "disabled on hosted keyless runner, gated elsewhere",
+    },
+]
+
+INFERENCE_COST_ANCHORS = {
+    "openrouter/auto": {
+        "costPerHeartbeatUsd": 0.0037,
+        "source": "anchor from Task 7 prompt",
+    },
+    "openai/gpt-4.1-mini": {
+        "costPerHeartbeatUsd": 0.0002,
+        "source": "anchor from Task 7 prompt",
+    },
+    "fusion": {
+        "costPerHeartbeatUsd": 0.033,
+        "source": "anchor from Task 7 prompt",
+        "providedRatioVsMini": 146,
+    },
+}
+
 
 @dataclass(frozen=True)
 class Measurement:
@@ -68,6 +251,31 @@ def builder_fee_rate_tenths_bps() -> int:
 
 def builder_revenue_usd(notional_usd: float, fee_tenths_bps: int) -> float:
     return notional_usd * fee_tenths_bps / 100_000
+
+
+def tool_bucket_counts() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in TOOL_CLASSIFICATION:
+        bucket = row["bucket"]
+        counts[bucket] = counts.get(bucket, 0) + 1
+    counts["total"] = len(TOOL_CLASSIFICATION)
+    counts["costedWithoutWalletAuto"] = len([row for row in TOOL_CLASSIFICATION if row["tool"] != "wallet_auto"])
+    return counts
+
+
+def inference_anchor_budget_capacity(budgets: dict[str, float]) -> dict[str, dict[str, Any]]:
+    return {
+        model: {
+            "costPerHeartbeatUsd": anchor["costPerHeartbeatUsd"],
+            "source": anchor["source"],
+            **({"providedRatioVsMini": anchor["providedRatioVsMini"]} if "providedRatioVsMini" in anchor else {}),
+            "heartbeatsByPlan": {
+                plan: budget / anchor["costPerHeartbeatUsd"]
+                for plan, budget in budgets.items()
+            },
+        }
+        for model, anchor in INFERENCE_COST_ANCHORS.items()
+    }
 
 
 def runtime_c_seat(runtime_monthly_usd: float | None) -> dict[str, Any]:
@@ -109,6 +317,31 @@ def measure_subprocess(name: str, command: list[str], timeout: float = 30) -> Me
         return Measurement(name=name, ok=False, elapsed_ms=elapsed_ms, detail={"error": str(exc)})
 
 
+def measure_entrypoint_method(method: str) -> Measurement:
+    from scripts.entrypoint import handle_mcp_json_rpc
+
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+    }).encode()
+    start = time.perf_counter()
+    status, response = handle_mcp_json_rpc(body, {})
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    result = response.get("result") if isinstance(response, dict) else None
+    tool_count = len(result.get("tools", [])) if isinstance(result, dict) and isinstance(result.get("tools"), list) else None
+    return Measurement(
+        name=f"mcp.{method}",
+        ok=status == 200,
+        elapsed_ms=elapsed_ms,
+        detail={
+            "httpStatus": status,
+            "responseBytes": len(json.dumps(response)),
+            "toolCount": tool_count,
+        },
+    )
+
+
 def measure_entrypoint_tool(name: str, arguments: dict[str, Any] | None = None) -> Measurement:
     from scripts.entrypoint import handle_mcp_json_rpc
 
@@ -134,8 +367,23 @@ def measure_entrypoint_tool(name: str, arguments: dict[str, Any] | None = None) 
             "httpStatus": status,
             "responseBytes": len(json.dumps(response)),
             "containsConfirmationRefusal": "confirmed=true" in text,
+            "containsSigningRefusal": "requires a signing context" in text,
         },
     )
+
+
+def safe_trade_refusal_measurement() -> Measurement:
+    if has_wallet_credentials():
+        return Measurement(
+            name="mcp.trade_unsigned_refusal",
+            ok=True,
+            elapsed_ms=0,
+            detail={
+                "skipped": True,
+                "reason": "wallet credentials are present; skipping trade probe to avoid any order path",
+            },
+        )
+    return measure_entrypoint_tool("trade", {"instrument": "ETH-PERP", "side": "buy", "size": 0.1})
 
 
 def openrouter_probe(model: str) -> dict[str, Any]:
@@ -191,7 +439,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     fee_tenths_bps = builder_fee_rate_tenths_bps()
     measurements = [
         measure_subprocess("python.import_cli", [sys.executable, "-c", "import cli.main; print('ok')"]),
+        measure_entrypoint_method("tools/list"),
+        measure_entrypoint_tool("setup_check"),
         measure_entrypoint_tool("strategies"),
+        safe_trade_refusal_measurement(),
         measure_entrypoint_tool("funding_hedge_execute", {"coin": "BTC", "dry_run": True}),
     ]
     openrouter = openrouter_probe(args.openrouter_model) if args.openrouter_live else {
@@ -212,6 +463,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "generatedAtMs": int(time.time() * 1000),
+        "freeTierRecommendation": {
+            "hostedMcpFreeCallLimit": FREE_TOOL_CALL_LIMIT_RECOMMENDATION,
+            "note": "Use this as a beta/free-tier cap for hosted MCP discovery/read calls; keep paid-compute and fund-moving actions separately metered/gated.",
+        },
+        "toolClassification": {
+            "counts": tool_bucket_counts(),
+            "tools": TOOL_CLASSIFICATION,
+        },
         "environment": {
             "runMode": os.environ.get("RUN_MODE"),
             "hlTestnet": os.environ.get("HL_TESTNET"),
@@ -224,6 +483,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "mode1": runtime_c_seat(runtime_monthly),
         "mode2": {
             "inferenceBudgetsUsd": HOSTED_INFERENCE_BUDGETS,
+            "anchorEstimates": inference_anchor_budget_capacity(HOSTED_INFERENCE_BUDGETS),
             "openrouterProbe": openrouter,
         },
         "mode3": {
