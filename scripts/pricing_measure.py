@@ -45,6 +45,26 @@ CREDIT_RATES = {
     "inferenceUsdCredits": 1.0,
 }
 
+SECONDS_PER_HOUR = 3_600
+MONTHLY_HOURS = 730
+
+PLAN_PRICES_USD = {
+    "hosted-mcp-tools-starter": 49.0,
+    "hosted-mcp-tools-growth": 99.0,
+    "hosted-mcp-tools-team": 299.0,
+    "hosted-mcp-inference-starter": 99.0,
+    "hosted-mcp-inference-growth": 199.0,
+    "hosted-mcp-inference-team": 499.0,
+}
+
+RAILWAY_RATE_ENV = {
+    "vcpuHourUsd": "RAILWAY_VCPU_HOUR_USD",
+    "memoryGbHourUsd": "RAILWAY_MEMORY_GB_HOUR_USD",
+    "networkGbUsd": "RAILWAY_NETWORK_GB_USD",
+    "diskGbHourUsd": "RAILWAY_DISK_GB_HOUR_USD",
+    "baselineMonthlyUsd": "RAILWAY_BASELINE_MONTHLY_USD",
+}
+
 PLAN_LIMITS = {
     "hosted-mcp-tools-starter": {"product": "hosted-mcp-tools", "seats": 5, "credits": 50, "mcpCalls": 2_000, "paidComputeCalls": 100, "inferenceUsd": 0.0},
     "hosted-mcp-tools-growth": {"product": "hosted-mcp-tools", "seats": 10, "credits": 150, "mcpCalls": 10_000, "paidComputeCalls": 500, "inferenceUsd": 0.0},
@@ -328,6 +348,95 @@ def runtime_c_seat(runtime_monthly_usd: float | None) -> dict[str, Any]:
     }
 
 
+def _env_float(name: str, default: float | None = None) -> float | None:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    return float(raw)
+
+
+def railway_rate_card_from_env() -> dict[str, Any]:
+    rates = {
+        key: _env_float(env_name, 0.0 if key == "baselineMonthlyUsd" else None)
+        for key, env_name in RAILWAY_RATE_ENV.items()
+    }
+    missing = [
+        env_name
+        for key, env_name in RAILWAY_RATE_ENV.items()
+        if key != "baselineMonthlyUsd" and rates[key] is None
+    ]
+    return {
+        "ok": len(missing) == 0,
+        "rates": rates,
+        "missing": missing,
+        "env": RAILWAY_RATE_ENV,
+    }
+
+
+def _metric_number(metrics: dict[str, Any], path: list[str], default: float = 0.0) -> float:
+    cur: Any = metrics
+    for key in path:
+        if not isinstance(cur, dict):
+            return default
+        cur = cur.get(key)
+    try:
+        value = float(cur)
+    except (TypeError, ValueError):
+        return default
+    return value if value == value else default
+
+
+def _hours_from_since(value: str) -> float:
+    text = str(value or "1h").strip().lower()
+    if text.endswith("m"):
+        return max(float(text[:-1]) / 60, 0.0)
+    if text.endswith("h"):
+        return max(float(text[:-1]), 0.0)
+    if text.endswith("d"):
+        return max(float(text[:-1]) * 24, 0.0)
+    try:
+        return max(float(text), 0.0)
+    except ValueError:
+        return 1.0
+
+
+def estimate_railway_cost(metrics: dict[str, Any], rate_card: dict[str, Any], *, hours: float) -> dict[str, Any]:
+    rates = rate_card.get("rates", rate_card)
+    if not rate_card.get("ok", True):
+        return {
+            "ok": False,
+            "blocker": "Missing Railway rate-card env vars.",
+            "missing": rate_card.get("missing", []),
+        }
+    cpu_vcpu = _metric_number(metrics, ["cpu", "average"])
+    memory_gb = _metric_number(metrics, ["memory", "average_gb"], _metric_number(metrics, ["memory", "average_mb"]) / 1024)
+    network_gb = _metric_number(metrics, ["network", "egress_gb"], _metric_number(metrics, ["network", "egress_mb"]) / 1024)
+    disk_gb = _metric_number(metrics, ["disk", "average_gb"], _metric_number(metrics, ["disk", "average_mb"]) / 1024)
+    baseline_monthly = float(rates.get("baselineMonthlyUsd") or 0.0)
+    components = {
+        "cpuUsd": cpu_vcpu * hours * float(rates["vcpuHourUsd"]),
+        "memoryUsd": memory_gb * hours * float(rates["memoryGbHourUsd"]),
+        "networkUsd": network_gb * float(rates["networkGbUsd"]),
+        "diskUsd": disk_gb * hours * float(rates["diskGbHourUsd"]),
+        "baselineUsd": baseline_monthly * (hours / MONTHLY_HOURS),
+    }
+    total = sum(components.values())
+    return {
+        "ok": True,
+        "estimatedRailwayCostUsd": round(total, 6),
+        "windowHours": hours,
+        "monthlyRunRateUsd": round(total * MONTHLY_HOURS / hours, 2) if hours > 0 else 0.0,
+        "inputs": {
+            "averageVcpu": cpu_vcpu,
+            "averageMemoryGb": memory_gb,
+            "networkEgressGb": network_gb,
+            "averageDiskGb": disk_gb,
+        },
+        "components": {key: round(value, 6) for key, value in components.items()},
+        "rateCard": rates,
+    }
+
+
 def railway_metrics_probe(args: argparse.Namespace) -> dict[str, Any]:
     """Collect Railway resource metrics when the CLI is available.
 
@@ -362,7 +471,7 @@ def railway_metrics_probe(args: argparse.Namespace) -> dict[str, Any]:
         "ok": True,
         "command": command[1:],
         "source": "railway metrics --json",
-        "note": "Resource metrics are not billing dollars; provide --runtime-monthly-usd or RAILWAY_SHARED_RUNTIME_MONTHLY_USD for C_seat.",
+        "note": "Resource metrics are converted to estimatedRailwayCostUsd when a Railway unit-rate card is configured.",
         "metrics": payload,
     }
 
@@ -435,6 +544,111 @@ def job_profile_simulation(profile_name: str) -> dict[str, Any]:
 def job_profile_simulations(selected: list[str]) -> dict[str, Any]:
     names = selected or list(JOB_PROFILES.keys())
     return {name: job_profile_simulation(name) for name in names}
+
+
+def job_profile_margins(job_profiles: dict[str, Any], railway_cost_estimate: dict[str, Any]) -> dict[str, Any]:
+    if not railway_cost_estimate.get("ok"):
+        return {
+            name: {
+                "computed": False,
+                "blocker": railway_cost_estimate.get("blocker", "Railway cost estimate unavailable."),
+            }
+            for name in job_profiles
+        }
+    runtime_monthly = float(railway_cost_estimate.get("monthlyRunRateUsd") or 0.0)
+    margins: dict[str, Any] = {}
+    for name, profile in job_profiles.items():
+        plan_id = profile["recommendedPlanId"]
+        limits = profile["planLimits"]
+        usage = profile["monthlyUsage"]
+        revenue = PLAN_PRICES_USD[plan_id]
+        included_seats = max(float(limits["seats"]), 1.0)
+        railway_cogs = runtime_monthly * (float(usage["seats"]) / included_seats)
+        inference_cogs = float(usage["inferenceUsd"])
+        total_cogs = railway_cogs + inference_cogs
+        gross_margin = revenue - total_cogs
+        margins[name] = {
+            "computed": True,
+            "planId": plan_id,
+            "revenueUsd": revenue,
+            "estimatedRailwayCogsUsd": round(railway_cogs, 2),
+            "inferenceCogsUsd": round(inference_cogs, 2),
+            "totalEstimatedCogsUsd": round(total_cogs, 2),
+            "grossMarginUsd": round(gross_margin, 2),
+            "grossMarginPct": round((gross_margin / revenue) * 100, 2) if revenue else None,
+            "allocation": {
+                "method": "profile seats / plan included seats",
+                "profileSeats": usage["seats"],
+                "includedSeats": limits["seats"],
+                "runtimeMonthlyRunRateUsd": runtime_monthly,
+            },
+        }
+    return margins
+
+
+def railway_runtime_cost_row(cost_estimate: dict[str, Any], *, service: str = "", ts_ms: int | None = None, source: str = "pricing_measure_railway_sampler") -> dict[str, Any]:
+    ts = ts_ms or int(time.time() * 1000)
+    service_key = service or "shared"
+    return {
+        "row_id": f"railway_runtime_cost:{service_key}:{ts}",
+        "metric_type": "runtime_cost",
+        "row": {
+            "ts": ts,
+            "estimated_railway_cost_usd": cost_estimate.get("estimatedRailwayCostUsd", 0),
+            "window_hours": cost_estimate.get("windowHours", 0),
+            "monthly_run_rate_usd": cost_estimate.get("monthlyRunRateUsd", 0),
+            "components": cost_estimate.get("components", {}),
+            "service": service or None,
+            "source": source,
+        },
+    }
+
+
+def upload_runtime_cost_row(args: argparse.Namespace, cost_estimate: dict[str, Any]) -> dict[str, Any]:
+    if not getattr(args, "emit_railway_runtime_cost", False):
+        return {"ok": False, "skipped": "Run with --emit-railway-runtime-cost to upload live cost samples."}
+    if not cost_estimate.get("ok"):
+        return {"ok": False, "blocker": cost_estimate.get("blocker", "Railway cost estimate unavailable.")}
+    url = getattr(args, "metering_usage_url", "") or os.environ.get("NUNCHI_METERING_USAGE_URL") or os.environ.get("MCP_METERING_USAGE_URL")
+    token = getattr(args, "metering_token", "") or os.environ.get("NUNCHI_METERING_TOKEN") or os.environ.get("NUNCHI_WEB_AUTH_PAIR_TOKEN")
+    account_id = getattr(args, "account_id", "") or os.environ.get("NUNCHI_ACCOUNT_ID", "")
+    subscription_id = getattr(args, "subscription_id", "") or os.environ.get("NUNCHI_SUBSCRIPTION_ID", "")
+    plan_id = getattr(args, "plan_id", "") or os.environ.get("NUNCHI_PLAN_ID", "hosted-mcp-tools-starter")
+    if not url or not token or not account_id:
+        return {
+            "ok": False,
+            "blocker": "Set metering URL, token, and account ID before emitting Railway runtime cost.",
+        }
+    row = railway_runtime_cost_row(cost_estimate, service=args.railway_service)
+    payload = json.dumps({
+        "accountId": account_id,
+        "subscriptionId": subscription_id,
+        "planId": plan_id,
+        "rows": [row],
+    }).encode()
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "authorization": f"Bearer {token}",
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = json.loads(response.read().decode())
+        return {
+            "ok": True,
+            "url": url,
+            "rowId": row["row_id"],
+            "accepted": body.get("accepted"),
+        }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        return {"ok": False, "status": exc.code, "blocker": exc.reason, "detail": detail}
+    except Exception as exc:  # pragma: no cover - network dependent
+        return {"ok": False, "blocker": str(exc)}
 
 
 def measure_subprocess(name: str, command: list[str], timeout: float = 30) -> Measurement:
@@ -577,6 +791,7 @@ def parse_runtime_monthly(args: argparse.Namespace) -> float | None:
 
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     runtime_monthly = parse_runtime_monthly(args)
+    railway_rate_card = railway_rate_card_from_env()
     fee_tenths_bps = builder_fee_rate_tenths_bps()
     measurements = [
         measure_subprocess("python.import_cli", [sys.executable, "-c", "import cli.main; print('ok')"]),
@@ -591,9 +806,30 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "blocker": "Run with --openrouter-live to spend OpenRouter credits for this probe.",
         "credentialPresent": env_flag("OPENROUTER_API_KEY"),
     }
+    railway_metrics = railway_metrics_probe(args) if args.railway_metrics else {
+        "ok": False,
+        "skipped": "Run with --railway-metrics to collect Railway resource metrics.",
+    }
+    railway_cost_estimate = (
+        estimate_railway_cost(
+            railway_metrics.get("metrics", {}),
+            railway_rate_card,
+            hours=_hours_from_since(args.railway_metrics_since),
+        )
+        if railway_metrics.get("ok")
+        else {"ok": False, "blocker": railway_metrics.get("skipped") or railway_metrics.get("blocker") or "Railway metrics unavailable."}
+    )
+    runtime_monthly_for_c_seat = runtime_monthly
+    if runtime_monthly_for_c_seat is None and railway_cost_estimate.get("ok"):
+        runtime_monthly_for_c_seat = float(railway_cost_estimate["monthlyRunRateUsd"])
+    job_profiles = job_profile_simulations(args.job_profile)
+    railway_cost_upload = upload_runtime_cost_row(args, railway_cost_estimate)
+
     blockers: list[str] = []
-    if runtime_monthly is None:
-        blockers.append("missing Railway runtime monthly cost input for Mode 1 C_seat")
+    if runtime_monthly_for_c_seat is None:
+        blockers.append("missing Railway runtime monthly cost estimate for Mode 1 C_seat")
+    if getattr(args, "railway_cost_strict", False) and not railway_cost_estimate.get("ok"):
+        blockers.append(railway_cost_estimate.get("blocker", "Railway cost estimate unavailable in strict mode."))
     if not has_wallet_credentials():
         blockers.append("missing funded-wallet/HL signing credentials for live funded-wallet measurement")
     if not env_flag("OPENROUTER_API_KEY"):
@@ -621,11 +857,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "builderFeeTenthsBps": fee_tenths_bps,
         },
         "measurements": [m.__dict__ for m in measurements],
-        "mode1": runtime_c_seat(runtime_monthly),
-        "railwayMetricsProbe": railway_metrics_probe(args) if args.railway_metrics else {
-            "ok": False,
-            "skipped": "Run with --railway-metrics to collect Railway resource metrics.",
-        },
+        "mode1": runtime_c_seat(runtime_monthly_for_c_seat),
+        "railwayRateCard": railway_rate_card,
+        "railwayMetricsProbe": railway_metrics,
+        "railwayCostEstimate": railway_cost_estimate,
+        "railwayRuntimeCostUpload": railway_cost_upload,
         "mode2": {
             "inferenceBudgetsUsd": HOSTED_INFERENCE_BUDGETS,
             "anchorEstimates": inference_anchor_budget_capacity(HOSTED_INFERENCE_BUDGETS),
@@ -637,7 +873,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "builderRevenuePer1mNotionalUsd": builder_revenue_usd(1_000_000, fee_tenths_bps),
             "note": "Builder revenue is formulaic until funded-wallet fills are measured.",
         },
-        "jobProfileSimulations": job_profile_simulations(args.job_profile),
+        "jobProfileSimulations": job_profiles,
+        "jobProfileMargins": job_profile_margins(job_profiles, railway_cost_estimate),
         "blockers": blockers,
     }
 
@@ -653,6 +890,13 @@ def main() -> None:
     parser.add_argument("--railway-service", default=os.environ.get("RAILWAY_SERVICE_NAME", ""))
     parser.add_argument("--railway-environment", default=os.environ.get("RAILWAY_ENVIRONMENT", "production"))
     parser.add_argument("--railway-metrics-since", default=os.environ.get("RAILWAY_METRICS_SINCE", "1h"))
+    parser.add_argument("--railway-cost-strict", action="store_true")
+    parser.add_argument("--emit-railway-runtime-cost", action="store_true")
+    parser.add_argument("--metering-usage-url", default=os.environ.get("NUNCHI_METERING_USAGE_URL", ""))
+    parser.add_argument("--metering-token", default=os.environ.get("NUNCHI_METERING_TOKEN", ""))
+    parser.add_argument("--account-id", default=os.environ.get("NUNCHI_ACCOUNT_ID", ""))
+    parser.add_argument("--subscription-id", default=os.environ.get("NUNCHI_SUBSCRIPTION_ID", ""))
+    parser.add_argument("--plan-id", default=os.environ.get("NUNCHI_PLAN_ID", "hosted-mcp-tools-starter"))
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     report = build_report(args)

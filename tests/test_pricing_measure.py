@@ -1,4 +1,5 @@
 from scripts import pricing_measure as pricing
+from ops import railway_cost_meter
 
 
 class _FakeResponse:
@@ -30,6 +31,136 @@ def test_runtime_c_seat_requires_explicit_input():
     assert computed["byPlan"]["starter"]["cSeatUsd"] == 50
     assert computed["byPlan"]["growth"]["cSeatUsd"] == 25
     assert computed["byPlan"]["team"]["cSeatUsd"] == 5
+
+
+def test_railway_rate_card_and_cost_estimate(monkeypatch):
+    monkeypatch.setenv("RAILWAY_VCPU_HOUR_USD", "0.10")
+    monkeypatch.setenv("RAILWAY_MEMORY_GB_HOUR_USD", "0.01")
+    monkeypatch.setenv("RAILWAY_NETWORK_GB_USD", "0.05")
+    monkeypatch.setenv("RAILWAY_DISK_GB_HOUR_USD", "0.02")
+    monkeypatch.setenv("RAILWAY_BASELINE_MONTHLY_USD", "73")
+
+    rate_card = pricing.railway_rate_card_from_env()
+    estimate = pricing.estimate_railway_cost(
+        {
+            "cpu": {"average": 2.0},
+            "memory": {"average_mb": 1024},
+            "network": {"egress_gb": 3.0},
+            "disk": {"average_gb": 4.0},
+        },
+        rate_card,
+        hours=10,
+    )
+
+    assert rate_card["ok"] is True
+    assert estimate["ok"] is True
+    assert estimate["components"]["cpuUsd"] == 2.0
+    assert estimate["components"]["memoryUsd"] == 0.1
+    assert estimate["components"]["networkUsd"] == 0.15
+    assert estimate["components"]["diskUsd"] == 0.8
+    assert estimate["components"]["baselineUsd"] == 1.0
+    assert estimate["estimatedRailwayCostUsd"] == 4.05
+
+
+def test_job_profile_margins_use_railway_cost_estimate():
+    profiles = {"maker": pricing.job_profile_simulation("maker")}
+    margins = pricing.job_profile_margins(
+        profiles,
+        {"ok": True, "monthlyRunRateUsd": 250.0},
+    )
+
+    maker = margins["maker"]
+    assert maker["computed"] is True
+    assert maker["planId"] == "hosted-mcp-tools-team"
+    assert maker["revenueUsd"] == 299.0
+    assert maker["estimatedRailwayCogsUsd"] == 25.0
+    assert maker["inferenceCogsUsd"] == 0.0
+    assert maker["grossMarginUsd"] == 274.0
+
+
+def test_railway_runtime_cost_row_shape():
+    row = pricing.railway_runtime_cost_row(
+        {
+            "estimatedRailwayCostUsd": 1.23,
+            "windowHours": 1,
+            "monthlyRunRateUsd": 897.9,
+            "components": {"cpuUsd": 0.5},
+        },
+        service="hosted-trading-mcp",
+        ts_ms=123,
+    )
+
+    assert row["metric_type"] == "runtime_cost"
+    assert row["row_id"] == "railway_runtime_cost:hosted-trading-mcp:123"
+    assert row["row"]["estimated_railway_cost_usd"] == 1.23
+    assert row["row"]["monthly_run_rate_usd"] == 897.9
+
+
+def test_railway_cost_meter_uses_internal_endpoint():
+    class Args:
+        internal_runtime_url = ""
+        web_auth_api_url = "https://web-auth.example"
+
+    assert railway_cost_meter.internal_runtime_url(Args()) == "https://web-auth.example/api/internal/costing/railway-runtime"
+
+
+def test_railway_cost_meter_prefers_target_service_env(monkeypatch):
+    monkeypatch.setenv("RAILWAY_TARGET_SERVICE_NAME", "hosted-trading-mcp")
+    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "railway-cost-meter")
+    monkeypatch.setenv("RAILWAY_TARGET_PROJECT_ID", "project-target")
+    monkeypatch.setenv("RAILWAY_PROJECT_ID", "project-self")
+
+    parser = railway_cost_meter.argparse.ArgumentParser()
+    parser.add_argument("--railway-project", default=railway_cost_meter.os.environ.get("RAILWAY_TARGET_PROJECT_ID", railway_cost_meter.os.environ.get("RAILWAY_PROJECT_ID", "")))
+    parser.add_argument("--railway-service", default=railway_cost_meter.os.environ.get("RAILWAY_TARGET_SERVICE_NAME", railway_cost_meter.os.environ.get("RAILWAY_SERVICE_NAME", "")))
+    args = parser.parse_args([])
+
+    assert args.railway_service == "hosted-trading-mcp"
+    assert args.railway_project == "project-target"
+
+
+def test_railway_cost_meter_samples_and_uploads_global_runtime(monkeypatch):
+    class Args:
+        internal_runtime_url = "https://web-auth.example/api/internal/costing/railway-runtime"
+        web_auth_api_url = ""
+        internal_costing_token = "internal-token"
+        railway_metrics_since = "1m"
+        railway_service = "hosted-trading-mcp"
+        railway_environment = "production"
+        railway_project = ""
+
+    captured = {}
+    monkeypatch.setattr(railway_cost_meter.pricing, "railway_rate_card_from_env", lambda: {"ok": True, "rates": {
+        "vcpuHourUsd": 0.1,
+        "memoryGbHourUsd": 0.01,
+        "networkGbUsd": 0.05,
+        "diskGbHourUsd": 0.02,
+        "baselineMonthlyUsd": 0,
+    }})
+    monkeypatch.setattr(railway_cost_meter.pricing, "railway_metrics_probe", lambda _args: {"ok": True, "metrics": {"cpu": {"average": 1}}})
+    monkeypatch.setattr(railway_cost_meter.pricing, "estimate_railway_cost", lambda *_args, **_kwargs: {
+        "ok": True,
+        "estimatedRailwayCostUsd": 0.1,
+        "windowHours": 1 / 60,
+        "monthlyRunRateUsd": 73,
+        "components": {"cpuUsd": 0.1},
+    })
+
+    def fake_upload(url, token, rows):
+        captured["url"] = url
+        captured["token"] = token
+        captured["rows"] = rows
+        return {"ok": True, "accepted": 1}
+
+    monkeypatch.setattr(railway_cost_meter, "upload_internal_runtime_rows", fake_upload)
+
+    result = railway_cost_meter.sample_once(Args())
+
+    assert result["ok"] is True
+    assert captured["url"].endswith("/api/internal/costing/railway-runtime")
+    assert captured["token"] == "internal-token"
+    assert captured["rows"][0]["metric_type"] == "runtime_cost"
+    assert captured["rows"][0]["row"]["source"] == "railway_cost_meter"
 
 
 def test_tool_classification_counts_match_task7_buckets():

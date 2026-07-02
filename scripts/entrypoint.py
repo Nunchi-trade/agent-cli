@@ -352,15 +352,18 @@ def build_command() -> list[str]:
     elif mode == "mcp":
         return py + ["mcp", "serve", "--transport", "sse"]
 
+    elif mode in ("railway_cost_meter", "cost_meter"):
+        return [sys.executable, "-m", "ops.railway_cost_meter"]
+
     else:
-        log.error("Unknown RUN_MODE: %s. Use apex, wolf, strategy, or mcp.", mode)
+        log.error("Unknown RUN_MODE: %s. Use apex, wolf, strategy, mcp, or railway_cost_meter.", mode)
         sys.exit(1)
 
 
 def runner_alive() -> bool:
     if CHILD_PROC is not None:
         return CHILD_PROC.poll() is None
-    return os.environ.get("RUN_MODE", "mcp").lower() == "mcp"
+    return os.environ.get("RUN_MODE", "mcp").lower() in {"mcp", "railway_cost_meter", "cost_meter"}
 
 
 def handle_mcp_json_rpc(raw_body: bytes, headers: Any) -> tuple[int, dict[str, Any]]:
