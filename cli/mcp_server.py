@@ -590,7 +590,7 @@ def create_mcp_server():
         """Start autonomous trading with a strategy. WARNING: places real orders unless dry_run/mock.
 
         Args:
-            strategy: Strategy name (e.g., engine_mm, avellaneda_mm, momentum_breakout)
+            strategy: Strategy name (cfi_hedge — funding-rate hedge agent)
             instrument: Trading instrument (default: ETH-PERP)
             tick: Seconds between ticks (default: 10)
             max_ticks: Stop after N ticks (None = run forever)

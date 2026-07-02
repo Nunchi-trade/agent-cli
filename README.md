@@ -5,7 +5,7 @@
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
 
 <p align="center">
-  19 strategies &bull; APEX multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
+  CFI funding-rate hedge &bull; MCP server &bull; Agent Skills
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/strategies-19-C9A84C" alt="Strategies" />
+  <img src="https://img.shields.io/badge/strategy-cfi_hedge-C9A84C" alt="Strategy" />
   <img src="https://img.shields.io/badge/tests-1300%2B%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <img src="https://img.shields.io/badge/MCP-21%20tools-8A2BE2" alt="MCP" />
@@ -32,7 +32,7 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps, Paragon HIP-3 swap markets, and [YEX](https://yex.nunchi.trade) yield perpetuals. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
+Ship CFI v2 funding-rate hedging on [Hyperliquid](https://hyperliquid.xyz) perps and Paragon HIP-3 BTCSWP swap markets (`para:BTCSWP` mainnet, `osrs:BTCSWP` / `yex:BTCSWP` testnet). Primary surface: `hl hedge propose|execute|status|auto|backtest`. Also exposes Guard, Radar, Pulse, APEX, and REFLECT as optional operator tools. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
 
 ---
 
@@ -51,8 +51,9 @@ bash scripts/bootstrap.sh        # Creates venv, installs, validates
 hl wallet auto --save-env        # Create wallet + save creds (no prompts)
 hl setup claim-usdyp             # Claim testnet USDyP
 hl builder approve               # Approve builder fee (one-time, testnet)
-hl run avellaneda_mm --mock --max-ticks 3   # Validate
-hl apex run --mock --max-ticks 5            # Full pipeline test
+hl hedge propose BTC --dry-run       # Preview CFI v2 hedge proposal
+hl hedge status --coin BTC           # Active hedges + drift
+hl run cfi_hedge --mock --max-ticks 3   # Strategy-loop hedge agent (mock)
 ```
 
 ### Manual Setup (testnet)
@@ -63,7 +64,8 @@ export HL_PRIVATE_KEY=0x...
 
 hl setup check
 hl builder approve
-hl run avellaneda_mm -i ETH-PERP --tick 10
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3
 ```
 
 ### Mainnet
@@ -75,7 +77,8 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
 
 hl builder approve --mainnet
-hl run avellaneda_mm -i ETH-PERP --tick 10 --mainnet
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3 --mainnet
 hl apex run --mainnet
 ```
 
@@ -93,10 +96,12 @@ Standard HL perpetuals work on both networks. Examples: `ETH-PERP`, `BTC-PERP`, 
 
 ```bash
 # Testnet (default)
-hl run avellaneda_mm -i ETH-PERP --tick 10
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3
 
 # Mainnet
-hl run avellaneda_mm -i BTC-PERP --mainnet --tick 10
+hl hedge propose BTC --mainnet
+hl run cfi_hedge -i BTCSWP-PARA --mainnet --mock --max-ticks 3
 ```
 
 ### Paragon BTCSWP Swap Perps (HIP-3)
@@ -112,12 +117,12 @@ Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP` (YEX), mainne
 
 ```bash
 # Paragon swap perp (testnet osrs dex)
-hl run avellaneda_mm -i BTCSWP-OSRS --tick 10
+hl hedge propose BTC --dry-run
 
 # Paragon swap perp (mainnet)
 export HL_TESTNET=false
 hl builder approve --mainnet
-hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
+hl hedge execute BTC --mainnet --dry-run
 ```
 
 ### YEX Yield Markets (testnet)
@@ -131,83 +136,34 @@ hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
 | `BTCSWP-USDYP` | `yex:BTCSWP` | YEX yield perp (distinct from `BTCSWP-OSRS` / `BTCSWP-PARA`) |
 
 ```bash
-hl run avellaneda_mm -i VXX-USDYP --tick 15
-hl run funding_arb -i US3M-USDYP --tick 30
-hl run engine_mm -i BTCSWP-USDYP --tick 10   # YEX yield BTCSWP, not osrs/para swap
+hl hedge backtest --coin BTC --days 30
+hl run cfi_hedge -i BTCSWP-USDYP --mock --max-ticks 3   # YEX yield BTCSWP
 ```
 
 ---
 
-## Strategies
+## Strategy: CFI funding-rate hedge
 
-19 built-in strategies. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling.
+The product ships **one** registered strategy: **`cfi_hedge`**. Legacy MM/signal strategies were archived on 2026-07-02 under `strategies/_archive/` (see README there).
 
-| Tier | Strategies | Notes |
-|------|------------|-------|
-| **Quoting engine** | `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm` | Require the bundled `quoting_engine` package (composite FV, dynamic spreads, oracle monitor) |
-| **Standalone** | `avellaneda_mm`, `simple_mm`, `grid_mm`, `mean_reversion`, `momentum_breakout`, `basis_arb`, `aggressive_taker`, `hedge_agent`, `rfq_agent` | Self-contained; good defaults for testnet and production MM |
-| **Experimental / research** | `claude_agent`, `cfi_hedge`, `simplified_ensemble`, `funding_momentum`, `oi_divergence`, `trend_follower` | Less battle-tested; `claude_agent` needs an LLM API key |
+| Surface | Command | Purpose |
+|---------|---------|---------|
+| **Primary** | `hl hedge propose\|execute\|status\|auto\|backtest` | CFI v2 funding-cost hedge on BTCSWP |
+| **Strategy loop** | `hl run cfi_hedge -i BTCSWP-PARA` | Same hedge logic inside the standard tick loop |
 
-Run `hl strategies` for the full registry and default parameters.
+Math lives in `strategies/cfi_hedge.py` (pure functions). The agent wrapper is `strategies/cfi_hedge_agent.py` (`CfiHedgeAgent`). Opening a hedge sizes a **1/L** CFI v2 leg against an existing perp to neutralize floating funding while leaving the fixed K2 leg exposed.
 
-### Market Making
-
-Provide two-sided liquidity and earn the spread. These strategies quote bids and asks around a fair value estimate, managing inventory risk through skew and sizing adjustments.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `engine_mm` | Production quoting engine — composite 4-signal fair value, dynamic spreads (fee + vol + toxicity + event), inventory skew, multi-level quote ladder. Auto-halts on oracle staleness. *Requires `quoting_engine` module.* | `base_size`, `num_levels` | Primary MM strategy. Handles all market conditions including volatile regimes and stale data. |
-| `avellaneda_mm` | Avellaneda-Stoikov optimal market maker. Reservation price adjusts with inventory; optimal spread from risk aversion `gamma` and order flow intensity `k`. Vol-bin classifier + drawdown amplifier. | `gamma`, `k`, `base_size` | When you want theoretically grounded inventory-aware quoting with well-understood parameters. |
-| `regime_mm` | Vol-regime adaptive — classifies market into 4 volatility regimes (quiet/normal/volatile/extreme), switches spread width, sizing, and aggressiveness per regime. *Requires `quoting_engine` module.* | `base_size` | Volatile markets where a single spread width doesn't work. Auto-adapts without manual tuning. |
-| `simple_mm` | Symmetric bid/ask quoting at fixed spread around mid. No inventory adjustment. | `spread_bps`, `size` | Testnet validation, baseline benchmarking, or low-vol stable pairs. |
-| `grid_mm` | Fixed-interval grid levels above and below mid. Places N orders at equal spacing. | `grid_spacing_bps`, `num_levels`, `size_per_level` | Range-bound markets where you want to accumulate and distribute across a price band. |
-| `liquidation_mm` | Provides liquidity during cascade/liquidation events. Detects OI drops and widens spreads to capture forced-seller flow. *Requires `quoting_engine` module.* | `oi_drop_threshold_pct`, `cascade_spread_mult` | Liquidation-heavy markets. Only active during cascade conditions — sits idle otherwise. |
-
-### Arbitrage
-
-Exploit pricing dislocations across venues, instruments, or time horizons.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `funding_arb` | Funding-biased MM on HL funding rate — cross-venue feeds not wired; HL-only bias from funding delta. *Requires `quoting_engine` module.* | `divergence_threshold_bps`, `max_bias_bps` | When HL funding is elevated and you want quote bias toward collecting premium. |
-| `basis_arb` | Trades implied basis from funding rate — enters when annualized basis (contango/backwardation) exceeds threshold. | `basis_threshold_bps`, `size` | Capturing contango/backwardation dislocations. Pairs well with funding_arb. |
-
-### Signal / Directional
-
-Enter positions based on technical signals or momentum indicators.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `momentum_breakout` | Enters on volume + price breakout above/below N-period range. Requires both price and volume confirmation. | `lookback`, `breakout_threshold_bps`, `size` | Trending markets with clear breakout patterns. |
-| `mean_reversion` | Trades when price deviates from SMA beyond a threshold. | `window`, `threshold_bps`, `size` | Range-bound markets with predictable mean-reversion behavior. |
-| `aggressive_taker` | Crosses the spread with directional bias. Sinusoidal amplitude modulation. | `size`, `bias_amplitude` | When you have strong directional conviction and want immediate fills. |
-
-### Infrastructure / Risk
-
-Supporting strategies for portfolio management, block liquidity, and autonomous decision-making.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `hedge_agent` | Reduces excess inventory per deterministic mandate. Fires when absolute position qty exceeds threshold. | `inventory_threshold` | Always-on risk overlay. Pairs with any MM or signal strategy. |
-| `rfq_agent` | Block-size dark RFQ liquidity — quotes for large orders with wider spreads. | `min_size`, `spread_bps` | Institutional/block flow. Provides hidden liquidity for large counterparties. |
-| `claude_agent` | Multi-model LLM trading agent. Sends market snapshot to an LLM (Gemini, Claude, or OpenAI), receives structured trade decisions. | `model`, `base_size` | **Experimental.** Autonomous decision-making using LLM reasoning. |
-
-### Quoting Engine Pipeline
-
-The engine-powered strategies (`engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm`) share a common pipeline:
-
-```
-Market Data -> Composite Fair Value -> Dynamic Spread -> Inventory Skew -> Multi-Level Ladder -> Orders
-               (4-signal blend)       (fee+vol+tox)     (price+size)     (exponential decay)
+```bash
+hl hedge propose BTC                     # Show proposal (no execute)
+hl hedge execute BTC --dry-run           # Preview order without signing
+hl hedge status --coin BTC --watch       # Live drift + savings
+hl hedge auto --coins BTC --dry-run      # Agent-controlled auto-open loop
+hl hedge backtest --coin BTC --days 30   # Historical simulation
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 5
+hl strategies                            # Registry (cfi_hedge only)
 ```
 
-### LLM Agent (Multi-Model)
-
-| Provider | Models | Env Variable |
-|----------|--------|-------------|
-| Google Gemini | `gemini-2.0-flash` (default), `gemini-2.5-pro` | `GEMINI_API_KEY` |
-| Anthropic Claude | `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `o3-mini` | `OPENAI_API_KEY` |
+MCP tools: `funding_hedge_propose`, `funding_hedge_execute`, `funding_hedge_backtest`, plus `run_strategy` with `strategy=cfi_hedge`.
 
 ---
 
@@ -266,7 +222,7 @@ bash scripts/bootstrap.sh          # Step 1: Environment
 hl wallet auto --save-env          # Step 2: Wallet
 hl setup claim-usdyp               # Step 4: Fund account
 hl builder approve                 # Step 5: Builder fee
-hl run avellaneda_mm --mock --max-ticks 3  # Step 6: Validate
+hl hedge propose BTC --dry-run       # Preview CFI v2 hedge proposal
 ```
 
 **[Download SKILL.md](skills/onboard/SKILL.md)**
@@ -514,7 +470,8 @@ REFLECT auto-generates research directions:
 
 ```bash
 # Core trading
-hl run <strategy> [options]       # Start autonomous trading
+hl hedge propose|execute|status|auto|backtest   # CFI v2 funding hedge (primary)
+hl run cfi_hedge [options]        # Hedge via strategy loop
 hl status [--watch]               # Show positions, PnL, risk
 hl trade <inst> <side> <size>     # Place a single order
 hl account                        # Show HL account state
@@ -624,7 +581,7 @@ cli/           CLI commands and trading engine
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)
   strategy_registry.py  Strategy + HIP-3 market definitions (YEX, OSRS, PARA)
-strategies/    19 trading strategy implementations
+strategies/    cfi_hedge + archived legacy strategies (_archive/)
 modules/       Pure logic modules (zero I/O)
   apex_engine.py     APEX decision engine
   radar_engine.py    Opportunity radar

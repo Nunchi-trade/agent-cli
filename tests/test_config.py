@@ -11,7 +11,7 @@ from cli.config import TradingConfig
 class TestDefaults:
     def test_default_values(self):
         cfg = TradingConfig()
-        assert cfg.strategy == "avellaneda_mm"
+        assert cfg.strategy == "cfi_hedge"
         assert cfg.instrument == "ETH-PERP"
         assert cfg.mainnet is False
         assert cfg.dry_run is False
@@ -29,11 +29,11 @@ class TestDefaults:
 class TestFromYaml:
     def test_loads_valid_yaml(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("strategy: engine_mm\ninstrument: BTC-PERP\ntick_interval: 30.0\n")
+            f.write("strategy: cfi_hedge\ninstrument: BTC-PERP\ntick_interval: 30.0\n")
             f.flush()
             cfg = TradingConfig.from_yaml(f.name)
         os.unlink(f.name)
-        assert cfg.strategy == "engine_mm"
+        assert cfg.strategy == "cfi_hedge"
         assert cfg.instrument == "BTC-PERP"
         assert cfg.tick_interval == 30.0
 
@@ -43,15 +43,15 @@ class TestFromYaml:
             f.flush()
             cfg = TradingConfig.from_yaml(f.name)
         os.unlink(f.name)
-        assert cfg.strategy == "avellaneda_mm"  # defaults
+        assert cfg.strategy == "cfi_hedge"  # defaults
 
     def test_unknown_fields_ignored(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("strategy: simple_mm\nunknown_field: 42\n")
+            f.write("strategy: cfi_hedge\nunknown_field: 42\n")
             f.flush()
             cfg = TradingConfig.from_yaml(f.name)
         os.unlink(f.name)
-        assert cfg.strategy == "simple_mm"
+        assert cfg.strategy == "cfi_hedge"
         assert not hasattr(cfg, "unknown_field")
 
     def test_missing_file_raises(self):

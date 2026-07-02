@@ -11,8 +11,8 @@ from cli.strategy_registry import (
 
 class TestResolveStrategyPath:
     def test_valid_short_name(self):
-        path = resolve_strategy_path("simple_mm")
-        assert path == "strategies.simple_mm:SimpleMMStrategy"
+        path = resolve_strategy_path("cfi_hedge")
+        assert path == "strategies.cfi_hedge_agent:CfiHedgeAgent"
 
     def test_all_registered_strategies_resolve(self):
         for name in STRATEGY_REGISTRY:
@@ -28,20 +28,23 @@ class TestResolveStrategyPath:
             resolve_strategy_path("nonexistent_strategy")
 
     def test_error_shows_available(self):
-        with pytest.raises(ValueError, match="simple_mm"):
+        with pytest.raises(ValueError, match="cfi_hedge"):
             resolve_strategy_path("bad_name")
 
-    def test_claude_agent_registered(self):
-        path = resolve_strategy_path("claude_agent")
-        assert "ClaudeStrategy" in path
+    def test_cfi_hedge_registered(self):
+        path = resolve_strategy_path("cfi_hedge")
+        assert "CfiHedgeAgent" in path
 
     def test_registry_has_params(self):
         for name, entry in STRATEGY_REGISTRY.items():
             assert "path" in entry
             assert "description" in entry
 
-    def test_hedge_agent_param_matches_class(self):
-        assert STRATEGY_REGISTRY["hedge_agent"]["params"] == {"inventory_threshold": 3.0}
+    def test_only_cfi_hedge_registered(self):
+        assert set(STRATEGY_REGISTRY.keys()) == {"cfi_hedge"}
+
+    def test_cfi_hedge_param_defaults(self):
+        assert STRATEGY_REGISTRY["cfi_hedge"]["params"]["notional_trigger"] == 100000.0
 
 
 class TestResolveInstrument:
@@ -58,8 +61,6 @@ class TestResolveInstrument:
 
     def test_yex_btcswp_reverse_lookup(self):
         assert resolve_instrument("yex:BTCSWP") == "BTCSWP-USDYP"
-
-
 
     def test_osrs_btcswp_reverse_lookup(self):
         assert resolve_instrument("osrs:BTCSWP", mainnet=False) == "BTCSWP-OSRS"

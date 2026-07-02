@@ -30,7 +30,7 @@ class TestInstanceId:
 
     def test_different_strategy_different_id(self):
         c1 = _make_client(strategy_name="apex")
-        c2 = _make_client(strategy_name="simple_mm")
+        c2 = _make_client(strategy_name="cfi_hedge")
         assert c1.instance_id != c2.instance_id
 
     def test_16_char_hex(self):

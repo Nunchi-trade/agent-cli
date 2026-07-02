@@ -152,16 +152,16 @@ class TestStrategyGuard:
         assert guard.enabled is False
 
     def test_loads_valid_strategy(self):
-        guard = StrategyGuard(strategy_names=["simple_mm"], enabled=True)
+        guard = StrategyGuard(strategy_names=["cfi_hedge"], enabled=True)
         assert len(guard.strategies) == 1
 
     def test_skips_invalid_strategy(self):
         guard = StrategyGuard(strategy_names=["nonexistent_xyz"], enabled=True)
         assert len(guard.strategies) == 0
 
-    def test_multiple_strategies(self):
+    def test_multiple_strategies_not_supported(self):
         guard = StrategyGuard(
-            strategy_names=["simple_mm", "mean_reversion"],
+            strategy_names=["cfi_hedge"],
             enabled=True,
         )
-        assert len(guard.strategies) == 2
+        assert len(guard.strategies) == 1

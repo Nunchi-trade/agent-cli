@@ -341,7 +341,7 @@ def build_command() -> list[str]:
         return cmd
 
     elif mode == "strategy":
-        strategy = os.environ.get("STRATEGY", "engine_mm")
+        strategy = os.environ.get("STRATEGY", "cfi_hedge")
         instrument = os.environ.get("INSTRUMENT", "ETH-PERP")
         tick = os.environ.get("TICK_INTERVAL", "10")
         cmd = py + ["run", strategy, "-i", instrument, "-t", tick]

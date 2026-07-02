@@ -237,14 +237,14 @@ def e2e_cases(python: str, data_root: Path) -> list[TestCase]:
             profiles=("e2e", "production"),
         ),
         TestCase(
-            name="run_simple_mm_mock",
+            name="run_cfi_hedge_mock",
             stage="e2e_mock",
             command=python_cmd(
                 [
                     "-m",
                     "cli.main",
                     "run",
-                    "simple_mm",
+                    "cfi_hedge",
                     "--mock",
                     "--max-ticks",
                     "1",

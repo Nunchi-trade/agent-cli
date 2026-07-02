@@ -80,14 +80,14 @@ class TestBuildCommand:
 
     def test_strategy_mode(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "strategy")
-        monkeypatch.setenv("STRATEGY", "engine_mm")
+        monkeypatch.setenv("STRATEGY", "cfi_hedge")
         monkeypatch.setenv("INSTRUMENT", "BTC-PERP")
         monkeypatch.setenv("TICK_INTERVAL", "5")
         monkeypatch.setenv("HL_TESTNET", "true")
 
         cmd = build_command()
         assert "run" in cmd
-        assert "engine_mm" in cmd
+        assert "cfi_hedge" in cmd
         assert "-i" in cmd
         assert "BTC-PERP" in cmd
         assert "-t" in cmd

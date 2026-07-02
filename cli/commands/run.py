@@ -13,7 +13,7 @@ import typer
 def run_cmd(
     strategy: str = typer.Argument(
         ...,
-        help="Strategy name (e.g., 'avellaneda_mm') or path ('module:ClassName')",
+        help="Strategy name (e.g., 'cfi_hedge') or path ('module:ClassName')",
     ),
     instrument: str = typer.Option(
         "ETH-PERP", "--instrument", "-i",
