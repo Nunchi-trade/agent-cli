@@ -297,6 +297,11 @@ class CostMeter:
                 cached_tokens=cached_tokens,
                 cache_savings_usd=str(cache_savings) if cache_savings is not None else None,
                 model=resolved_model,
+                provider=provider,
+                requested_model=requested_model,
+                route=route,
+                decision_call_id=decision_call_id,
+                price_source=row["pricing_snapshot_source"],
             )
         except Exception:
             pass

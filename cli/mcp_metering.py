@@ -22,6 +22,10 @@ def _account_id() -> str:
     return os.environ.get("NUNCHI_ACCOUNT_ID", "").strip()
 
 
+def _user_id() -> str:
+    return os.environ.get("NUNCHI_USER_ID", "").strip()
+
+
 def _subscription_id() -> str:
     return os.environ.get("NUNCHI_SUBSCRIPTION_ID", "").strip()
 
@@ -72,6 +76,8 @@ def upload_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     body = {
         "account_id": account_id,
         "accountId": account_id,
+        "user_id": _user_id() or None,
+        "userId": _user_id() or None,
         "subscription_id": _subscription_id() or None,
         "subscriptionId": _subscription_id() or None,
         "plan_id": _plan_id(),
@@ -118,6 +124,11 @@ def report_inference_cost(
     cached_tokens: Optional[int] = None,
     cache_savings_usd: Optional[Any] = None,
     model: Optional[str] = None,
+    provider: Optional[str] = None,
+    requested_model: Optional[str] = None,
+    route: Optional[str] = None,
+    decision_call_id: Optional[str] = None,
+    price_source: Optional[str] = None,
 ) -> dict[str, Any]:
     if not metering_enabled():
         return {"ok": False, "skipped": "metering_not_configured"}
@@ -128,12 +139,28 @@ def report_inference_cost(
         "input_tokens": int(input_tokens or 0),
         "output_tokens": int(output_tokens or 0),
         "ts": ts,
+        "account_id": _account_id(),
+        "subscription_id": _subscription_id() or None,
+        "plan_id": _plan_id(),
     }
+    if _user_id():
+        row["user_id"] = _user_id()
     if cached_tokens is not None:
         row["cached_tokens"] = int(cached_tokens)
     if cache_savings_usd is not None:
         row["cache_savings_usd"] = cache_savings_usd
     if model:
         row["model"] = model
+        row["resolved_model"] = model
+    if provider:
+        row["provider"] = provider
+    if requested_model:
+        row["requested_model"] = requested_model
+    if route:
+        row["route"] = route
+    if decision_call_id:
+        row["decision_call_id"] = decision_call_id
+    if price_source:
+        row["pricing_snapshot_source"] = price_source
     row_id = _row_id("cost", row)
     return upload_rows([{"row_id": row_id, "metric_type": "cost", "row": row}])
