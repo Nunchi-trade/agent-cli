@@ -9,6 +9,7 @@ Run:
 ```bash
 python3 scripts/pricing_measure.py --output tmp/pricing-measurement-local.json
 railway run --service hosted-trading-mcp --environment production -- python3 scripts/pricing_measure.py --output tmp/pricing-measurement-runner-env.json
+python3 scripts/pricing_measure.py --job-profile maker --job-profile taker --job-profile hedge --railway-metrics --output tmp/pricing-job-profiles.json
 ```
 
 Use `--openrouter-live` only when spending OpenRouter credits is intended.
@@ -40,18 +41,48 @@ The pricing harness now emits the full Task 7 classification:
 - Safety-gated/fund-moving/wallet-write: 7 tools, or 6 if `wallet_auto` is
   excluded from the costable 26-tool surface because it is disabled on the
   hosted keyless runner.
-- Recommended beta free cap: about 20 hosted MCP discovery/read calls before
-  subscription or upgrade nudges.
+- Recommended beta free cap: about 20 hosted MCP discovery/read or
+  safety-gated execution calls before subscription or upgrade nudges.
+  `trade` and `funding_hedge_execute` remain safety-gated but are eligible to
+  spend this 20-call clone/local quota before paid access is required.
+
+## Job Profiles
+
+`pricing_measure.py` now emits deterministic monthly usage estimates for the
+three Sam-facing workflow profiles:
+
+- `hedge`: 2 seats, about 8,700 MCP calls, 30 paid-compute calls, about $5
+  inference, and about 93.5 credits; recommended placeholder plan is
+  `hosted-mcp-inference-growth`.
+- `maker`: 5 seats, about 45,150 MCP calls, 150 paid-compute calls, BYO
+  inference, and about 459 credits; recommended placeholder plan is
+  `hosted-mcp-tools-team`.
+- `taker`: 2 seats, about 5,500 MCP calls, 500 paid-compute calls, about $15
+  inference, and about 95 credits; recommended placeholder plan is
+  `hosted-mcp-inference-growth`.
+
+Credit rates mirror web-auth: 0.01 credits per hosted MCP call, 0.05 credits per
+paid-compute call, and 1 credit per $1 of Nunchi/OpenRouter inference spend.
+The working OpenRouter starter plan is 100 credits/month; MCP-only tiers stay
+cheaper because BYO inference spend is outside Nunchi billing.
+
+These are pricing simulations, not funded-fill proof. The funded maker/taker
+fill path is still gated by wallet credentials and testnet funding.
 
 ## Economics
 
 Mode 1, hosted MCP tools:
 
-- `C_seat` is not computed yet. Railway metrics expose CPU/memory/network, but not monthly billing cost. Set `RAILWAY_SHARED_RUNTIME_MONTHLY_USD` or pass `--runtime-monthly-usd` once billing data is available.
+- `C_seat` is not computed yet. `--railway-metrics` captures Railway
+  CPU/memory/network/disk summaries, but Railway metrics are not monthly
+  billing cost. Set `RAILWAY_SHARED_RUNTIME_MONTHLY_USD` or pass
+  `--runtime-monthly-usd` once billing data is available.
 
 Mode 2, hosted MCP tools plus Nunchi/OpenRouter inference:
 
-- No live OpenRouter spend was measured because `OPENROUTER_API_KEY` is not present in the runner env and `--openrouter-live` was not run.
+- Live OpenRouter spend can be measured with `--openrouter-live`. The probe uses
+  `max_tokens=16` because current OpenRouter providers reject smaller completion
+  caps.
 - Current inference budgets remain inputs only: Starter `$10`, Growth `$50`, Team `$250`.
 - Anchor estimates from the Task 7 prompt:
   - `openai/gpt-4.1-mini` at about `$0.0002` per heartbeat gives about
@@ -67,11 +98,13 @@ Mode 3, clone/local plus builder economics:
 - Formulaic builder-fee economics at the default `BUILDER_FEE_TENTHS_BPS=100` are `$100` per `$100,000` notional and `$1,000` per `$1,000,000` notional.
 - `trade` itself should remain free or low-friction from a pricing standpoint:
   it is safety-sensitive, not inference-heavy, and it is the path that can
-  produce builder-code/builder-fee economics. Gate it with confirmation,
-  builder-code validation, network consent, size limits, and signing context.
+  produce builder-code/builder-fee economics. It now spends the clone/local
+  20-call free quota together with `funding_hedge_execute`, then requires paid
+  hosted MCP access after that allowance is exhausted.
 
 ## Blockers
 
 - Missing Railway monthly billing cost input for Mode 1 `C_seat`.
-- Missing `OPENROUTER_API_KEY` for Mode 2 inference spend.
+- Missing `OPENROUTER_API_KEY` only in environments where `--openrouter-live`
+  should run.
 - Missing funded-wallet/HL signing credentials for live fills and builder-fee realization.

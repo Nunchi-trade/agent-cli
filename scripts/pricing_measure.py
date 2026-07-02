@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -37,6 +38,36 @@ HOSTED_INFERENCE_BUDGETS = {
 }
 
 FREE_TOOL_CALL_LIMIT_RECOMMENDATION = 20
+OPENROUTER_PROBE_MAX_TOKENS = 16
+CREDIT_RATES = {
+    "mcpCallCredits": 0.01,
+    "paidComputeCallCredits": 0.05,
+    "inferenceUsdCredits": 1.0,
+}
+
+PLAN_LIMITS = {
+    "hosted-mcp-tools-starter": {"product": "hosted-mcp-tools", "seats": 5, "credits": 50, "mcpCalls": 2_000, "paidComputeCalls": 100, "inferenceUsd": 0.0},
+    "hosted-mcp-tools-growth": {"product": "hosted-mcp-tools", "seats": 10, "credits": 150, "mcpCalls": 10_000, "paidComputeCalls": 500, "inferenceUsd": 0.0},
+    "hosted-mcp-tools-team": {"product": "hosted-mcp-tools", "seats": 50, "credits": 500, "mcpCalls": 50_000, "paidComputeCalls": 2_500, "inferenceUsd": 0.0},
+    "hosted-mcp-inference-starter": {"product": "hosted-mcp-tools-inference", "seats": 5, "credits": 100, "mcpCalls": 2_000, "paidComputeCalls": 100, "inferenceUsd": 10.0},
+    "hosted-mcp-inference-growth": {"product": "hosted-mcp-tools-inference", "seats": 10, "credits": 300, "mcpCalls": 10_000, "paidComputeCalls": 500, "inferenceUsd": 50.0},
+    "hosted-mcp-inference-team": {"product": "hosted-mcp-tools-inference", "seats": 50, "credits": 1_000, "mcpCalls": 50_000, "paidComputeCalls": 2_500, "inferenceUsd": 250.0},
+}
+
+JOB_PROFILES = {
+    "hedge": {
+        "description": "15-minute status/account reads, hedge proposal/backtest, and occasional confirmed hedge execution.",
+        "usage": {"seats": 2, "freeToolCalls": 8_640, "safetyGatedCalls": 30, "paidComputeCalls": 30, "inferenceUsd": 5.0},
+    },
+    "maker": {
+        "description": "Continuous quoting desk with frequent status/account reads and safety-gated trade submissions.",
+        "usage": {"seats": 5, "freeToolCalls": 30_000, "safetyGatedCalls": 15_000, "paidComputeCalls": 150, "inferenceUsd": 0.0},
+    },
+    "taker": {
+        "description": "Signal-driven taker using strategy runs plus bursty execution and post-trade checks.",
+        "usage": {"seats": 2, "freeToolCalls": 4_000, "safetyGatedCalls": 1_000, "paidComputeCalls": 500, "inferenceUsd": 15.0},
+    },
+}
 
 TOOL_CLASSIFICATION = [
     {
@@ -297,6 +328,115 @@ def runtime_c_seat(runtime_monthly_usd: float | None) -> dict[str, Any]:
     }
 
 
+def railway_metrics_probe(args: argparse.Namespace) -> dict[str, Any]:
+    """Collect Railway resource metrics when the CLI is available.
+
+    Railway metrics corroborate runtime load, but they are not invoices. C_seat
+    still requires an explicit monthly dollar input.
+    """
+    railway = shutil.which("railway")
+    if not railway:
+        return {"ok": False, "blocker": "Railway CLI is not installed."}
+    command = [railway, "metrics", "--json", "--since", args.railway_metrics_since]
+    if args.railway_service:
+        command.extend(["--service", args.railway_service])
+    if args.railway_environment:
+        command.extend(["--environment", args.railway_environment])
+    if args.railway_project:
+        command.extend(["--project", args.railway_project])
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+    except Exception as exc:  # pragma: no cover - CLI/environment dependent
+        return {"ok": False, "command": command[1:], "blocker": str(exc)}
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "command": command[1:],
+            "blocker": (result.stderr or result.stdout or "railway metrics failed")[:500],
+        }
+    try:
+        payload: Any = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = {"raw": result.stdout[:2000]}
+    return {
+        "ok": True,
+        "command": command[1:],
+        "source": "railway metrics --json",
+        "note": "Resource metrics are not billing dollars; provide --runtime-monthly-usd or RAILWAY_SHARED_RUNTIME_MONTHLY_USD for C_seat.",
+        "metrics": payload,
+    }
+
+
+def _fits_plan(usage: dict[str, float], limits: dict[str, Any]) -> bool:
+    if usage["inferenceUsd"] > 0 and limits["inferenceUsd"] <= 0:
+        return False
+    return (
+        usage["seats"] <= limits["seats"]
+        and usage["creditsUsed"] <= limits["credits"]
+        and usage["mcpCalls"] <= limits["mcpCalls"]
+        and usage["paidComputeCalls"] <= limits["paidComputeCalls"]
+        and usage["inferenceUsd"] <= limits["inferenceUsd"]
+    )
+
+
+def credits_used(usage: dict[str, float]) -> float:
+    credits = (
+        usage["mcpCalls"] * CREDIT_RATES["mcpCallCredits"]
+        + usage["paidComputeCalls"] * CREDIT_RATES["paidComputeCallCredits"]
+        + usage["inferenceUsd"] * CREDIT_RATES["inferenceUsdCredits"]
+    )
+    return round(credits, 2)
+
+
+def job_profile_simulation(profile_name: str) -> dict[str, Any]:
+    profile = JOB_PROFILES[profile_name]
+    raw_usage = profile["usage"]
+    usage = {
+        "seats": raw_usage["seats"],
+        "freeToolCalls": raw_usage["freeToolCalls"],
+        "safetyGatedCalls": raw_usage["safetyGatedCalls"],
+        "paidComputeCalls": raw_usage["paidComputeCalls"],
+        "inferenceUsd": raw_usage["inferenceUsd"],
+    }
+    usage["mcpCalls"] = usage["freeToolCalls"] + usage["safetyGatedCalls"] + usage["paidComputeCalls"]
+    usage["creditsUsed"] = credits_used(usage)
+    product_prefix = "hosted-mcp-inference" if usage["inferenceUsd"] > 0 else "hosted-mcp-tools"
+    candidate_plans = [
+        (plan_id, limits)
+        for plan_id, limits in PLAN_LIMITS.items()
+        if plan_id.startswith(product_prefix)
+    ]
+    best_plan = next((plan_id for plan_id, limits in candidate_plans if _fits_plan(usage, limits)), None)
+    if best_plan is None:
+        best_plan = candidate_plans[-1][0]
+    limits = PLAN_LIMITS[best_plan]
+    overage = {
+        "seats": max(0, usage["seats"] - limits["seats"]),
+        "credits": max(0, round((usage["creditsUsed"] - limits["credits"]) * 100) / 100),
+        "mcpCalls": max(0, usage["mcpCalls"] - limits["mcpCalls"]),
+        "paidComputeCalls": max(0, usage["paidComputeCalls"] - limits["paidComputeCalls"]),
+        "inferenceUsd": max(0.0, usage["inferenceUsd"] - limits["inferenceUsd"]),
+    }
+    return {
+        "profile": profile_name,
+        "description": profile["description"],
+        "monthlyUsage": usage,
+        "recommendedPlanId": best_plan,
+        "planLimits": limits,
+        "creditRates": CREDIT_RATES,
+        "overageAgainstRecommendedPlan": overage,
+        "notes": [
+            "Safety-gated execution currently increments total mcpCalls.",
+            "Maker profiles are usually constrained by mcpCalls before seats.",
+        ],
+    }
+
+
+def job_profile_simulations(selected: list[str]) -> dict[str, Any]:
+    names = selected or list(JOB_PROFILES.keys())
+    return {name: job_profile_simulation(name) for name in names}
+
+
 def measure_subprocess(name: str, command: list[str], timeout: float = 30) -> Measurement:
     start = time.perf_counter()
     try:
@@ -393,7 +533,7 @@ def openrouter_probe(model: str) -> dict[str, Any]:
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
-        "max_tokens": 8,
+        "max_tokens": OPENROUTER_PROBE_MAX_TOKENS,
     }).encode()
     req = urllib.request.Request(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -421,7 +561,8 @@ def openrouter_probe(model: str) -> dict[str, Any]:
         }
     except urllib.error.HTTPError as exc:
         elapsed_ms = (time.perf_counter() - start) * 1000
-        return {"ok": False, "elapsedMs": elapsed_ms, "status": exc.code, "blocker": exc.reason}
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        return {"ok": False, "elapsedMs": elapsed_ms, "status": exc.code, "blocker": exc.reason, "detail": detail}
     except Exception as exc:  # pragma: no cover - network dependent
         elapsed_ms = (time.perf_counter() - start) * 1000
         return {"ok": False, "elapsedMs": elapsed_ms, "blocker": str(exc)}
@@ -481,6 +622,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         },
         "measurements": [m.__dict__ for m in measurements],
         "mode1": runtime_c_seat(runtime_monthly),
+        "railwayMetricsProbe": railway_metrics_probe(args) if args.railway_metrics else {
+            "ok": False,
+            "skipped": "Run with --railway-metrics to collect Railway resource metrics.",
+        },
         "mode2": {
             "inferenceBudgetsUsd": HOSTED_INFERENCE_BUDGETS,
             "anchorEstimates": inference_anchor_budget_capacity(HOSTED_INFERENCE_BUDGETS),
@@ -492,6 +637,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "builderRevenuePer1mNotionalUsd": builder_revenue_usd(1_000_000, fee_tenths_bps),
             "note": "Builder revenue is formulaic until funded-wallet fills are measured.",
         },
+        "jobProfileSimulations": job_profile_simulations(args.job_profile),
         "blockers": blockers,
     }
 
@@ -501,6 +647,12 @@ def main() -> None:
     parser.add_argument("--runtime-monthly-usd", type=float, default=None)
     parser.add_argument("--openrouter-live", action="store_true")
     parser.add_argument("--openrouter-model", default=os.environ.get("NUNCHI_PRICING_OPENROUTER_MODEL", "openai/gpt-4.1-mini"))
+    parser.add_argument("--job-profile", action="append", choices=sorted(JOB_PROFILES.keys()), default=[])
+    parser.add_argument("--railway-metrics", action="store_true")
+    parser.add_argument("--railway-project", default=os.environ.get("RAILWAY_PROJECT_ID", ""))
+    parser.add_argument("--railway-service", default=os.environ.get("RAILWAY_SERVICE_NAME", ""))
+    parser.add_argument("--railway-environment", default=os.environ.get("RAILWAY_ENVIRONMENT", "production"))
+    parser.add_argument("--railway-metrics-since", default=os.environ.get("RAILWAY_METRICS_SINCE", "1h"))
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     report = build_report(args)
