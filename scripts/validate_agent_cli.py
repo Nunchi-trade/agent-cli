@@ -130,7 +130,6 @@ def base_cases(python: str, quick_pytest: bool) -> list[TestCase]:
                     "strategies",
                     "modules",
                     "skills",
-                    "quoting_engine",
                     "scripts",
                 ],
                 python,
