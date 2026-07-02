@@ -1,4 +1,5 @@
 from scripts import pricing_measure as pricing
+from ops import railway_cost_meter
 
 
 class _FakeResponse:
@@ -93,6 +94,58 @@ def test_railway_runtime_cost_row_shape():
     assert row["row_id"] == "railway_runtime_cost:hosted-trading-mcp:123"
     assert row["row"]["estimated_railway_cost_usd"] == 1.23
     assert row["row"]["monthly_run_rate_usd"] == 897.9
+
+
+def test_railway_cost_meter_uses_internal_endpoint():
+    class Args:
+        internal_runtime_url = ""
+        web_auth_api_url = "https://web-auth.example"
+
+    assert railway_cost_meter.internal_runtime_url(Args()) == "https://web-auth.example/api/internal/costing/railway-runtime"
+
+
+def test_railway_cost_meter_samples_and_uploads_global_runtime(monkeypatch):
+    class Args:
+        internal_runtime_url = "https://web-auth.example/api/internal/costing/railway-runtime"
+        web_auth_api_url = ""
+        internal_costing_token = "internal-token"
+        railway_metrics_since = "1m"
+        railway_service = "hosted-trading-mcp"
+        railway_environment = "production"
+        railway_project = ""
+
+    captured = {}
+    monkeypatch.setattr(railway_cost_meter.pricing, "railway_rate_card_from_env", lambda: {"ok": True, "rates": {
+        "vcpuHourUsd": 0.1,
+        "memoryGbHourUsd": 0.01,
+        "networkGbUsd": 0.05,
+        "diskGbHourUsd": 0.02,
+        "baselineMonthlyUsd": 0,
+    }})
+    monkeypatch.setattr(railway_cost_meter.pricing, "railway_metrics_probe", lambda _args: {"ok": True, "metrics": {"cpu": {"average": 1}}})
+    monkeypatch.setattr(railway_cost_meter.pricing, "estimate_railway_cost", lambda *_args, **_kwargs: {
+        "ok": True,
+        "estimatedRailwayCostUsd": 0.1,
+        "windowHours": 1 / 60,
+        "monthlyRunRateUsd": 73,
+        "components": {"cpuUsd": 0.1},
+    })
+
+    def fake_upload(url, token, rows):
+        captured["url"] = url
+        captured["token"] = token
+        captured["rows"] = rows
+        return {"ok": True, "accepted": 1}
+
+    monkeypatch.setattr(railway_cost_meter, "upload_internal_runtime_rows", fake_upload)
+
+    result = railway_cost_meter.sample_once(Args())
+
+    assert result["ok"] is True
+    assert captured["url"].endswith("/api/internal/costing/railway-runtime")
+    assert captured["token"] == "internal-token"
+    assert captured["rows"][0]["metric_type"] == "runtime_cost"
+    assert captured["rows"][0]["row"]["source"] == "railway_cost_meter"
 
 
 def test_tool_classification_counts_match_task7_buckets():

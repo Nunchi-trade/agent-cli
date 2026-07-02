@@ -86,22 +86,23 @@ Mode 1, hosted MCP tools:
 - Invoice data is now a calibration input, not a runtime dependency. Use
   `RAILWAY_SHARED_RUNTIME_MONTHLY_USD` or `--runtime-monthly-usd` only when
   overriding the live estimate with a reconciled invoice number.
-- Live metering: run the sampler with `--emit-railway-runtime-cost` plus
-  `NUNCHI_METERING_USAGE_URL`, `NUNCHI_METERING_TOKEN`, and
-  `NUNCHI_ACCOUNT_ID` to upload `metric_type=runtime_cost` rows into web-auth.
-  Web-auth persists those rows in the MCP subscription metering record
-  (Postgres JSONB when `SUBSCRIPTION_STORE=postgres`) and exposes rolling
-  1h/24h/month-to-date cost, stale-sampler state, and a
-  `/api/billing/subscription/margin-dashboard` rollup for Railway cost,
-  OpenRouter spend, credit burn, and estimated margin by account/tier. Those
-  dashboard endpoints are internal-only and require the web-auth
-  `INTERNAL_COSTING_DASHBOARD_TOKEN`/`COSTING_DASHBOARD_TOKEN`.
+- Production metering: run `python3 -m ops.railway_cost_meter` as a service.
+  It samples `railway metrics --json` continuously, applies the rate card, and
+  uploads global `metric_type=runtime_cost` rows to
+  `/api/internal/costing/railway-runtime` using
+  `INTERNAL_COSTING_DASHBOARD_TOKEN`/`COSTING_DASHBOARD_TOKEN`. Web-auth
+  persists those rows in Postgres JSONB when `SUBSCRIPTION_STORE=postgres`,
+  exposes rolling 1h/24h/month-to-date cost and stale-sampler state, and
+  allocates the shared Railway pool across active MCP subscriptions for the
+  internal costing dashboard.
 
 Mode 2, hosted MCP tools plus Nunchi/OpenRouter inference:
 
-- Live OpenRouter spend can be measured with `--openrouter-live`. The probe uses
-  `max_tokens=16` because current OpenRouter providers reject smaller completion
-  caps.
+- Production OpenRouter spend is metered by MCP gateway, not by the pricing
+  probe. The gateway-owned `openrouter_chat` MCP tool calls OpenRouter with the
+  server-side key and immediately uploads `metric_type=cost` rows to web-auth
+  with provider, model, token counts, and `usage.cost`. Use `--openrouter-live`
+  only as an explicit measurement probe.
 - Current inference budgets remain inputs only: Starter `$10`, Growth `$50`, Team `$250`.
 - Anchor estimates from the Task 7 prompt:
   - `openai/gpt-4.1-mini` at about `$0.0002` per heartbeat gives about

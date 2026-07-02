@@ -586,7 +586,7 @@ def job_profile_margins(job_profiles: dict[str, Any], railway_cost_estimate: dic
     return margins
 
 
-def railway_runtime_cost_row(cost_estimate: dict[str, Any], *, service: str = "", ts_ms: int | None = None) -> dict[str, Any]:
+def railway_runtime_cost_row(cost_estimate: dict[str, Any], *, service: str = "", ts_ms: int | None = None, source: str = "pricing_measure_railway_sampler") -> dict[str, Any]:
     ts = ts_ms or int(time.time() * 1000)
     service_key = service or "shared"
     return {
@@ -599,7 +599,7 @@ def railway_runtime_cost_row(cost_estimate: dict[str, Any], *, service: str = ""
             "monthly_run_rate_usd": cost_estimate.get("monthlyRunRateUsd", 0),
             "components": cost_estimate.get("components", {}),
             "service": service or None,
-            "source": "pricing_measure_railway_sampler",
+            "source": source,
         },
     }
 
