@@ -1,7 +1,10 @@
 """hl mcp — MCP server for AI agent tool discovery."""
 from __future__ import annotations
 
+import os
 import sys
+import urllib.parse
+import webbrowser
 from pathlib import Path
 
 import typer
@@ -28,3 +31,30 @@ def mcp_serve(
     server = create_mcp_server()
     typer.echo(f"Starting MCP server (transport={transport}) ...")
     server.run(transport=transport)
+
+
+@mcp_app.command("buy-more")
+def mcp_buy_more(
+    account_id: str = typer.Option("", "--account-id", help="Nunchi account/workspace to top up."),
+    plan_id: str = typer.Option("", "--plan-id", help="Subscription plan context for the top-up page."),
+    credits: int = typer.Option(100, "--credits", min=1, help="Credit pack size to preselect."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the web-auth top-up page in a browser."),
+):
+    """Open web-auth to buy more MCP subscription credits."""
+    base = os.environ.get("VITE_PAIR_API_URL", "https://web-auth-opal.vercel.app").rstrip("/")
+    resolved_account_id = account_id or os.environ.get("NUNCHI_ACCOUNT_ID", "").strip()
+    resolved_plan_id = plan_id or os.environ.get("NUNCHI_PLAN_ID", "").strip()
+    query = {
+        "view": "agent-subscriptions",
+        "topUp": "credits",
+        "credits": str(credits),
+    }
+    if resolved_account_id:
+        query["accountId"] = resolved_account_id
+    if resolved_plan_id:
+        query["planId"] = resolved_plan_id
+    url = f"{base}/?{urllib.parse.urlencode(query)}"
+    typer.echo("Buy more MCP credits in web-auth:")
+    typer.echo(url)
+    if open_browser:
+        webbrowser.open(url)
