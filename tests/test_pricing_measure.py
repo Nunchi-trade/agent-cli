@@ -104,6 +104,21 @@ def test_railway_cost_meter_uses_internal_endpoint():
     assert railway_cost_meter.internal_runtime_url(Args()) == "https://web-auth.example/api/internal/costing/railway-runtime"
 
 
+def test_railway_cost_meter_prefers_target_service_env(monkeypatch):
+    monkeypatch.setenv("RAILWAY_TARGET_SERVICE_NAME", "hosted-trading-mcp")
+    monkeypatch.setenv("RAILWAY_SERVICE_NAME", "railway-cost-meter")
+    monkeypatch.setenv("RAILWAY_TARGET_PROJECT_ID", "project-target")
+    monkeypatch.setenv("RAILWAY_PROJECT_ID", "project-self")
+
+    parser = railway_cost_meter.argparse.ArgumentParser()
+    parser.add_argument("--railway-project", default=railway_cost_meter.os.environ.get("RAILWAY_TARGET_PROJECT_ID", railway_cost_meter.os.environ.get("RAILWAY_PROJECT_ID", "")))
+    parser.add_argument("--railway-service", default=railway_cost_meter.os.environ.get("RAILWAY_TARGET_SERVICE_NAME", railway_cost_meter.os.environ.get("RAILWAY_SERVICE_NAME", "")))
+    args = parser.parse_args([])
+
+    assert args.railway_service == "hosted-trading-mcp"
+    assert args.railway_project == "project-target"
+
+
 def test_railway_cost_meter_samples_and_uploads_global_runtime(monkeypatch):
     class Args:
         internal_runtime_url = "https://web-auth.example/api/internal/costing/railway-runtime"
