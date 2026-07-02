@@ -73,10 +73,27 @@ fill path is still gated by wallet credentials and testnet funding.
 
 Mode 1, hosted MCP tools:
 
-- `C_seat` is not computed yet. `--railway-metrics` captures Railway
-  CPU/memory/network/disk summaries, but Railway metrics are not monthly
-  billing cost. Set `RAILWAY_SHARED_RUNTIME_MONTHLY_USD` or pass
-  `--runtime-monthly-usd` once billing data is available.
+- `C_seat` can now be computed from live Railway resource metrics plus a
+  configured rate card. `--railway-metrics` captures CPU/memory/network/disk
+  summaries, and `pricing_measure.py` converts them into
+  `estimatedRailwayCostUsd`, `monthlyRunRateUsd`, and per-profile margin
+  outputs when these env vars are set:
+  - `RAILWAY_VCPU_HOUR_USD`
+  - `RAILWAY_MEMORY_GB_HOUR_USD`
+  - `RAILWAY_NETWORK_GB_USD`
+  - `RAILWAY_DISK_GB_HOUR_USD`
+  - optional `RAILWAY_BASELINE_MONTHLY_USD`
+- Invoice data is now a calibration input, not a runtime dependency. Use
+  `RAILWAY_SHARED_RUNTIME_MONTHLY_USD` or `--runtime-monthly-usd` only when
+  overriding the live estimate with a reconciled invoice number.
+- Live metering: run the sampler with `--emit-railway-runtime-cost` plus
+  `NUNCHI_METERING_USAGE_URL`, `NUNCHI_METERING_TOKEN`, and
+  `NUNCHI_ACCOUNT_ID` to upload `metric_type=runtime_cost` rows into web-auth.
+  Web-auth persists those rows in the MCP subscription metering record
+  (Postgres JSONB when `SUBSCRIPTION_STORE=postgres`) and exposes rolling
+  1h/24h/month-to-date cost, stale-sampler state, and a
+  `/api/billing/subscription/margin-dashboard` rollup for Railway cost,
+  OpenRouter spend, credit burn, and estimated margin by account/tier.
 
 Mode 2, hosted MCP tools plus Nunchi/OpenRouter inference:
 
@@ -104,7 +121,8 @@ Mode 3, clone/local plus builder economics:
 
 ## Blockers
 
-- Missing Railway monthly billing cost input for Mode 1 `C_seat`.
+- Missing Railway rate-card env vars for live estimated Mode 1 `C_seat` if
+  `--railway-cost-strict` is enabled.
 - Missing `OPENROUTER_API_KEY` only in environments where `--openrouter-live`
   should run.
 - Missing funded-wallet/HL signing credentials for live fills and builder-fee realization.

@@ -32,6 +32,69 @@ def test_runtime_c_seat_requires_explicit_input():
     assert computed["byPlan"]["team"]["cSeatUsd"] == 5
 
 
+def test_railway_rate_card_and_cost_estimate(monkeypatch):
+    monkeypatch.setenv("RAILWAY_VCPU_HOUR_USD", "0.10")
+    monkeypatch.setenv("RAILWAY_MEMORY_GB_HOUR_USD", "0.01")
+    monkeypatch.setenv("RAILWAY_NETWORK_GB_USD", "0.05")
+    monkeypatch.setenv("RAILWAY_DISK_GB_HOUR_USD", "0.02")
+    monkeypatch.setenv("RAILWAY_BASELINE_MONTHLY_USD", "73")
+
+    rate_card = pricing.railway_rate_card_from_env()
+    estimate = pricing.estimate_railway_cost(
+        {
+            "cpu": {"average": 2.0},
+            "memory": {"average_mb": 1024},
+            "network": {"egress_gb": 3.0},
+            "disk": {"average_gb": 4.0},
+        },
+        rate_card,
+        hours=10,
+    )
+
+    assert rate_card["ok"] is True
+    assert estimate["ok"] is True
+    assert estimate["components"]["cpuUsd"] == 2.0
+    assert estimate["components"]["memoryUsd"] == 0.1
+    assert estimate["components"]["networkUsd"] == 0.15
+    assert estimate["components"]["diskUsd"] == 0.8
+    assert estimate["components"]["baselineUsd"] == 1.0
+    assert estimate["estimatedRailwayCostUsd"] == 4.05
+
+
+def test_job_profile_margins_use_railway_cost_estimate():
+    profiles = {"maker": pricing.job_profile_simulation("maker")}
+    margins = pricing.job_profile_margins(
+        profiles,
+        {"ok": True, "monthlyRunRateUsd": 250.0},
+    )
+
+    maker = margins["maker"]
+    assert maker["computed"] is True
+    assert maker["planId"] == "hosted-mcp-tools-team"
+    assert maker["revenueUsd"] == 299.0
+    assert maker["estimatedRailwayCogsUsd"] == 25.0
+    assert maker["inferenceCogsUsd"] == 0.0
+    assert maker["grossMarginUsd"] == 274.0
+
+
+def test_railway_runtime_cost_row_shape():
+    row = pricing.railway_runtime_cost_row(
+        {
+            "estimatedRailwayCostUsd": 1.23,
+            "windowHours": 1,
+            "monthlyRunRateUsd": 897.9,
+            "components": {"cpuUsd": 0.5},
+        },
+        service="hosted-trading-mcp",
+        ts_ms=123,
+    )
+
+    assert row["metric_type"] == "runtime_cost"
+    assert row["row_id"] == "railway_runtime_cost:hosted-trading-mcp:123"
+    assert row["row"]["estimated_railway_cost_usd"] == 1.23
+    assert row["row"]["monthly_run_rate_usd"] == 897.9
+
+
 def test_tool_classification_counts_match_task7_buckets():
     counts = pricing.tool_bucket_counts()
     assert counts["free_read"] == 15
