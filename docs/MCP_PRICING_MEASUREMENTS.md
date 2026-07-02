@@ -93,7 +93,9 @@ Mode 1, hosted MCP tools:
   (Postgres JSONB when `SUBSCRIPTION_STORE=postgres`) and exposes rolling
   1h/24h/month-to-date cost, stale-sampler state, and a
   `/api/billing/subscription/margin-dashboard` rollup for Railway cost,
-  OpenRouter spend, credit burn, and estimated margin by account/tier.
+  OpenRouter spend, credit burn, and estimated margin by account/tier. Those
+  dashboard endpoints are internal-only and require the web-auth
+  `INTERNAL_COSTING_DASHBOARD_TOKEN`/`COSTING_DASHBOARD_TOKEN`.
 
 Mode 2, hosted MCP tools plus Nunchi/OpenRouter inference:
 
