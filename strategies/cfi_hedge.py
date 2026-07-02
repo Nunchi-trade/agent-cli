@@ -140,7 +140,7 @@ def apy_to_hourly(apy: float) -> float:
     return apy / HOURS_PER_YEAR
 
 
-# ─── K2 EMA replay (fallback when SEDA oracle is unreachable) ───────────────
+# ─── K2 EMA replay from HL fundingHistory ───────────────────────────────────
 
 
 @dataclass(frozen=True)

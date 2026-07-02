@@ -291,20 +291,4 @@ def run_cmd(
     if markout_tracker is not None:
         engine.markout_tracker = markout_tracker
 
-    # Attach Guard if configured
-    if cfg.guard and cfg.guard.get("enabled"):
-        from modules.guard_config import GuardConfig, PRESETS
-
-        preset_name = cfg.guard.get("preset")
-        if preset_name and preset_name in PRESETS:
-            guard_cfg = GuardConfig.from_dict(PRESETS[preset_name].to_dict())
-        else:
-            guard_cfg = GuardConfig.from_dict(cfg.guard)
-
-        if "leverage" in cfg.guard:
-            guard_cfg.leverage = float(cfg.guard["leverage"])
-
-        engine.guard_config = guard_cfg
-        typer.echo(f"Guard: enabled (preset={preset_name or 'custom'}, tiers={len(guard_cfg.tiers)})")
-
     engine.run(max_ticks=cfg.max_ticks, resume=resume)

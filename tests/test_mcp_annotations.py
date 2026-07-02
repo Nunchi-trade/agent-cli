@@ -16,7 +16,6 @@ def test_destructive_set_covers_fund_movers():
     for name in (
         "trade",
         "run_strategy",
-        "apex_run",
         "funding_hedge_execute",
         "schedule_cancel",
         "emergency_close_all",

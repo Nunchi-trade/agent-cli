@@ -32,7 +32,9 @@
 
 ---
 
-Ship CFI v2 funding-rate hedging on [Hyperliquid](https://hyperliquid.xyz) perps and Paragon HIP-3 BTCSWP swap markets (`para:BTCSWP` mainnet, `osrs:BTCSWP` / `yex:BTCSWP` testnet). Primary surface: `hl hedge propose|execute|status|auto|backtest`. Also exposes Guard, Radar, Pulse, APEX, and REFLECT as optional operator tools. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
+Ship CFI v2 funding-rate hedging on [Hyperliquid](https://hyperliquid.xyz) perps and Paragon HIP-3 BTCSWP swap markets (`para:BTCSWP` mainnet, `osrs:BTCSWP` / `yex:BTCSWP` testnet). Primary surface: `hl hedge propose|execute|status|auto|backtest`. K2 inputs come from HL funding history only (no SEDA). Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, or a standalone MCP server.
+
+Legacy operator stack (APEX, Radar, Pulse, Guard, Reflect, quoting engine, SEDA oracle, Hermes/OpenClaw deploy) was archived 2026-07-02 under `_archive/` — see `_archive/README.md`.
 
 ---
 
@@ -524,7 +526,7 @@ mcp_servers:
     # cwd: /path/to/agent-cli   # if not launched from the repo root
 ```
 
-This is exactly what `deploy/hermes-railway` auto-generates on boot (alongside `platform_toolsets`), so a deployed Hermes agent is wired out of the box — no OpenClaw-specific assumptions anywhere in the MCP server.
+This is exactly what the legacy `archive/deploy/hermes-railway` template auto-generates on boot (alongside `platform_toolsets`), so a deployed Hermes agent is wired out of the box — no OpenClaw-specific assumptions anywhere in the MCP server.
 
 ### HTTP API & SSE
 
@@ -565,8 +567,8 @@ self-host templates. They are not part of the new hosted MCP subscription
 architecture because they provision user-facing conversational/autonomous
 agents. Do not expose them as the paid Nunchi product path.
 
-For legacy experiments, use `deploy/openclaw-railway/railway.toml` or
-`deploy/hermes-railway/railway.toml` as the config-as-code path and keep the
+For legacy experiments, use `archive/deploy/openclaw-railway/railway.toml` or
+`archive/deploy/hermes-railway/railway.toml` as the config-as-code path and keep the
 Railway build root at the repo root.
 
 ---
