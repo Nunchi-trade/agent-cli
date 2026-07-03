@@ -539,7 +539,8 @@ Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Pyt
 
 Every deployed agent also exposes an HTTP REST API and SSE real-time feed for dashboards, monitoring, and external integrations. A separate leaderboard microservice tracks agent PnL rankings.
 
-**[Full API Reference →](docs/api-reference.md)**
+**[Full API Reference →](docs/api-reference.md)**  
+**[July 2026 Exhibit A Testing Plan →](docs/EXHIBIT_A_TESTING_PLAN.md)**
 
 ---
 
