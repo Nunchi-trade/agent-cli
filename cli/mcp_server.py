@@ -49,6 +49,8 @@ _CONTEXT_SECRET_HEADERS = (
     "x-nunchi-secret-nunchi-gateway-context-secret",
 )
 _CONTEXT_ENV_HEADERS = {
+    "x-nunchi-entitlement-jwt": "NUNCHI_ENTITLEMENT_JWT",
+    "x-nunchi-secret-nunchi-entitlement-jwt": "NUNCHI_ENTITLEMENT_JWT",
     "x-nunchi-web-auth-pair-token": "NUNCHI_WEB_AUTH_PAIR_TOKEN",
     "x-nunchi-secret-nunchi-web-auth-pair-token": "NUNCHI_WEB_AUTH_PAIR_TOKEN",
     "x-nunchi-web-auth-address": "NUNCHI_WEB_AUTH_ADDRESS",
@@ -194,12 +196,46 @@ def _policy_from_context_env(env: dict[str, str]) -> Optional[str]:
     return json.dumps(policy, separators=(",", ":"))
 
 
+def _entitlement_secret() -> Optional[str]:
+    for env_name in ("NUNCHI_ENTITLEMENT_JWT_SECRET", "NUNCHI_GATEWAY_CONTEXT_SECRET", "NUNCHI_RUNNER_CONTEXT_SECRET"):
+        secret = os.environ.get(env_name)
+        if secret and secret.strip():
+            return secret.strip()
+    return None
+
+
+def _env_from_entitlement_jwt(token: str) -> dict[str, str]:
+    from cli.entitlement_jwt import snapshot_to_runner_env, verify_entitlement_jwt
+
+    secret = _entitlement_secret()
+    if not secret:
+        return {}
+    try:
+        snapshot = verify_entitlement_jwt(token, secret)
+    except Exception:
+        return {}
+    env = snapshot_to_runner_env(snapshot)
+    env["NUNCHI_ENTITLEMENT_JWT"] = token
+    return env
+
+
 def _trusted_context_env_overrides(ctx: Any) -> dict[str, str]:
     """Return per-request env overrides, only from authenticated gateway context."""
     headers = _headers_from_context(ctx)
     meta = _meta_from_context(ctx)
     if not _trusted_context(headers, meta):
         return {}
+
+    entitlement_token = _clean_context_value(headers.get("x-nunchi-entitlement-jwt"))
+    if entitlement_token is None:
+        entitlement_token = _clean_context_value(headers.get("x-nunchi-secret-nunchi-entitlement-jwt"))
+    if entitlement_token:
+        jwt_env = _env_from_entitlement_jwt(entitlement_token)
+        if jwt_env:
+            policy = _policy_from_context_env(jwt_env)
+            if policy is not None:
+                jwt_env["NUNCHI_SESSION_POLICY"] = policy
+            return jwt_env
 
     overrides: dict[str, str] = {}
     for header, env_name in _CONTEXT_ENV_HEADERS.items():
