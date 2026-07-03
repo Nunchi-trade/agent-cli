@@ -54,6 +54,8 @@ _CONTEXT_ENV_HEADERS = {
     "x-nunchi-secret-nunchi-web-auth-pair-token": "NUNCHI_WEB_AUTH_PAIR_TOKEN",
     "x-nunchi-web-auth-address": "NUNCHI_WEB_AUTH_ADDRESS",
     "x-nunchi-secret-nunchi-web-auth-address": "NUNCHI_WEB_AUTH_ADDRESS",
+    "x-nunchi-account-id": "NUNCHI_ACCOUNT_ID",
+    "x-nunchi-secret-nunchi-account-id": "NUNCHI_ACCOUNT_ID",
     "x-nunchi-trading-permission-tier": "NUNCHI_TRADING_PERMISSION_TIER",
     "x-nunchi-secret-nunchi-trading-permission-tier": "NUNCHI_TRADING_PERMISSION_TIER",
     "x-nunchi-trading-network": "NUNCHI_TRADING_NETWORK",
@@ -227,6 +229,11 @@ def _trusted_context_env_overrides(ctx: Any) -> dict[str, str]:
     policy = _policy_from_context_env(overrides)
     if policy is not None:
         overrides["NUNCHI_SESSION_POLICY"] = policy
+    view_address = _clean_context_value(
+        overrides.get("NUNCHI_WEB_AUTH_ADDRESS") or overrides.get("NUNCHI_ACCOUNT_ID")
+    )
+    if view_address and "HL_VIEW_AS_USER" not in overrides:
+        overrides["HL_VIEW_AS_USER"] = view_address
     return overrides
 
 
@@ -487,11 +494,15 @@ def create_mcp_server():
         has_web_auth = bool(env_overrides.get("NUNCHI_WEB_AUTH_PAIR_TOKEN")) and bool(
             env_overrides.get("NUNCHI_WEB_AUTH_ADDRESS")
         )
+        has_view_only = bool(env_overrides.get("HL_VIEW_AS_USER"))
+        permission_tier = str(env_overrides.get("NUNCHI_TRADING_PERMISSION_TIER") or "").strip().lower()
         keystores = list_keystores()
         if has_env_key:
             ok_items.append("HL_PRIVATE_KEY set")
         elif has_web_auth:
             ok_items.append("web-auth pairing context provided")
+        elif has_view_only and permission_tier == "read_only":
+            ok_items.append(f"view-only context provided ({env_overrides.get('HL_VIEW_AS_USER')})")
         elif keystores:
             ok_items.append(f"Keystore found ({len(keystores)} keys)")
         else:
