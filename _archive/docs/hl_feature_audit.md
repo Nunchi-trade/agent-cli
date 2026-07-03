@@ -172,7 +172,7 @@ These read `snapshot.funding_rate` in their trading logic but don't import any H
 **Tightly coupled (quoting engine + HyperliquidFundingRate, 4 strategies):**
 `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm`
 
-These directly import `HyperliquidFundingRate` from the quoting engine and require `_engine_base.py` (path hack to `~/Tee-work-/quoting_engine`). Porting requires refactoring the quoting engine's funding rate interface.
+These directly import `HyperliquidFundingRate` from the quoting engine (now under `archive/quoting_engine/`) and require `_engine_base.py` (path hack to `~/Tee-work-/quoting_engine`). Porting requires refactoring the quoting engine's funding rate interface.
 
 ### Highest-Priority Abstractions for Multi-Exchange Support
 

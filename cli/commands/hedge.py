@@ -8,8 +8,8 @@ Feature surface:
     hl hedge backtest --coin BTC [--days N]  wrap hedge_calculator.py
     hl hedge auto [--coins ...] [--dry-run]  agent-controlled auto-open loop
 
-All math + oracle access is delegated to `strategies/cfi_hedge.py` and
-`quoting_engine/feeds/seda_oracle.py`. Signing + submission are delegated to
+All math + funding inputs are delegated to `strategies/cfi_hedge.py` and
+`strategies/cfi_funding.py` (HL funding rates only). Signing + submission are delegated to
 the Hyperliquid Python SDK via `DirectHLProxy.place_order()` — same code path
 as `hl trade`. No custom signing here.
 """
@@ -116,8 +116,8 @@ def _build_proposal(
     Returns (proposal, snapshot) or raises typer.Exit if no position open.
     """
     from strategies.cfi_hedge import build_cfi_hedge_proposal, get_cfi_profile
-    from quoting_engine.feeds.seda_oracle import (
-        fetch_btcswp_snapshot,
+    from strategies.cfi_funding import (
+        fetch_cfi_funding_snapshot,
         fetch_hl_current_funding_hr,
     )
 
@@ -145,7 +145,7 @@ def _build_proposal(
         raise typer.Exit(1)
 
     position = _position_to_summary(raw_pos, coin_override=coin)
-    snapshot = fetch_btcswp_snapshot(profile)
+    snapshot = fetch_cfi_funding_snapshot(profile)
     current_funding = fetch_hl_current_funding_hr(coin)
     if current_funding is None:
         # Fall back to oracle's r_ema if HL didn't answer.
@@ -303,8 +303,8 @@ def status_cmd(
         get_cfi_profile,
     )
     from cli.hedge_display import hedge_status_block
-    from quoting_engine.feeds.seda_oracle import (
-        fetch_btcswp_snapshot,
+    from strategies.cfi_funding import (
+        fetch_cfi_funding_snapshot,
         fetch_hl_current_funding_hr,
     )
 
@@ -327,7 +327,7 @@ def status_cmd(
                 live.append({"job": h, "snapshot": None, "drift_apy": 0.0, "savings_usd": h.get("cumulative_savings_usd", 0.0)})
                 continue
             try:
-                snap = fetch_btcswp_snapshot(profile)
+                snap = fetch_cfi_funding_snapshot(profile)
             except Exception:
                 snap = None
             current_hr = fetch_hl_current_funding_hr(h.get("coin", "BTC"))
