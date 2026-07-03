@@ -355,7 +355,7 @@ def handle_mcp_json_rpc(raw_body: bytes, headers: Any) -> tuple[int, dict[str, A
         if method == "tools/call":
             name = str(params.get("name", ""))
             arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
-            return 200, _json_rpc_result(request_id, {"content": [{"type": "text", "text": call_mcp_tool(name, arguments, headers)}]})
+            return 200, _json_rpc_result(request_id, _mcp_tool_result(call_mcp_tool(name, arguments, headers)))
         return 200, _json_rpc_error(request_id, -32601, f"method not found: {method}")
     except Exception as exc:
         log.exception("MCP JSON-RPC error")
@@ -522,6 +522,22 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
     return _json_error(f"unknown tool: {name}")
 
 
+def _mcp_tool_result(text: str) -> dict[str, Any]:
+    result: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return result
+    if isinstance(parsed, dict) and parsed.get("error"):
+        result["isError"] = True
+        result["structuredContent"] = {
+            "ok": False,
+            "error": parsed.get("error"),
+            **({"code": parsed.get("code")} if parsed.get("code") else {}),
+        }
+    return result
+
+
 def _context_from_headers(headers: Any) -> Any:
     normalized = {str(key).lower(): str(value) for key, value in headers.items()}
     request = SimpleNamespace(headers=normalized)
@@ -542,11 +558,15 @@ def _setup_check_text(env_overrides: dict[str, str]) -> str:
 
     has_env_key = bool(env_overrides.get("HL_PRIVATE_KEY") or os.environ.get("HL_PRIVATE_KEY"))
     has_web_auth = bool(env_overrides.get("NUNCHI_WEB_AUTH_PAIR_TOKEN")) and bool(env_overrides.get("NUNCHI_WEB_AUTH_ADDRESS"))
+    has_view_only = bool(env_overrides.get("HL_VIEW_AS_USER"))
+    permission_tier = str(env_overrides.get("NUNCHI_TRADING_PERMISSION_TIER") or "").strip().lower()
     keystores = list_keystores()
     if has_env_key:
         ok_items.append("HL_PRIVATE_KEY set")
     elif has_web_auth:
         ok_items.append("web-auth pairing context provided")
+    elif has_view_only and permission_tier == "read_only":
+        ok_items.append(f"view-only context provided ({env_overrides.get('HL_VIEW_AS_USER')})")
     elif keystores:
         ok_items.append(f"Keystore found ({len(keystores)} keys)")
     else:

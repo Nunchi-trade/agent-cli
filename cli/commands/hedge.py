@@ -115,6 +115,23 @@ def _build_proposal(
 
     Returns (proposal, snapshot) or raises typer.Exit if no position open.
     """
+    state = hl.get_account_state()
+    return _build_proposal_from_state(
+        state,
+        coin,
+        mainnet=mainnet,
+        hedge_instrument=hedge_instrument,
+    )
+
+
+def _build_proposal_from_state(
+    state: Optional[dict],
+    coin: str,
+    *,
+    mainnet: bool = False,
+    hedge_instrument: Optional[str] = None,
+):
+    """Build a hedge proposal from an already-fetched account state."""
     from strategies.cfi_hedge import build_cfi_hedge_proposal, get_cfi_profile
     from strategies.cfi_funding import (
         fetch_cfi_funding_snapshot,
@@ -130,7 +147,6 @@ def _build_proposal(
         typer.echo(f"Error: no deployed CFI v2 profile for coin '{coin}'", err=True)
         raise typer.Exit(2)
 
-    state = hl.get_account_state()
     if not state:
         typer.echo("Error: could not fetch HL account state", err=True)
         raise typer.Exit(1)
@@ -162,6 +178,24 @@ def _build_proposal(
     return proposal, snapshot
 
 
+def _build_view_only_proposal(
+    address: str,
+    coin: str,
+    *,
+    mainnet: bool = False,
+    hedge_instrument: Optional[str] = None,
+):
+    from cli.hl_adapter import read_only_account_state
+
+    state = read_only_account_state(address, testnet=not mainnet)
+    return _build_proposal_from_state(
+        state,
+        coin,
+        mainnet=mainnet,
+        hedge_instrument=hedge_instrument,
+    )
+
+
 # ─── propose ─────────────────────────────────────────────────────────────────
 
 
@@ -169,6 +203,12 @@ def _build_proposal(
 def propose_cmd(
     coin: str = typer.Argument("BTC", help="Coin to hedge (BTC, ETH)"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    address: Optional[str] = typer.Option(
+        None,
+        "--address",
+        "-a",
+        help="View-only: build proposal for this address without loading a signing key.",
+    ),
 ):
     """Show a CFI v2 hedge proposal without executing."""
     _boot_cli()
@@ -176,14 +216,18 @@ def propose_cmd(
     from cli.config import TradingConfig
     from cli.hedge_display import hedge_proposal_block
     from cli.hl_adapter import DirectHLProxy
+    from cli.view_mode import view_address
     from parent.hl_proxy import HLProxy
 
-    cfg = TradingConfig()
-    private_key = cfg.get_private_key()
-    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-    hl = DirectHLProxy(raw_hl)
-
-    proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
+    view_only_address = view_address(address)
+    if view_only_address:
+        proposal, snapshot = _build_view_only_proposal(view_only_address, coin, mainnet=mainnet)
+    else:
+        cfg = TradingConfig()
+        private_key = cfg.get_private_key()
+        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+        hl = DirectHLProxy(raw_hl)
+        proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
 
 
@@ -196,6 +240,12 @@ def execute_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not sign or submit"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive confirm"),
     mainnet: bool = typer.Option(False, "--mainnet", help="Use mainnet (default: testnet)"),
+    address: Optional[str] = typer.Option(
+        None,
+        "--address",
+        "-a",
+        help="View-only dry-run: preview this address without loading a signing key.",
+    ),
 ):
     """Build the proposal and optionally sign + submit a real yex:{COIN}SWP order.
 
@@ -207,14 +257,19 @@ def execute_cmd(
     from cli.display import BOLD, GREEN, RESET
     from cli.hedge_display import hedge_proposal_block
     from cli.hl_adapter import DirectHLProxy
+    from cli.view_mode import view_address
     from parent.hl_proxy import HLProxy
 
-    cfg = TradingConfig()
-    private_key = cfg.get_private_key()
-    raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
-    hl = DirectHLProxy(raw_hl)
-
-    proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
+    view_only_address = view_address(address)
+    if view_only_address and dry_run:
+        proposal, snapshot = _build_view_only_proposal(view_only_address, coin, mainnet=mainnet)
+        hl = None
+    else:
+        cfg = TradingConfig()
+        private_key = cfg.get_private_key()
+        raw_hl = HLProxy(private_key=private_key, testnet=not mainnet)
+        hl = DirectHLProxy(raw_hl)
+        proposal, snapshot = _build_proposal(hl, coin, mainnet=mainnet)
     typer.echo(hedge_proposal_block(proposal, snapshot, mainnet=mainnet))
 
     # Size the order in CFI v2 (BTCSWP) units. SDK rounds to szDecimals.
@@ -417,12 +472,35 @@ def backtest_cmd(
         / "hedge_calculator.py"
     )
     if not script_path.exists():
+        from strategies.cfi_hedge import get_cfi_profile, hourly_to_apy
+        from strategies.cfi_funding import fetch_cfi_funding_snapshot
+
+        profile = get_cfi_profile(coin, mainnet=False)
+        if profile is None:
+            typer.echo(f"Error: no CFI profile for coin '{coin}'", err=True)
+            raise typer.Exit(2)
+        snapshot = fetch_cfi_funding_snapshot(profile)
+        hedge_notional = notional / profile.vol_mult_l
+        fixed_cost = notional * snapshot.k_fixed_hr * 24 * days
         typer.echo(
-            f"Error: hedge_calculator.py not found at {script_path}. "
-            f"Pass --script to override.",
-            err=True,
+            json.dumps(
+                {
+                    "mode": "builtin_cfi_projection",
+                    "note": "Reference hedge_calculator.py was not packaged; using built-in CFI v2 math.",
+                    "coin": coin.upper(),
+                    "days": days,
+                    "perp_notional_usd": notional,
+                    "hedge_notional_usd": hedge_notional,
+                    "vol_mult_l": profile.vol_mult_l,
+                    "k_fixed_hr": snapshot.k_fixed_hr,
+                    "k_fixed_apy": hourly_to_apy(snapshot.k_fixed_hr),
+                    "estimated_fixed_leg_cost_usd": fixed_cost,
+                    "script_path_missing": str(script_path),
+                },
+                indent=2,
+            )
         )
-        raise typer.Exit(2)
+        return
 
     cmd = [
         sys.executable,
