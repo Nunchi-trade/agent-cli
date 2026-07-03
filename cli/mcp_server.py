@@ -25,16 +25,8 @@ except Exception:  # pragma: no cover - optional mcp dependency
 
 
 # Tools that only read state (no side effects, safe to call freely).
-_READ_ONLY_TOOLS = {
-    "strategies", "builder_status", "wallet_list", "setup_check",
-    "account", "status", "apex_status",
-    "agent_memory", "trade_journal", "judge_report", "obsidian_context",
-    "order_status", "funding_rates", "funding_hedge_info", "funding_hedge_propose", "funding_hedge_backtest",
-}
-# Tools that move funds or cancel/close live orders/positions — handle with care.
-_DESTRUCTIVE_TOOLS = {
-    "trade", "run_strategy", "apex_run", "schedule_cancel", "emergency_close_all",
-}
+from cli.generated.mcp_tool_manifest import DESTRUCTIVE_TOOLS as _DESTRUCTIVE_TOOLS
+from cli.generated.mcp_tool_manifest import READ_ONLY_TOOLS as _READ_ONLY_TOOLS
 # Everything else (wallet_auto, radar_run, reflect_run) is
 # state-changing-but-safe: neither a pure read nor fund-destructive.
 
