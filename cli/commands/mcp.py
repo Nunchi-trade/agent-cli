@@ -12,7 +12,9 @@ mcp_app = typer.Typer(no_args_is_help=True)
 @mcp_app.command("serve")
 def mcp_serve(
     transport: str = typer.Option("stdio", "--transport", "-t",
-                                   help="Transport mode: stdio or sse"),
+                                   help="Transport mode: stdio, sse, or streamable-http"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host for HTTP transports"),
+    port: int = typer.Option(8765, "--port", help="Bind port for HTTP transports"),
 ):
     """Start MCP server exposing trading tools for AI agents."""
     project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -26,5 +28,8 @@ def mcp_serve(
         raise typer.Exit(1)
 
     server = create_mcp_server()
-    typer.echo(f"Starting MCP server (transport={transport}) ...")
-    server.run(transport=transport)
+    typer.echo(f"Starting MCP server (transport={transport}, host={host}, port={port}) ...")
+    if transport in {"sse", "streamable-http"}:
+        server.run(transport=transport, host=host, port=port)
+    else:
+        server.run(transport=transport)
