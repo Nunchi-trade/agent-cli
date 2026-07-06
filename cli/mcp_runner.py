@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from types import SimpleNamespace
 from typing import Any, Optional
 
 MCP_PATHS = {"/mcp", "/mcp/trading"}
+log = logging.getLogger(__name__)
 MCP_READ_TOOLS = {
     "strategies",
     "builder_status",
@@ -339,4 +341,3 @@ def _int_arg(arguments: dict[str, Any], key: str) -> Optional[int]:
         return int(float(value))
     except (TypeError, ValueError):
         return None
-
