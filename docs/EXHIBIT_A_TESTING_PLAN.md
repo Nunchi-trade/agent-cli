@@ -22,6 +22,8 @@ This document is the **agent-cli** view of Exhibit A. Validation spans three rep
 
 Use [`exhibit-a-tracker.md`](exhibit-a-tracker.md) to record PASS/FAIL/BLOCKED per test ID.
 
+**Execute:** [`exhibit-a-execution-runbook.md`](exhibit-a-execution-runbook.md) — scripts, CI baseline, live smoke commands.
+
 ---
 
 ## Architecture

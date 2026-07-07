@@ -24,7 +24,7 @@ def test_read_only_set_covers_reads():
 
 
 def test_server_applies_annotations():
-    """End-to-end: built server exposes the tools with correct hints."""
+    """End-to-end: built server exposes Exhibit A tools with correct hints."""
     pytest.importorskip("mcp")
     from cli.mcp_server import create_mcp_server, _READ_ONLY_TOOLS, _DESTRUCTIVE_TOOLS
 
@@ -32,15 +32,25 @@ def test_server_applies_annotations():
     tools = server._tool_manager.list_tools()
     by_name = {t.name: t for t in tools}
 
-    # Every classified tool is actually registered.
-    for name in _READ_ONLY_TOOLS | _DESTRUCTIVE_TOOLS:
+    # Exhibit A MCP surface must be registered (manifest may list unimplemented tools).
+    exhibit_a_tools = (
+        "setup_check", "account", "status", "trade_journal", "judge_report",
+        "funding_hedge_propose", "funding_rates", "funding_hedge_backtest",
+        "funding_hedge_execute", "trade", "run_strategy", "schedule_cancel",
+        "emergency_close_all",
+    )
+    for name in exhibit_a_tools:
         assert name in by_name, f"{name} not registered on the MCP server"
 
-    # Hints are wired through correctly.
-    assert by_name["trade"].annotations is not None
+    # Registered tools carry hints consistent with the manifest classification.
+    for name, tool in by_name.items():
+        assert tool.annotations is not None
+        if name in _READ_ONLY_TOOLS:
+            assert tool.annotations.readOnlyHint is True, name
+            assert tool.annotations.destructiveHint is False, name
+        if name in _DESTRUCTIVE_TOOLS:
+            assert tool.annotations.destructiveHint is True, name
+
     assert by_name["trade"].annotations.destructiveHint is True
-    assert by_name["trade"].annotations.readOnlyHint is False
-    assert by_name["schedule_cancel"].annotations.destructiveHint is True
-    assert by_name["emergency_close_all"].annotations.destructiveHint is True
     assert by_name["account"].annotations.readOnlyHint is True
     assert by_name["funding_rates"].annotations.readOnlyHint is True
