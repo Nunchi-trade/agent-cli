@@ -53,6 +53,11 @@ class TestDetectProvider:
         assert _detect_provider("blockrun/auto") == "blockrun"
         assert _detect_provider("blockrun/claude-sonnet") == "blockrun"
 
+    def test_custom_model(self):
+        from strategies.claude_agent import _detect_provider
+        assert _detect_provider("custom/my-model") == "custom"
+        assert _detect_provider("custom/llama-3-8b") == "custom"
+
     def test_unknown_defaults_to_gemini(self):
         from strategies.claude_agent import _detect_provider
         assert _detect_provider("some-random-model") == "gemini"

@@ -1,4 +1,4 @@
-"""LLM-powered trading agent — supports Claude, Gemini, OpenAI, and ClawRouter.
+"""LLM-powered trading agent — supports Claude, Gemini, OpenAI, ClawRouter, and Custom.
 
 Uses structured tool/function calling to make trading decisions each tick.
 The LLM receives market data, position state, and risk context, then decides
@@ -17,6 +17,11 @@ Usage:
 
     # ClawRouter (x402 — pay with USDC, no API key needed)
     hl run claude_agent -i ETH-PERP --tick 15 --model blockrun/auto
+
+    # Custom OpenAI-compatible endpoint (free LLMs, local servers, etc.)
+    export CUSTOM_API_BASE_URL="https://my-llm.example.com/v1"
+    export CUSTOM_API_KEY="sk-..."
+    hl run claude_agent -i ETH-PERP --tick 15 --model custom/my-model
 """
 from __future__ import annotations
 
@@ -108,6 +113,8 @@ def _detect_provider(model: str) -> str:
     """Detect LLM provider from model name."""
     if model.startswith("blockrun"):
         return "blockrun"
+    if model.startswith("custom"):
+        return "custom"
     if model.startswith("gemini"):
         return "gemini"
     if model.startswith("claude"):
@@ -158,6 +165,7 @@ class ClaudeStrategy(BaseStrategy):
         self._gemini_client = None
         self._openai_client = None
         self._blockrun_client = None
+        self._custom_client = None
 
     # ------------------------------------------------------------------
     # Client initialization
@@ -206,6 +214,28 @@ class ClaudeStrategy(BaseStrategy):
                 raise ValueError("OPENAI_API_KEY environment variable required")
             self._openai_client = openai.OpenAI(api_key=api_key)
         return self._openai_client
+
+    def _get_custom_client(self):
+        if self._custom_client is None:
+            try:
+                import openai
+            except ImportError:
+                raise ImportError(
+                    "openai package required for custom provider. "
+                    "Install: pip3 install openai"
+                )
+            base_url = os.environ.get("CUSTOM_API_BASE_URL")
+            if not base_url:
+                raise ValueError(
+                    "CUSTOM_API_BASE_URL environment variable required "
+                    "(e.g. https://my-llm.example.com/v1)"
+                )
+            api_key = os.environ.get("CUSTOM_API_KEY")
+            if not api_key:
+                raise ValueError("CUSTOM_API_KEY environment variable required")
+            self._custom_client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            log.info("Custom provider client initialized: %s", base_url)
+        return self._custom_client
 
     # ------------------------------------------------------------------
     # Build prompt
@@ -442,6 +472,58 @@ class ClaudeStrategy(BaseStrategy):
         return decisions
 
     # ------------------------------------------------------------------
+    # Custom backend (OpenAI-compatible endpoint via CUSTOM_API_BASE_URL)
+    # ------------------------------------------------------------------
+
+    def _call_custom(self, user_msg: str, snapshot: MarketSnapshot) -> List[StrategyDecision]:
+        """Route through a custom OpenAI-compatible endpoint.
+
+        Configure via CUSTOM_API_BASE_URL (e.g. https://my-llm.example.com/v1)
+        and CUSTOM_API_KEY. Useful for free/local LLMs and self-hosted servers.
+        """
+        import json as _json
+
+        client = self._get_custom_client()
+        t0 = time.time()
+
+        # The model name may be prefixed with "custom/" (e.g. "custom/my-model").
+        # Strip the prefix so only the bare model id is sent to the endpoint.
+        model = self.model
+        if model.startswith("custom/"):
+            model = model[len("custom/"):]
+
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            tools=self._build_openai_tools(),
+            tool_choice="required",
+        )
+
+        elapsed_ms = (time.time() - t0) * 1000
+        self._api_calls += 1
+        usage = response.usage
+        if usage:
+            self._total_input_tokens += usage.prompt_tokens or 0
+            self._total_output_tokens += usage.completion_tokens or 0
+            log.info(
+                "Custom: %dms, %d/%d tokens (total: %d calls, %d/%d tokens)",
+                elapsed_ms, usage.prompt_tokens or 0, usage.completion_tokens or 0,
+                self._api_calls, self._total_input_tokens, self._total_output_tokens,
+            )
+
+        decisions = []
+        msg = response.choices[0].message
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                args = _json.loads(tc.function.arguments) if tc.function.arguments else {}
+                decisions.extend(self._parse_tool_call(tc.function.name, args, snapshot))
+        return decisions
+
+    # ------------------------------------------------------------------
     # ClawRouter / BlockRun backend (x402 — pay with USDC, no API key)
     # ------------------------------------------------------------------
 
@@ -576,6 +658,8 @@ class ClaudeStrategy(BaseStrategy):
             provider = _detect_provider(self.model)
             if provider == "blockrun":
                 decisions = self._call_blockrun(user_msg, snapshot)
+            elif provider == "custom":
+                decisions = self._call_custom(user_msg, snapshot)
             elif provider == "gemini":
                 decisions = self._call_gemini(user_msg, snapshot)
             elif provider == "claude":

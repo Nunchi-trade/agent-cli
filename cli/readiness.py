@@ -271,6 +271,7 @@ def check_ai_provider_key() -> Dict[str, Any]:
         "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
+        "CUSTOM_API_KEY",
     )
     found = [name for name in candidates if os.environ.get(name)]
     if found:
