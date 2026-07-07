@@ -635,6 +635,42 @@ def create_mcp_server():
             return json.dumps({"error": str(exc)}, indent=2)
         return json.dumps(backtest.to_dict(), indent=2)
 
+    @mcp.tool(**_ann("funding_hedge_execute", "Execute funding hedge"))
+    def funding_hedge_execute(
+        coin: str = "BTC",
+        dry_run: bool = False,
+        mainnet: bool = False,
+        confirmed: bool = False,
+        ctx: FastMCPContext = None,
+    ) -> str:
+        """Execute a BTCSWP funding-rate hedge on Hyperliquid. WARNING: places a real order.
+
+        Args:
+            coin: Coin to hedge (BTC, ETH).
+            dry_run: Preview only; do not sign or submit.
+            mainnet: Use mainnet instead of testnet.
+            confirmed: Explicit confirmation for hosted gateway sessions that require it.
+        """
+        env_overrides = _request_env(ctx)
+        error = _context_limit_error(
+            "funding_hedge_execute",
+            env_overrides,
+            mainnet=mainnet,
+            confirmed=confirmed,
+            require_signing=not dry_run,
+        )
+        if error:
+            return _json_error(error)
+
+        args = ["hedge", "execute", coin]
+        if dry_run:
+            args.append("--dry-run")
+        if mainnet:
+            args.append("--mainnet")
+        if confirmed or env_overrides or dry_run:
+            args.append("--yes")
+        return _run_hl(*args, env_overrides=env_overrides)
+
     @mcp.tool(**_ann("account", "Account state"))
     def account(mainnet: bool = False, ctx: FastMCPContext = None) -> str:
         """Get Hyperliquid account state (balances, positions)."""
