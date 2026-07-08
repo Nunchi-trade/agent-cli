@@ -65,11 +65,7 @@ class TradingEngine:
         self._consecutive_timeouts = 0
         self._tick_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick")
 
-        # Optional Guard (composable mode — set via guard_config)
-        self.guard_bridge = None   # type: ignore[assignment]
-        self.guard_config = None  # type: ignore[assignment]
-
-        # Managed order book (brackets, conditionals, pegged orders)
+# Managed order book (brackets, conditionals, pegged orders)
         self.managed_orders = ManagedOrderBook()
 
         # Optional markout tracker (measures fill quality vs anomaly state)
@@ -272,21 +268,6 @@ class TradingEngine:
                     detector_scores=detector_scores,
                 )
 
-        # 7b. Lazy Guard init (after first fill establishes a position)
-        if self.guard_config is not None and self.guard_bridge is None and fills:
-            pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
-            if pos.net_qty != ZERO:
-                self._init_guard_bridge(pos)
-
-        # 7c. Sync Guard position size with tracker (handles partial closes / add-ons)
-        if self.guard_bridge is not None and self.guard_bridge.is_active and fills:
-            pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
-            if pos.net_qty == ZERO:
-                # Position fully closed by strategy — deactivate Guard
-                self.guard_bridge.mark_closed(snapshot.mid_price, "Position closed by strategy")
-            else:
-                self.guard_bridge.state.position_size = float(abs(pos.net_qty))
-
         # 7d. Update markout windows with current mid price
         if self.markout_tracker is not None:
             self.markout_tracker.update(snapshot.mid_price, snapshot.timestamp_ms)
@@ -319,105 +300,6 @@ class TradingEngine:
 
         # 10. Log tick
         self._log_tick(snapshot, valid_decisions, fills, ok=True)
-
-        # 11. Guard check (composable mode)
-        if self.guard_bridge is not None and self.guard_bridge.is_active:
-            from modules.trailing_stop import GuardAction
-            result = self.guard_bridge.check(snapshot.mid_price)
-            _CLOSE_ACTIONS = {GuardAction.CLOSE, GuardAction.PHASE1_TIMEOUT, GuardAction.WEAK_PEAK_CUT}
-            if result.action in _CLOSE_ACTIONS:
-                _labels = {
-                    GuardAction.CLOSE: "GUARD CLOSE",
-                    GuardAction.PHASE1_TIMEOUT: "PHASE1 TIMEOUT (90min no-graduation)",
-                    GuardAction.WEAK_PEAK_CUT: "WEAK PEAK CUT (45min, peak ROE < 3%)",
-                }
-                label = _labels.get(result.action, result.action.value)
-                elapsed_s = ((time.time() * 1000 - result.state.phase1_start_ts) / 1000
-                             if result.state.phase1_start_ts else 0)
-                log.warning("%s: %s | roe=%.2f%% high_water=%.4f elapsed=%.0fs",
-                            label, result.reason,
-                            result.state.current_roe,
-                            result.state.high_water,
-                            elapsed_s)
-                self._guard_close_position(snapshot)
-                self.guard_bridge.mark_closed(snapshot.mid_price, result.reason)
-                self._running = False
-
-    def _guard_close_position(self, snapshot: MarketSnapshot) -> None:
-        """Close position when Guard trailing stop triggers."""
-        agent_id = self.strategy.strategy_id
-        pos = self.position_tracker.get_agent_position(agent_id, self.instrument)
-        if pos.net_qty == ZERO:
-            return
-
-        close_side = "sell" if pos.net_qty > ZERO else "buy"
-        size = float(abs(pos.net_qty))
-        if close_side == "sell":
-            price = round(float(snapshot.bid) * 0.995, 6)
-        else:
-            price = round(float(snapshot.ask) * 1.005, 6)
-
-        if self.dry_run:
-            log.info("[DRY RUN] Guard close: %s %.6f @ %.4f", close_side, size, price)
-            return
-
-        fill = self.hl.place_order(
-            instrument=self.instrument,
-            side=close_side,
-            size=size,
-            price=price,
-            tif="Ioc",
-            builder=self.builder,
-        )
-        if fill:
-            self.position_tracker.apply_fill(
-                agent_id, self.instrument, fill.side,
-                fill.quantity, fill.price,
-            )
-            self.trade_log.append({
-                "tick": self.tick_count,
-                "oid": fill.oid,
-                "instrument": fill.instrument,
-                "side": fill.side,
-                "price": str(fill.price),
-                "quantity": str(fill.quantity),
-                "timestamp_ms": fill.timestamp_ms,
-                "fee": str(fill.fee),
-                "strategy": self.strategy.strategy_id,
-                "meta": "guard_close",
-            })
-            log.info("Guard closed position: %s %s @ %s", fill.side, fill.quantity, fill.price)
-        else:
-            log.warning("Guard close order did not fill — will retry next tick")
-            self._running = True  # Keep running to retry
-
-    def _init_guard_bridge(self, pos) -> None:
-        """Initialize Guard from guard_config after first position is established."""
-        from modules.guard_config import GuardConfig
-        from modules.guard_bridge import GuardBridge
-        from modules.guard_state import GuardState
-
-        direction = "long" if pos.net_qty > ZERO else "short"
-        self.guard_config.direction = direction
-
-        # Auto-compute absolute floor if not set
-        entry = float(pos.avg_entry_price)
-        if self.guard_config.phase1_absolute_floor == 0.0:
-            lev = self.guard_config.leverage
-            if direction == "long":
-                self.guard_config.phase1_absolute_floor = entry * (1 - 0.03 / lev)
-            else:
-                self.guard_config.phase1_absolute_floor = entry * (1 + 0.03 / lev)
-
-        guard_state = GuardState.new(
-            instrument=self.instrument,
-            entry_price=entry,
-            position_size=float(abs(pos.net_qty)),
-            direction=direction,
-        )
-        self.guard_bridge = GuardBridge(config=self.guard_config, state=guard_state)
-        log.info("Guard activated: entry=%.4f size=%.6f dir=%s",
-                 entry, float(abs(pos.net_qty)), direction)
 
     def _close_all_positions(self) -> None:
         """Close all open positions on shutdown to avoid orphaned exposure."""

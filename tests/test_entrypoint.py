@@ -27,56 +27,22 @@ class TestBuildCommand:
         cmd = build_command()
         assert cmd == [sys.executable, "-m", "cli.main", "mcp", "serve", "--transport", "sse"]
 
-    def test_apex_mode_default(self, monkeypatch):
+    def test_apex_mode_falls_back_to_strategy(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "apex")
-        monkeypatch.delenv("APEX_PRESET", raising=False)
-        monkeypatch.delenv("APEX_BUDGET", raising=False)
-        monkeypatch.delenv("APEX_SLOTS", raising=False)
-        monkeypatch.delenv("APEX_LEVERAGE", raising=False)
-        monkeypatch.delenv("TICK_INTERVAL", raising=False)
+        monkeypatch.setenv("STRATEGY", "cfi_hedge")
+        monkeypatch.setenv("INSTRUMENT", "BTC-PERP")
+        monkeypatch.setenv("TICK_INTERVAL", "10")
         monkeypatch.setenv("HL_TESTNET", "true")
 
         cmd = build_command()
-        assert cmd[:3] == [sys.executable, "-m", "cli.main"]
-        assert "apex" in cmd
-        assert "run" in cmd
-        assert "--data-dir" in cmd
-        assert "--mainnet" not in cmd
+        assert "run" in cmd and "cfi_hedge" in cmd and "apex" not in cmd
 
-    def test_apex_mode_with_all_options(self, monkeypatch):
-        monkeypatch.setenv("RUN_MODE", "apex")
-        monkeypatch.setenv("APEX_PRESET", "aggressive")
-        monkeypatch.setenv("APEX_BUDGET", "1000")
-        monkeypatch.setenv("APEX_SLOTS", "5")
-        monkeypatch.setenv("APEX_LEVERAGE", "10")
-        monkeypatch.setenv("TICK_INTERVAL", "30")
-        monkeypatch.setenv("HL_TESTNET", "false")
-
-        cmd = build_command()
-        assert "--preset" in cmd
-        assert "aggressive" in cmd
-        assert "--budget" in cmd
-        assert "1000" in cmd
-        assert "--slots" in cmd
-        assert "5" in cmd
-        assert "--leverage" in cmd
-        assert "10" in cmd
-        assert "--tick" in cmd
-        assert "30" in cmd
-        assert "--mainnet" in cmd
-
-    def test_wolf_mode(self, monkeypatch):
+    def test_wolf_mode_falls_back_to_strategy(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "wolf")
+        monkeypatch.setenv("STRATEGY", "cfi_hedge")
         monkeypatch.setenv("HL_TESTNET", "true")
-        monkeypatch.delenv("APEX_PRESET", raising=False)
-        monkeypatch.delenv("APEX_BUDGET", raising=False)
-        monkeypatch.delenv("APEX_SLOTS", raising=False)
-        monkeypatch.delenv("APEX_LEVERAGE", raising=False)
-        monkeypatch.delenv("TICK_INTERVAL", raising=False)
-
         cmd = build_command()
-        assert "apex" in cmd
-        assert "run" in cmd
+        assert "run" in cmd and "cfi_hedge" in cmd and "apex" not in cmd
 
     def test_strategy_mode(self, monkeypatch):
         monkeypatch.setenv("RUN_MODE", "strategy")

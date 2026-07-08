@@ -1,9 +1,14 @@
 """Shared fixtures for quoting engine tests."""
 import sys
 from pathlib import Path
+
 import pytest
-_archive_root = Path(__file__).resolve().parents[2] / "archive"
-if str(_archive_root) not in sys.path: sys.path.insert(0, str(_archive_root))
+
+# Archived package lives under repo-root/_archive/quoting_engine.
+_archive_root = Path(__file__).resolve().parents[2] / "_archive"
+if str(_archive_root) not in sys.path:
+    sys.path.insert(0, str(_archive_root))
+
 from quoting_engine.config import (
     MarketConfig, FairValueWeights, SpreadParams,
     LadderParams, SkewParams,

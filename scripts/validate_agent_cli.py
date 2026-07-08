@@ -156,11 +156,9 @@ def base_cases(python: str, quick_pytest: bool) -> list[TestCase]:
         "setup",
         "wallet",
         "builder",
-        "radar",
-        "pulse",
-        "apex",
-        "guard",
-        "reflect",
+        "hedge",
+        "margin",
+        "trading",
         "journal",
         "keys",
         "mcp",
@@ -180,7 +178,7 @@ def base_cases(python: str, quick_pytest: bool) -> list[TestCase]:
 
 def node_cases() -> list[TestCase]:
     cases: list[TestCase] = []
-    for path in sorted((REPO_ROOT / "deploy").glob("*/src/*")):
+    for path in sorted((REPO_ROOT / "_archive" / "deploy").glob("*/src/*")):
         if path.suffix not in {".js", ".mjs"}:
             continue
         cases.append(
@@ -259,67 +257,6 @@ def e2e_cases(python: str, data_root: Path) -> list[TestCase]:
             profiles=("e2e", "production"),
         ),
         TestCase(
-            name="radar_once_mock",
-            stage="e2e_mock",
-            command=python_cmd(
-                [
-                    "-m",
-                    "cli.main",
-                    "radar",
-                    "once",
-                    "--mock",
-                    "--top-n",
-                    "3",
-                    "--min-volume",
-                    "0",
-                    "--score-threshold",
-                    "0",
-                    "--data-dir",
-                    str(data_root / "radar"),
-                ],
-                python,
-            ),
-            timeout_s=60,
-            profiles=("e2e", "production"),
-        ),
-        TestCase(
-            name="pulse_once_mock",
-            stage="e2e_mock",
-            command=python_cmd(
-                [
-                    "-m",
-                    "cli.main",
-                    "pulse",
-                    "once",
-                    "--mock",
-                    "--min-volume",
-                    "0",
-                    "--data-dir",
-                    str(data_root / "pulse"),
-                ],
-                python,
-            ),
-            timeout_s=60,
-            profiles=("e2e", "production"),
-        ),
-        TestCase(
-            name="apex_once_mock",
-            stage="e2e_mock",
-            command=python_cmd(
-                ["-m", "cli.main", "apex", "once", "--mock", "--data-dir", str(data_root / "apex")],
-                python,
-            ),
-            timeout_s=90,
-            profiles=("e2e", "production"),
-        ),
-        TestCase(
-            name="apex_status_after_mock",
-            stage="e2e_mock",
-            command=python_cmd(["-m", "cli.main", "apex", "status", "--data-dir", str(data_root / "apex")], python),
-            timeout_s=30,
-            profiles=("e2e", "production"),
-        ),
-        TestCase(
             name="status_reader_json_contracts",
             stage="api_contract",
             command=python_cmd(["-c", status_reader_contract_code(data_root)], python),
@@ -349,7 +286,7 @@ def status_reader_contract_code(data_root: Path) -> str:
     return (
         "import json, subprocess, sys; "
         f"data_dir={data}; "
-        "cmds=['status','strategies','trades','reflect','radar','journal']; "
+        "cmds=['status','strategies','trades','journal']; "
         "seen={}; "
         "\nfor cmd in cmds:\n"
         "    args=[sys.executable,'-m','cli.api.status_reader',cmd,'--data-dir',data_dir]\n"
@@ -428,29 +365,6 @@ def production_cases(python: str, mainnet: bool, live_data_root: Path) -> list[T
                 python,
             ),
             timeout_s=45,
-            profiles=("production",),
-            live_probe=True,
-        ),
-        TestCase(
-            name="live_radar_readonly_scan",
-            stage="production_readonly",
-            command=python_cmd(
-                [
-                    "-m",
-                    "cli.main",
-                    "radar",
-                    "once",
-                    *network_flag,
-                    "--top-n",
-                    "5",
-                    "--score-threshold",
-                    "9999",
-                    "--data-dir",
-                    str(live_data_root / "radar"),
-                ],
-                python,
-            ),
-            timeout_s=90,
             profiles=("production",),
             live_probe=True,
         ),

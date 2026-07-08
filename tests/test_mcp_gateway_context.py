@@ -39,12 +39,31 @@ def test_trusted_gateway_headers_become_scoped_env(monkeypatch):
 
     assert env["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
     assert env["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "2" * 40
+    assert env["HL_VIEW_AS_USER"] == "0x" + "2" * 40
     assert env["NUNCHI_MAX_ORDER_SIZE"] == "0.5"
     assert env["NUNCHI_MAX_STRATEGY_TICKS"] == "12"
     policy = json.loads(env["NUNCHI_SESSION_POLICY"])
     assert policy["wallets"] == ["0x" + "2" * 40]
     assert policy["network"] == "testnet"
     assert "trade" in policy["allowed_actions"]
+
+
+def test_trusted_gateway_account_id_becomes_view_only_address(monkeypatch):
+    from cli.mcp_server import _trusted_context_env_overrides
+
+    account_id = "0x" + "6" * 40
+    monkeypatch.setenv("NUNCHI_RUNNER_CONTEXT_SECRET", "shared-secret")
+    ctx = _ctx({
+        "x-nunchi-runner-context-secret": "shared-secret",
+        "x-nunchi-account-id": account_id,
+        "x-nunchi-trading-permission-tier": "read_only",
+        "x-nunchi-trading-network": "testnet",
+    })
+
+    env = _trusted_context_env_overrides(ctx)
+
+    assert env["NUNCHI_ACCOUNT_ID"] == account_id
+    assert env["HL_VIEW_AS_USER"] == account_id
 
 
 def test_context_limits_fail_closed_without_signing_context(monkeypatch, tmp_path):
@@ -145,6 +164,22 @@ def test_entrypoint_trade_fails_closed_without_signing_context(monkeypatch, tmp_
 
     assert status == 200
     assert "requires a signing context" in response["result"]["content"][0]["text"]
+    assert response["result"]["isError"] is True
+    assert "requires a signing context" in response["result"]["structuredContent"]["error"]
+
+
+def test_entrypoint_structures_json_tool_errors():
+    from scripts.entrypoint import _mcp_tool_result
+
+    result = _mcp_tool_result(json.dumps({"error": "boom", "code": "example_error"}))
+
+    assert result["isError"] is True
+    assert result["structuredContent"] == {
+        "ok": False,
+        "error": "boom",
+        "code": "example_error",
+    }
+    assert result["content"][0]["text"] == '{"error": "boom", "code": "example_error"}'
 
 
 def test_entrypoint_trade_forwards_trusted_context_to_subprocess(monkeypatch, tmp_path):
@@ -206,6 +241,8 @@ def test_entrypoint_funding_hedge_execute_refuses_without_confirm():
 
     assert status == 200
     assert "confirmed=true" in response["result"]["content"][0]["text"]
+    assert response["result"]["isError"] is True
+    assert "confirmed=true" in response["result"]["structuredContent"]["error"]
 
 
 def test_entrypoint_funding_hedge_execute_confirmed_dry_run_forwards_to_cli(monkeypatch, tmp_path):
@@ -249,6 +286,7 @@ def test_entrypoint_funding_hedge_execute_confirmed_dry_run_forwards_to_cli(monk
     assert captured["timeout"] == 120
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_PAIR_TOKEN"] == "pair-token"
     assert captured["env_overrides"]["NUNCHI_WEB_AUTH_ADDRESS"] == "0x" + "5" * 40
+    assert captured["env_overrides"]["HL_VIEW_AS_USER"] == "0x" + "5" * 40
 
 
 def test_entrypoint_funding_hedge_execute_confirmed_dry_run_allows_keyless_preview(monkeypatch, tmp_path):

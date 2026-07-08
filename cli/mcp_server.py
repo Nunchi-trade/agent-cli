@@ -1,7 +1,7 @@
 """MCP server for agent-cli — exposes trading tools via Model Context Protocol.
 
 Fast tools (account, strategies, builder, wallet, setup) call Python directly.
-Long-running tools (run_strategy, apex_run, radar, reflect) use subprocess.
+Long-running tools (run_strategy) use subprocess.
 
 Every tool carries MCP annotations (readOnlyHint / destructiveHint) so MCP
 clients can distinguish a harmless read from a fund-moving action. The
@@ -27,18 +27,17 @@ except Exception:  # pragma: no cover - optional mcp dependency
 # Tools that only read state (no side effects, safe to call freely).
 _READ_ONLY_TOOLS = {
     "strategies", "builder_status", "wallet_list", "setup_check",
-    "account", "status", "apex_status",
+    "account", "status",
     "funding_hedge_propose", "funding_hedge_backtest",
     "agent_memory", "trade_journal", "judge_report", "obsidian_context",
     "order_status", "funding_rates",
 }
 # Tools that move funds or cancel/close live orders/positions — handle with care.
 _DESTRUCTIVE_TOOLS = {
-    "trade", "run_strategy", "apex_run", "funding_hedge_execute",
+    "trade", "run_strategy", "funding_hedge_execute",
     "schedule_cancel", "emergency_close_all",
 }
-# Everything else (wallet_auto, radar_run, reflect_run) is
-# state-changing-but-safe: neither a pure read nor fund-destructive.
+# Everything else (wallet_auto) is state-changing-but-safe.
 
 _TRUSTED_CONTEXT_SECRET_ENVS = (
     "NUNCHI_RUNNER_CONTEXT_SECRET",
@@ -55,6 +54,8 @@ _CONTEXT_ENV_HEADERS = {
     "x-nunchi-secret-nunchi-web-auth-pair-token": "NUNCHI_WEB_AUTH_PAIR_TOKEN",
     "x-nunchi-web-auth-address": "NUNCHI_WEB_AUTH_ADDRESS",
     "x-nunchi-secret-nunchi-web-auth-address": "NUNCHI_WEB_AUTH_ADDRESS",
+    "x-nunchi-account-id": "NUNCHI_ACCOUNT_ID",
+    "x-nunchi-secret-nunchi-account-id": "NUNCHI_ACCOUNT_ID",
     "x-nunchi-trading-permission-tier": "NUNCHI_TRADING_PERMISSION_TIER",
     "x-nunchi-secret-nunchi-trading-permission-tier": "NUNCHI_TRADING_PERMISSION_TIER",
     "x-nunchi-trading-network": "NUNCHI_TRADING_NETWORK",
@@ -228,6 +229,11 @@ def _trusted_context_env_overrides(ctx: Any) -> dict[str, str]:
     policy = _policy_from_context_env(overrides)
     if policy is not None:
         overrides["NUNCHI_SESSION_POLICY"] = policy
+    view_address = _clean_context_value(
+        overrides.get("NUNCHI_WEB_AUTH_ADDRESS") or overrides.get("NUNCHI_ACCOUNT_ID")
+    )
+    if view_address and "HL_VIEW_AS_USER" not in overrides:
+        overrides["HL_VIEW_AS_USER"] = view_address
     return overrides
 
 
@@ -357,9 +363,9 @@ def create_mcp_server():
     mcp = FastMCP(
         "yex-trader",
         instructions=(
-            "Autonomous Hyperliquid trading CLI — 14 strategies, APEX orchestrator, "
-            "REFLECT reviews. Always confirm details with the user before calling "
-            "destructive tools (trade, run_strategy, apex_run, funding_hedge_execute, "
+            "CFI v2 funding-rate hedge on Hyperliquid — hl hedge propose/execute/status/auto. "
+            "Always confirm details with the user before calling "
+            "destructive tools (trade, run_strategy, funding_hedge_execute, "
             "schedule_cancel, emergency_close_all). "
             "funding_hedge_execute requires confirmed=true. "
             "emergency_close_all requires confirm=true."
@@ -488,11 +494,15 @@ def create_mcp_server():
         has_web_auth = bool(env_overrides.get("NUNCHI_WEB_AUTH_PAIR_TOKEN")) and bool(
             env_overrides.get("NUNCHI_WEB_AUTH_ADDRESS")
         )
+        has_view_only = bool(env_overrides.get("HL_VIEW_AS_USER"))
+        permission_tier = str(env_overrides.get("NUNCHI_TRADING_PERMISSION_TIER") or "").strip().lower()
         keystores = list_keystores()
         if has_env_key:
             ok_items.append("HL_PRIVATE_KEY set")
         elif has_web_auth:
             ok_items.append("web-auth pairing context provided")
+        elif has_view_only and permission_tier == "read_only":
+            ok_items.append(f"view-only context provided ({env_overrides.get('HL_VIEW_AS_USER')})")
         elif keystores:
             ok_items.append(f"Keystore found ({len(keystores)} keys)")
         else:
@@ -626,75 +636,6 @@ def create_mcp_server():
             timeout=max(60, (effective_max_ticks or 10) * tick + 30),
             env_overrides=env_overrides,
         )
-
-    @mcp.tool(**_ann("radar_run", "Run radar scan"))
-    def radar_run(mock: bool = False, ctx: FastMCPContext = None) -> str:
-        """Run opportunity radar — screen HL perps for trading setups."""
-        args = ["radar", "once"]
-        if mock:
-            args.append("--mock")
-        return _run_hl(*args, timeout=60, env_overrides=_request_env(ctx))
-
-    @mcp.tool(**_ann("apex_status", "APEX status"))
-    def apex_status(ctx: FastMCPContext = None) -> str:
-        """Get APEX orchestrator status (slots, positions, daily PnL)."""
-        return _run_hl("apex", "status", env_overrides=_request_env(ctx))
-
-    @mcp.tool(**_ann("apex_run", "Run APEX"))
-    def apex_run(
-        mock: bool = False,
-        max_ticks: Optional[int] = None,
-        preset: str = "default",
-        mainnet: bool = False,
-        confirmed: bool = False,
-        ctx: FastMCPContext = None,
-    ) -> str:
-        """Start APEX multi-slot orchestrator. WARNING: places real orders unless mock.
-
-        Args:
-            mock: Use mock data
-            max_ticks: Stop after N ticks
-            preset: Strategy preset (default, conservative, aggressive)
-            mainnet: Use mainnet
-            confirmed: Explicit confirmation for hosted gateway sessions that require it.
-        """
-        env_overrides = _request_env(ctx)
-        effective_max_ticks = max_ticks if max_ticks is not None else _trusted_max_ticks(env_overrides)
-        error = _context_limit_error(
-            "apex_run",
-            env_overrides,
-            mainnet=mainnet,
-            max_ticks=effective_max_ticks,
-            confirmed=confirmed,
-            require_signing=not mock,
-        )
-        if error:
-            return _json_error(error)
-
-        args = ["apex", "run", "--preset", preset]
-        if mock:
-            args.append("--mock")
-        if effective_max_ticks is not None:
-            args.extend(["--max-ticks", str(effective_max_ticks)])
-        if mainnet:
-            args.append("--mainnet")
-        return _run_hl(
-            *args,
-            timeout=max(120, (effective_max_ticks or 10) * 60 + 30),
-            env_overrides=env_overrides,
-        )
-
-    @mcp.tool(**_ann("reflect_run", "Run reflect review"))
-    def reflect_run(since: Optional[str] = None, ctx: FastMCPContext = None) -> str:
-        """Run REFLECT performance review — analyze trades and generate report.
-
-        Args:
-            since: Start date for analysis (YYYY-MM-DD). Default: since last report.
-        """
-        args = ["reflect", "run"]
-        if since:
-            args.extend(["--since", since])
-        return _run_hl(*args, env_overrides=_request_env(ctx))
 
     # ------------------------------------------------------------------
     # Safety tools — dead-man's switch + panic close
