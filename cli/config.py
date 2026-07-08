@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 @dataclass
 class TradingConfig:
     # Strategy
-    strategy: str = "avellaneda_mm"
+    strategy: str = "cfi_hedge"
     strategy_params: Dict[str, Any] = field(default_factory=dict)
 
     # Guard (Dynamic Stop Loss) — optional composable guard

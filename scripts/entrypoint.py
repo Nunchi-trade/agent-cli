@@ -35,9 +35,6 @@ MCP_READ_TOOLS = {
     "setup_check",
     "account",
     "status",
-    "apex_status",
-    "radar_run",
-    "reflect_run",
     "agent_memory",
     "trade_journal",
     "judge_report",
@@ -51,7 +48,6 @@ MCP_WRITE_TOOLS = {
     "wallet_auto",
     "trade",
     "run_strategy",
-    "apex_run",
     "funding_hedge_execute",
     "schedule_cancel",
     "emergency_close_all",
@@ -79,7 +75,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         elif self.path == "/status":
             try:
                 result = subprocess.run(
-                    [sys.executable, "-m", "cli.main", "apex", "status"],
+                    [sys.executable, "-m", "cli.main", "status"],
                     capture_output=True, text=True, timeout=10,
                 )
                 output = result.stdout.strip() or result.stderr.strip() or "(no output)"
@@ -306,42 +302,11 @@ def build_command() -> list[str]:
     py = [sys.executable, "-m", "cli.main"]
 
     if mode in ("apex", "wolf"):
-        cmd = py + ["apex", "run"]
-        preset = os.environ.get("APEX_PRESET")
-        if preset:
-            cmd += ["--preset", preset]
-        budget = os.environ.get("APEX_BUDGET")
-        if budget:
-            cmd += ["--budget", budget]
-        slots = os.environ.get("APEX_SLOTS")
-        if slots:
-            cmd += ["--slots", slots]
-        leverage = os.environ.get("APEX_LEVERAGE")
-        if leverage:
-            cmd += ["--leverage", leverage]
-        tick = os.environ.get("TICK_INTERVAL")
-        if tick:
-            cmd += ["--tick", tick]
-        # Restrict the agent's pulse/radar scans and entries to a set of
-        # markets. Critical for PR-3 dedicated-wallet mode where the agent
-        # is funded on a HIP-3 dex (e.g. yex) and must NOT scan universal
-        # HL perps that it has no collateral on. Without this, agents
-        # scan 207+ universal markets and produce zero entries even though
-        # they hold $1000 in their yex clearinghouse.
-        allowed = os.environ.get("ALLOWED_INSTRUMENTS")
-        if allowed:
-            cmd += ["--markets", allowed]
-        strategy_names = os.environ.get("STRATEGY_NAMES")
-        if strategy_names:
-            cmd += ["--strategy-names", strategy_names]
-        base_dir = os.environ.get("DATA_DIR", "/data")
-        cmd += ["--data-dir", f"{base_dir}/apex"]
-        if os.environ.get("HL_TESTNET", "true").lower() == "false":
-            cmd.append("--mainnet")
-        return cmd
+        log.warning("RUN_MODE=%s is deprecated; use strategy or mcp. Falling back to cfi_hedge.", mode)
+        mode = "strategy"
 
-    elif mode == "strategy":
-        strategy = os.environ.get("STRATEGY", "engine_mm")
+    if mode == "strategy":
+        strategy = os.environ.get("STRATEGY", "cfi_hedge")
         instrument = os.environ.get("INSTRUMENT", "ETH-PERP")
         tick = os.environ.get("TICK_INTERVAL", "10")
         cmd = py + ["run", strategy, "-i", instrument, "-t", tick]
@@ -353,7 +318,7 @@ def build_command() -> list[str]:
         return py + ["mcp", "serve", "--transport", "sse"]
 
     else:
-        log.error("Unknown RUN_MODE: %s. Use apex, wolf, strategy, or mcp.", mode)
+        log.error("Unknown RUN_MODE: %s. Use strategy or mcp.", mode)
         sys.exit(1)
 
 
@@ -390,7 +355,7 @@ def handle_mcp_json_rpc(raw_body: bytes, headers: Any) -> tuple[int, dict[str, A
         if method == "tools/call":
             name = str(params.get("name", ""))
             arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
-            return 200, _json_rpc_result(request_id, {"content": [{"type": "text", "text": call_mcp_tool(name, arguments, headers)}]})
+            return 200, _json_rpc_result(request_id, _mcp_tool_result(call_mcp_tool(name, arguments, headers)))
         return 200, _json_rpc_error(request_id, -32601, f"method not found: {method}")
     except Exception as exc:
         log.exception("MCP JSON-RPC error")
@@ -424,18 +389,7 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
     if name == "status":
         return _run_hl("status", env_overrides=env_overrides)
     if name == "apex_status":
-        return _run_hl("apex", "status", env_overrides=env_overrides)
-    if name == "radar_run":
-        cmd = ["radar", "once"]
-        if _bool_arg(arguments, "mock"):
-            cmd.append("--mock")
-        return _run_hl(*cmd, timeout=60, env_overrides=env_overrides)
-    if name == "reflect_run":
-        cmd = ["reflect", "run"]
-        since = _str_arg(arguments, "since")
-        if since:
-            cmd.extend(["--since", since])
-        return _run_hl(*cmd, env_overrides=env_overrides)
+        return _run_hl("status", env_overrides=env_overrides)
     if name == "order_status":
         oid = _str_arg(arguments, "oid")
         if not oid:
@@ -537,32 +491,6 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
             cmd.append("--mainnet")
         return _run_hl(*cmd, timeout=max(60, (effective_max_ticks or 10) * tick + 30), env_overrides=env_overrides)
 
-    if name == "apex_run":
-        mock = _bool_arg(arguments, "mock")
-        max_ticks = _int_arg(arguments, "max_ticks")
-        preset = _str_arg(arguments, "preset") or "default"
-        mainnet = _bool_arg(arguments, "mainnet")
-        confirmed = _bool_arg(arguments, "confirmed")
-        effective_max_ticks = max_ticks if max_ticks is not None else _trusted_max_ticks(env_overrides)
-        error = _context_limit_error(
-            "apex_run",
-            env_overrides,
-            mainnet=mainnet,
-            max_ticks=effective_max_ticks,
-            confirmed=confirmed,
-            require_signing=not mock,
-        )
-        if error:
-            return _json_error(error)
-        cmd = ["apex", "run", "--preset", preset]
-        if mock:
-            cmd.append("--mock")
-        if effective_max_ticks is not None:
-            cmd.extend(["--max-ticks", str(effective_max_ticks)])
-        if mainnet:
-            cmd.append("--mainnet")
-        return _run_hl(*cmd, timeout=max(120, (effective_max_ticks or 10) * 60 + 30), env_overrides=env_overrides)
-
     if name == "funding_hedge_execute":
         coin = _str_arg(arguments, "coin") or "BTC"
         dry_run = _bool_arg(arguments, "dry_run")
@@ -594,6 +522,22 @@ def call_mcp_tool(name: str, arguments: dict[str, Any], headers: Any) -> str:
     return _json_error(f"unknown tool: {name}")
 
 
+def _mcp_tool_result(text: str) -> dict[str, Any]:
+    result: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return result
+    if isinstance(parsed, dict) and parsed.get("error"):
+        result["isError"] = True
+        result["structuredContent"] = {
+            "ok": False,
+            "error": parsed.get("error"),
+            **({"code": parsed.get("code")} if parsed.get("code") else {}),
+        }
+    return result
+
+
 def _context_from_headers(headers: Any) -> Any:
     normalized = {str(key).lower(): str(value) for key, value in headers.items()}
     request = SimpleNamespace(headers=normalized)
@@ -614,11 +558,15 @@ def _setup_check_text(env_overrides: dict[str, str]) -> str:
 
     has_env_key = bool(env_overrides.get("HL_PRIVATE_KEY") or os.environ.get("HL_PRIVATE_KEY"))
     has_web_auth = bool(env_overrides.get("NUNCHI_WEB_AUTH_PAIR_TOKEN")) and bool(env_overrides.get("NUNCHI_WEB_AUTH_ADDRESS"))
+    has_view_only = bool(env_overrides.get("HL_VIEW_AS_USER"))
+    permission_tier = str(env_overrides.get("NUNCHI_TRADING_PERMISSION_TIER") or "").strip().lower()
     keystores = list_keystores()
     if has_env_key:
         ok_items.append("HL_PRIVATE_KEY set")
     elif has_web_auth:
         ok_items.append("web-auth pairing context provided")
+    elif has_view_only and permission_tier == "read_only":
+        ok_items.append(f"view-only context provided ({env_overrides.get('HL_VIEW_AS_USER')})")
     elif keystores:
         ok_items.append(f"Keystore found ({len(keystores)} keys)")
     else:

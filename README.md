@@ -5,7 +5,7 @@
 <h3 align="center">Autonomous Trading Agent for Hyperliquid</h3>
 
 <p align="center">
-  19 strategies &bull; APEX multi-slot orchestrator &bull; REFLECT nightly review &bull; MCP server &bull; Agent Skills
+  CFI funding-rate hedge &bull; MCP server &bull; Agent Skills
 </p>
 
 <p align="center">
@@ -18,10 +18,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/strategies-19-C9A84C" alt="Strategies" />
+  <img src="https://img.shields.io/badge/strategy-cfi_hedge-C9A84C" alt="Strategy" />
   <img src="https://img.shields.io/badge/tests-1300%2B%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/MCP-21%20tools-8A2BE2" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP-20%20tools-8A2BE2" alt="MCP" />
 </p>
 
 <p align="center">
@@ -32,7 +32,9 @@
 
 ---
 
-Ship market-making, momentum, arbitrage, and LLM-powered strategies on [Hyperliquid](https://hyperliquid.xyz) perps, Paragon HIP-3 swap markets, and [YEX](https://yex.nunchi.trade) yield perpetuals. Full autonomous stack: Guard trailing stops, Radar opportunity screening, Pulse momentum detection, APEX orchestrator, REFLECT performance review. Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, an [OpenClaw](https://agentskills.io) or [Hermes](https://github.com/NousResearch/hermes-agent) agent toolset, or a standalone MCP server.
+Ship CFI v2 funding-rate hedging on [Hyperliquid](https://hyperliquid.xyz) perps and Paragon HIP-3 BTCSWP swap markets (`para:BTCSWP` mainnet, `osrs:BTCSWP` / `yex:BTCSWP` testnet). Primary surface: `hl hedge propose|execute|status|auto|backtest`. K2 inputs come from HL funding history only (no SEDA). Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, or a standalone MCP server.
+
+Legacy operator stack (APEX, Radar, Pulse, Guard, Reflect, quoting engine, SEDA oracle) was archived 2026-07-02 under `_archive/` — see `_archive/README.md`. Hermes/OpenClaw deploy templates were removed.
 
 ---
 
@@ -51,8 +53,9 @@ bash scripts/bootstrap.sh        # Creates venv, installs, validates
 hl wallet auto --save-env        # Create wallet + save creds (no prompts)
 hl setup claim-usdyp             # Claim testnet USDyP
 hl builder approve               # Approve builder fee (one-time, testnet)
-hl run avellaneda_mm --mock --max-ticks 3   # Validate
-hl apex run --mock --max-ticks 5            # Full pipeline test
+hl hedge propose BTC --dry-run       # Preview CFI v2 hedge proposal
+hl hedge status --coin BTC           # Active hedges + drift
+hl run cfi_hedge --mock --max-ticks 3   # Strategy-loop hedge agent (mock)
 ```
 
 ### Manual Setup (testnet)
@@ -63,7 +66,8 @@ export HL_PRIVATE_KEY=0x...
 
 hl setup check
 hl builder approve
-hl run avellaneda_mm -i ETH-PERP --tick 10
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3
 ```
 
 ### Mainnet
@@ -75,8 +79,8 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
 
 hl builder approve --mainnet
-hl run avellaneda_mm -i ETH-PERP --tick 10 --mainnet
-hl apex run --mainnet
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3 --mainnet
 ```
 
 See [Markets & Instruments](#markets--instruments) for native perps, Paragon BTCSWP, and YEX symbols.
@@ -93,10 +97,12 @@ Standard HL perpetuals work on both networks. Examples: `ETH-PERP`, `BTC-PERP`, 
 
 ```bash
 # Testnet (default)
-hl run avellaneda_mm -i ETH-PERP --tick 10
+hl hedge propose BTC
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 3
 
 # Mainnet
-hl run avellaneda_mm -i BTC-PERP --mainnet --tick 10
+hl hedge propose BTC --mainnet
+hl run cfi_hedge -i BTCSWP-PARA --mainnet --mock --max-ticks 3
 ```
 
 ### Paragon BTCSWP Swap Perps (HIP-3)
@@ -112,12 +118,12 @@ Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP` (YEX), mainne
 
 ```bash
 # Paragon swap perp (testnet osrs dex)
-hl run avellaneda_mm -i BTCSWP-OSRS --tick 10
+hl hedge propose BTC --dry-run
 
 # Paragon swap perp (mainnet)
 export HL_TESTNET=false
 hl builder approve --mainnet
-hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
+hl hedge execute BTC --mainnet --dry-run
 ```
 
 ### YEX Yield Markets (testnet)
@@ -131,116 +137,51 @@ hl run engine_mm -i BTCSWP-PARA --mainnet --tick 10
 | `BTCSWP-USDYP` | `yex:BTCSWP` | YEX yield perp (distinct from `BTCSWP-OSRS` / `BTCSWP-PARA`) |
 
 ```bash
-hl run avellaneda_mm -i VXX-USDYP --tick 15
-hl run funding_arb -i US3M-USDYP --tick 30
-hl run engine_mm -i BTCSWP-USDYP --tick 10   # YEX yield BTCSWP, not osrs/para swap
+hl hedge backtest --coin BTC --days 30
+hl run cfi_hedge -i BTCSWP-USDYP --mock --max-ticks 3   # YEX yield BTCSWP
 ```
 
 ---
 
-## Strategies
+## Strategy: CFI funding-rate hedge
 
-19 built-in strategies. Every strategy extends `BaseStrategy` with a single `on_tick()` method — no shared state, no hidden coupling.
+The product ships **one** registered strategy: **`cfi_hedge`**. Legacy MM/signal strategies were archived on 2026-07-02 under `strategies/_archive/` (see README there).
 
-| Tier | Strategies | Notes |
-|------|------------|-------|
-| **Quoting engine** | `engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm` | Require the bundled `quoting_engine` package (composite FV, dynamic spreads, oracle monitor) |
-| **Standalone** | `avellaneda_mm`, `simple_mm`, `grid_mm`, `mean_reversion`, `momentum_breakout`, `basis_arb`, `aggressive_taker`, `hedge_agent`, `rfq_agent` | Self-contained; good defaults for testnet and production MM |
-| **Experimental / research** | `claude_agent`, `cfi_hedge`, `simplified_ensemble`, `funding_momentum`, `oi_divergence`, `trend_follower` | Less battle-tested; `claude_agent` needs an LLM API key |
+| Surface | Command | Purpose |
+|---------|---------|---------|
+| **Primary** | `hl hedge propose\|execute\|status\|auto\|backtest` | CFI v2 funding-cost hedge on BTCSWP |
+| **Strategy loop** | `hl run cfi_hedge -i BTCSWP-PARA` | Same hedge logic inside the standard tick loop |
 
-Run `hl strategies` for the full registry and default parameters.
+Math lives in `strategies/cfi_hedge.py` (pure functions). The agent wrapper is `strategies/cfi_hedge_agent.py` (`CfiHedgeAgent`). Opening a hedge sizes a **1/L** CFI v2 leg against an existing perp to neutralize floating funding while leaving the fixed K2 leg exposed.
 
-### Market Making
-
-Provide two-sided liquidity and earn the spread. These strategies quote bids and asks around a fair value estimate, managing inventory risk through skew and sizing adjustments.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `engine_mm` | Production quoting engine — composite 4-signal fair value, dynamic spreads (fee + vol + toxicity + event), inventory skew, multi-level quote ladder. Auto-halts on oracle staleness. *Requires `quoting_engine` module.* | `base_size`, `num_levels` | Primary MM strategy. Handles all market conditions including volatile regimes and stale data. |
-| `avellaneda_mm` | Avellaneda-Stoikov optimal market maker. Reservation price adjusts with inventory; optimal spread from risk aversion `gamma` and order flow intensity `k`. Vol-bin classifier + drawdown amplifier. | `gamma`, `k`, `base_size` | When you want theoretically grounded inventory-aware quoting with well-understood parameters. |
-| `regime_mm` | Vol-regime adaptive — classifies market into 4 volatility regimes (quiet/normal/volatile/extreme), switches spread width, sizing, and aggressiveness per regime. *Requires `quoting_engine` module.* | `base_size` | Volatile markets where a single spread width doesn't work. Auto-adapts without manual tuning. |
-| `simple_mm` | Symmetric bid/ask quoting at fixed spread around mid. No inventory adjustment. | `spread_bps`, `size` | Testnet validation, baseline benchmarking, or low-vol stable pairs. |
-| `grid_mm` | Fixed-interval grid levels above and below mid. Places N orders at equal spacing. | `grid_spacing_bps`, `num_levels`, `size_per_level` | Range-bound markets where you want to accumulate and distribute across a price band. |
-| `liquidation_mm` | Provides liquidity during cascade/liquidation events. Detects OI drops and widens spreads to capture forced-seller flow. *Requires `quoting_engine` module.* | `oi_drop_threshold_pct`, `cascade_spread_mult` | Liquidation-heavy markets. Only active during cascade conditions — sits idle otherwise. |
-
-### Arbitrage
-
-Exploit pricing dislocations across venues, instruments, or time horizons.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `funding_arb` | Funding-biased MM on HL funding rate — cross-venue feeds not wired; HL-only bias from funding delta. *Requires `quoting_engine` module.* | `divergence_threshold_bps`, `max_bias_bps` | When HL funding is elevated and you want quote bias toward collecting premium. |
-| `basis_arb` | Trades implied basis from funding rate — enters when annualized basis (contango/backwardation) exceeds threshold. | `basis_threshold_bps`, `size` | Capturing contango/backwardation dislocations. Pairs well with funding_arb. |
-
-### Signal / Directional
-
-Enter positions based on technical signals or momentum indicators.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `momentum_breakout` | Enters on volume + price breakout above/below N-period range. Requires both price and volume confirmation. | `lookback`, `breakout_threshold_bps`, `size` | Trending markets with clear breakout patterns. |
-| `mean_reversion` | Trades when price deviates from SMA beyond a threshold. | `window`, `threshold_bps`, `size` | Range-bound markets with predictable mean-reversion behavior. |
-| `aggressive_taker` | Crosses the spread with directional bias. Sinusoidal amplitude modulation. | `size`, `bias_amplitude` | When you have strong directional conviction and want immediate fills. |
-
-### Infrastructure / Risk
-
-Supporting strategies for portfolio management, block liquidity, and autonomous decision-making.
-
-| Strategy | Description | Key Parameters | When to Use |
-|----------|-------------|----------------|-------------|
-| `hedge_agent` | Reduces excess inventory per deterministic mandate. Fires when absolute position qty exceeds threshold. | `inventory_threshold` | Always-on risk overlay. Pairs with any MM or signal strategy. |
-| `rfq_agent` | Block-size dark RFQ liquidity — quotes for large orders with wider spreads. | `min_size`, `spread_bps` | Institutional/block flow. Provides hidden liquidity for large counterparties. |
-| `claude_agent` | Multi-model LLM trading agent. Sends market snapshot to an LLM (Gemini, Claude, or OpenAI), receives structured trade decisions. | `model`, `base_size` | **Experimental.** Autonomous decision-making using LLM reasoning. |
-
-### Quoting Engine Pipeline
-
-The engine-powered strategies (`engine_mm`, `funding_arb`, `regime_mm`, `liquidation_mm`) share a common pipeline:
-
-```
-Market Data -> Composite Fair Value -> Dynamic Spread -> Inventory Skew -> Multi-Level Ladder -> Orders
-               (4-signal blend)       (fee+vol+tox)     (price+size)     (exponential decay)
+```bash
+hl hedge propose BTC                     # Show proposal (no execute)
+hl hedge execute BTC --dry-run           # Preview order without signing
+hl hedge status --coin BTC --watch       # Live drift + savings
+hl hedge auto --coins BTC --dry-run      # Agent-controlled auto-open loop
+hl hedge backtest --coin BTC --days 30   # Historical simulation
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 5
+hl strategies                            # Registry (cfi_hedge only)
 ```
 
-### LLM Agent (Multi-Model)
-
-| Provider | Models | Env Variable |
-|----------|--------|-------------|
-| Google Gemini | `gemini-2.0-flash` (default), `gemini-2.5-pro` | `GEMINI_API_KEY` |
-| Anthropic Claude | `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `o3-mini` | `OPENAI_API_KEY` |
+MCP tools: `funding_hedge_propose`, `funding_hedge_execute`, `funding_hedge_backtest`, plus `run_strategy` with `strategy=cfi_hedge`.
 
 ---
 
 ## Skills
 
-Built on the open [Agent Skills](https://agentskills.io) standard. Each skill is self-contained with instructions, scripts, and references.
+Built on the open [Agent Skills](https://agentskills.io) standard. The active tree ships the onboarding skill for first-time local setup. The legacy operator skills were archived with their commands and modules under `_archive/skills/`.
 
 | Skill | What it does | Install |
 |-------|-------------|---------|
 | **[Onboard](#onboard)** | Step-by-step first-time setup — from zero to first trade. Decision trees, verification at each step, error recovery. | [`SKILL.md`](skills/onboard/SKILL.md) |
-| **[APEX Strategy](#apex--autonomous-multi-slot-strategy)** | Fully autonomous 2-3 slot trading. Composes Radar + Pulse + Guard. Proven on testnet: signal detection, entry, trailing stop, exit. | [`SKILL.md`](skills/apex/SKILL.md) |
-| **[Radar](#radar--opportunity-radar)** | 4-stage funnel screening all HL perps. Scores 0-400 across market structure, technicals, funding, and BTC macro. | [`SKILL.md`](skills/radar/SKILL.md) |
-| **[Pulse](#pulse--emerging-pulse-detector)** | Detects sudden capital inflow via OI delta, volume surge, funding flips. IMMEDIATE signals at 100 confidence. | [`SKILL.md`](skills/pulse/SKILL.md) |
-| **[Guard (Dynamic Stop Loss)](#guard--dynamic-stop-loss)** | 2-phase trailing stop with tiered profit-locking. ROE-based triggers that auto-account for leverage. | [`SKILL.md`](skills/guard/SKILL.md) |
-| **[REFLECT](#reflect--performance-review)** | Nightly self-improvement loop. Analyzes every trade, finds patterns, generates actionable recommendations. | [`SKILL.md`](skills/reflect/SKILL.md) |
 
-### Install a skill (agents)
+### Install the active skill
 
 Grab the raw URL and go:
 
 ```
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/onboard/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/apex/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/radar/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/pulse/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/guard/SKILL.md
-https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/reflect/SKILL.md
-```
-
-### Install a skill (OpenClaw / ClawHub)
-
-```bash
-clawhub install nunchi-trade/yex-trader
 ```
 
 ### Install a skill (Claude Code)
@@ -254,7 +195,7 @@ cp ~/agent-cli/cli/skill.md ~/.claude/skills/yex-trader/SKILL.md
 
 ---
 
-## Autonomous Trading Stack
+## Active Operator Surface
 
 ### Onboard
 
@@ -266,247 +207,29 @@ bash scripts/bootstrap.sh          # Step 1: Environment
 hl wallet auto --save-env          # Step 2: Wallet
 hl setup claim-usdyp               # Step 4: Fund account
 hl builder approve                 # Step 5: Builder fee
-hl run avellaneda_mm --mock --max-ticks 3  # Step 6: Validate
+hl hedge propose BTC --dry-run       # Preview CFI v2 hedge proposal
 ```
 
 **[Download SKILL.md](skills/onboard/SKILL.md)**
 
 ---
 
-### Guard — Dynamic Stop Loss
+### CFI hedge commands
 
-Trailing stop system with tiered profit-locking. Protects profits while letting winners run.
-
-**Two phases:**
-- **Phase 1 (Let it breathe)** — Wide retrace tolerance while position builds. Auto-cut at 90 min if no graduation; weak-peak early cut at 45 min if peak ROE < 3%.
-- **Phase 2 (Lock the bag)** — Tiered profit floors that ratchet up as ROE grows. Exchange-level stop loss synced to Hyperliquid as crash safety net.
-
-| Preset | Phase 1 Retrace | Tiers | Stagnation TP |
-|--------|----------------|-------|---------------|
-| `moderate` | 3% | 6 tiers (10-100% ROE) | No |
-| `tight` | 5% | 4 tiers (10-75% ROE) | Yes (8% ROE, 1h) |
+The active trading path is CFI v2 funding-rate hedging. Use `hl hedge ...` for proposals, execution, status, automation, and backtests, or `hl run cfi_hedge ...` to run the same logic through the standard strategy loop.
 
 ```bash
-hl guard run -i ETH-PERP --preset tight
+hl hedge propose BTC --dry-run
+hl hedge execute BTC --dry-run
+hl hedge status --coin BTC --watch
+hl hedge auto --coins BTC --dry-run
+hl hedge backtest --coin BTC --days 30
+hl run cfi_hedge -i BTCSWP-PARA --mock --max-ticks 5
 ```
 
-**[Download SKILL.md](skills/guard/SKILL.md)**
+### Archived legacy stack
 
----
-
-### Radar — Opportunity Radar
-
-Multi-factor screening engine that evaluates all HL perps for trade setups. 4-stage funnel, scores 0-400.
-
-| Pillar | Weight | Signals |
-|--------|--------|---------|
-| Market Structure | 35 | Volume, OI, liquidity |
-| Technicals | 30 | RSI, EMA, patterns, hourly trend |
-| Funding | 20 | Rate extremes, direction bias |
-| BTC Macro | 15 | Trend alignment, regime filter |
-
-```bash
-hl radar once --mock    # Single scan
-hl radar run --mock     # Continuous (every 15 min)
-```
-
-**[Download SKILL.md](skills/radar/SKILL.md)**
-
----
-
-### Pulse — Emerging Momentum Detector
-
-Detects assets with sudden capital inflow using OI, volume, funding, and price signals. Runs every 60 seconds.
-
-**5-tier signal taxonomy** for entry classification, plus informational signals for Radar scoring:
-
-| Tier | Signal | Trigger | Confidence |
-|------|--------|---------|------------|
-| 1 | `FIRST_JUMP` | First asset in sector with OI + volume breakout | 100 |
-| 2 | `CONTRIB_EXPLOSION` | OI +15% **AND** volume 5x (simultaneous extreme) | 95 |
-| 3 | `IMMEDIATE_MOVER` | OI +15% **OR** volume 5x (either extreme) | 80 |
-| 4 | `NEW_ENTRY_DEEP` | OI grows 8%+ but volume stays low — smart money accumulation | 65 |
-| 5 | `DEEP_CLIMBER` | Sustained OI climb 5%+ per window over 3+ consecutive scans | 55 |
-| — | `VOLUME_SURGE` | 4h volume / average > 3x | 70 |
-| — | `OI_BREAKOUT` | OI jumps 8%+ above baseline | 60 |
-| — | `FUNDING_FLIP` | Funding rate reverses or accelerates 50%+ | 50 |
-
-```bash
-hl pulse once --mock      # Single scan
-hl pulse run --mock       # Continuous (every 60s)
-```
-
-**[Download SKILL.md](skills/pulse/SKILL.md)**
-
----
-
-### APEX — Autonomous Multi-Slot Strategy
-
-The top-level orchestrator. Composes Radar + Pulse + Guard into a single autonomous strategy managing 2-3 concurrent positions.
-
-**Tick schedule** (60s base):
-- Every tick: Fetch prices, update ROEs, check Guard, run Pulse, evaluate entry/exit
-- Every 5 ticks: Watchdog health check
-- Every 15 ticks: Run opportunity radar
-
-**Entry priority** (tier-based):
-
-| Priority | Source | Condition |
-|----------|--------|-----------|
-| 1 | FIRST_JUMP | First sector mover (tier 1) |
-| 2 | CONTRIB_EXPLOSION | Simultaneous extreme OI + volume (tier 2) |
-| 3 | Smart money | Pulse confidence > 90 |
-| 4 | IMMEDIATE_MOVER | Either extreme metric (tier 3) |
-| 5 | Radar | Score > 170 |
-| 6 | NEW_ENTRY_DEEP | Limit-order accumulation (tier 4) |
-| 7 | DEEP_CLIMBER | Sustained OI trend (tier 5) |
-
-**Presets:**
-
-| Preset | Slots | Leverage | Radar Threshold | Daily Loss Limit |
-|--------|-------|----------|-------------------|------------------|
-| `default` | 3 | 10x | 170 | $500 |
-| `conservative` | 2 | 5x | 190 | $250 |
-| `aggressive` | 3 | 15x | 150 | $1,000 |
-
-```bash
-hl apex run --mock --max-ticks 10          # Mock test
-hl apex run                                 # Live testnet
-hl apex run --preset conservative --mainnet # Live mainnet
-```
-
-**[Download SKILL.md](skills/apex/SKILL.md)**
-
----
-
-### REFLECT — Performance Review
-
-Nightly self-improvement loop. Reads trade history, computes metrics, detects patterns, generates actionable recommendations.
-
-| Metric | Description |
-|--------|-------------|
-| Win Rate | % of round trips with positive net PnL |
-| FDR | Fee Drag Ratio — fees as % of gross wins |
-| Direction Split | Long vs short win rates and PnL |
-| Holding Periods | Bucketed by <5m, 5-15m, 15-60m, 1-4h, 4h+ |
-| Monster Dependency | % of net PnL from best single trade |
-
-```bash
-hl reflect run --since 2026-03-01
-hl reflect report
-hl reflect history -n 10
-```
-
-**[Download SKILL.md](skills/reflect/SKILL.md)**
-
-### REFLECT Self-Improvement Loop
-
-When running inside APEX, REFLECT executes automatically every 240 ticks (~4 hours) and at a configurable UTC hour (default 04:00). It reads the trade log, computes performance metrics, and **auto-adjusts APEX parameters** based on findings:
-
-| Finding | Automatic Adjustment |
-|---------|---------------------|
-| FDR > 30% (fees eating profits) | Raise radar threshold, disable immediate mover entries |
-| Win rate < 40% | Tighten both radar and movers confidence thresholds |
-| 5+ consecutive losses | Reduce daily loss limit by 20% |
-| Direction imbalance (e.g. longs losing) | Limit same-direction slots |
-| Fees exceed gross PnL | **Emergency mode**: disable auto-entries, raise all thresholds |
-| Profitable + healthy | Slightly relax thresholds toward defaults |
-
-All adjustments have guardrail bounds — parameters can't swing wildly. Disable with `reflect_auto_adjust: false` in APEX config.
-
-**Scheduled tasks** (built into APEX tick loop):
-- **Daily PnL reset** at UTC midnight — clears daily loss tracking
-- **REFLECT comprehensive report** at UTC 04:00 — full performance review with markdown report saved to `data/apex/reflect/`
-
----
-
-### Production Safety
-
-Built-in safety systems that protect positions even when the runner process crashes.
-
-#### Exchange-Level Stop Loss Sync
-
-Guard places a **trigger order directly on Hyperliquid** as a safety net. If the runner crashes, the exchange-side stop loss remains active. Synced on entry, tier ratchet, and startup — intentionally left in place on shutdown.
-
-```
-Position Entry → Place SL trigger order at Phase 1 floor
-Tier Ratchet   → Cancel old SL, place new at higher tier floor
-Position Close → Cancel SL trigger order
-Runner Crash   → Exchange SL stays active (that's the point)
-```
-
-#### Clearinghouse Reconciliation
-
-Bidirectional reconciliation between APEX slots and Hyperliquid positions. Detects orphaned exchange positions, orphaned slots, and size mismatches. Runs on startup and periodically via watchdog.
-
-```bash
-hl apex reconcile             # Check for discrepancies
-hl apex reconcile --fix       # Auto-adopt orphans, fix sizes
-```
-
-| Discrepancy | Severity | Auto-Fix |
-|-------------|----------|----------|
-| Orphan exchange position | Critical | Adopt into empty slot + create Guard |
-| Orphan slot (no position) | Warning | Mark slot closed |
-| Size mismatch >10% | Critical | Update slot to match exchange |
-
-#### Risk Guardian
-
-Graduated risk response with three states and automatic transitions:
-
-```
-OPEN ──(2 consecutive losses)──→ COOLDOWN ──(trigger again)──→ CLOSED
-  ↑                                  │                            │
-  └──────(auto-expiry 30 min)────────┘                            │
-  └────────────────────(daily reset)──────────────────────────────┘
-```
-
-| State | Entries | Exits | Trigger |
-|-------|---------|-------|---------|
-| `OPEN` | Allowed | Allowed | Default |
-| `COOLDOWN` | **Blocked** | Allowed | 2+ consecutive losses or drawdown >= 50% of limit |
-| `CLOSED` | **Blocked** | **Blocked** | Daily loss limit hit |
-
-Exchange-level stop losses remain active in all states.
-
-#### Rotation Cooldown
-
-Anti-churn protection:
-- **Minimum hold (45 min)** — Conviction collapse and stagnation exits blocked until 45 min. Guard hard stops and daily loss still override.
-- **Slot cooldown (5 min)** — Closed slots can't be reused for 5 minutes.
-
-#### State Archiving
-
-Closed position state files archived to `data/archive/{YYYY-MM-DD}/` on close. Trade audit trail (`trades.jsonl`) is never archived.
-
-```bash
-hl apex archive               # Archive all closed state files
-hl apex archive --days 7      # Only older than 7 days
-hl apex archive --dry-run     # Preview without moving
-```
-
-#### ALO Fee Optimization
-
-Entry orders default to **ALO (post-only)** for maker rebates (~3 bps savings per round-trip). Falls back to GTC if ALO is rejected. Exits and Guard closes always use IOC.
-
----
-
-### Autoresearch-Powered REFLECT
-
-Connects REFLECT to an autonomous optimization loop. A backtest harness replays historical trades against config variants, and an iterative agent loop finds parameter improvements.
-
-```bash
-python3 scripts/backtest_apex.py --config apex_config.json --trades data/cli/trades.jsonl
-```
-
-REFLECT auto-generates research directions:
-
-| Finding | Suggested Direction |
-|---------|-------------------|
-| FDR > 30% | Raise `radar_score_threshold` in [170, 250] |
-| Win rate < 40% | Sweep `pulse_confidence_threshold` in [70, 95] |
-| Direction imbalance | Set `max_same_direction` to 1 |
-| Healthy + profitable | Try lowering `radar_score_threshold` in [140, 170] |
+APEX, Radar, Pulse, Guard, Reflect, the quoting engine, SEDA oracle, and Hermes/OpenClaw deploy templates are archived under `_archive/`. Their historical docs, commands, modules, skills, scripts, and tests remain there for reference, but those commands are not registered by `cli/main.py` and their tools are not exposed by the active MCP server.
 
 ---
 
@@ -514,21 +237,13 @@ REFLECT auto-generates research directions:
 
 ```bash
 # Core trading
-hl run <strategy> [options]       # Start autonomous trading
+hl hedge propose|execute|status|auto|backtest   # CFI v2 funding hedge (primary)
+hl run cfi_hedge [options]        # Hedge via strategy loop
 hl status [--watch]               # Show positions, PnL, risk
 hl trade <inst> <side> <size>     # Place a single order
 hl account                        # Show HL account state
 hl strategies                     # List all strategies
 hl skills list                    # Discover installed skills
-
-# Autonomous stack
-hl apex run [options]             # APEX multi-slot orchestrator
-hl apex reconcile [--fix]         # Reconcile state vs exchange
-hl apex archive [--days N]        # Archive closed state files
-hl radar run [options]            # Opportunity radar
-hl pulse run [options]            # Pulse momentum detector
-hl guard run -i ETH-PERP [options] # Guard trailing stop
-hl reflect run [--since DATE]        # Performance review
 
 # Infrastructure
 hl builder approve [--mainnet]    # Approve builder fee
@@ -550,24 +265,24 @@ hl mcp serve                      # stdio transport (default)
 hl mcp serve --transport sse      # SSE transport
 ```
 
-**24 MCP tools** for account state, trading, CFI funding hedges, APEX/Radar/REFLECT, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
+**20 MCP tools** for account state, trading, CFI funding hedges, wallet/setup, safety actions (`schedule_cancel`, `emergency_close_all`), order/funding reads, and agent memory/journal helpers. Run `hl mcp serve` to expose them to any MCP host.
+
+Active tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `schedule_cancel`, `emergency_close_all`, `order_status`, `funding_rates`, `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`.
 
 Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Python directly — zero subprocess overhead.
 
 ### Use from any agent harness
 
-`hl mcp serve` is **harness-neutral** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://agentskills.io), and [Hermes](https://github.com/NousResearch/hermes-agent) consume the exact same tools. To point a **Hermes** agent (or any MCP host) at this repo, register the server in its config:
+`hl mcp serve` is **harness-neutral** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Cursor, Codex, and any MCP-compatible client consume the exact same tools. Register the server in your MCP host config:
 
 ```yaml
-# Hermes ~/.hermes/config.yaml (or any MCP harness)
+# Any MCP harness (e.g. ~/.cursor/mcp.json, Claude Code settings)
 mcp_servers:
   nunchi_trading:
     command: python3
     args: ["-m", "cli.main", "mcp", "serve"]
     # cwd: /path/to/agent-cli   # if not launched from the repo root
 ```
-
-This is exactly what `deploy/hermes-railway` auto-generates on boot (alongside `platform_toolsets`), so a deployed Hermes agent is wired out of the box — no OpenClaw-specific assumptions anywhere in the MCP server.
 
 ### HTTP API & SSE
 
@@ -580,7 +295,7 @@ Every deployed agent also exposes an HTTP REST API and SSE real-time feed for da
 ## Deploy on Railway
 
 The subscription product uses Railway as a **shared MCP tools runtime**, not as
-a per-user Hermes/OpenClaw/autonomous-agent host. The top-level Railway template
+a per-user autonomous-agent host. The top-level Railway template
 defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
 `mcp-gateway`, while users run their own Cursor, Claude, Codex, or local
 `agent-cli` clients.
@@ -592,25 +307,14 @@ defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `HL_TESTNET` | No | `true` | `true` for testnet, `false` for mainnet |
-| `RUN_MODE` | No | `mcp` | `mcp` for the hosted tools runtime; `apex`/`strategy` are local or legacy operator modes |
+| `RUN_MODE` | No | `mcp` | `mcp` for the hosted tools runtime; `strategy` for local `cfi_hedge` loops. Legacy `apex` falls back to `strategy`. |
 | `DATA_DIR` | No | `/data` | Persistent ledgers, wallet state, and metering data |
 | `NUNCHI_METERING_URL` | No | — | Generic web-auth metering upload endpoint when the runner reports usage |
 | `NUNCHI_METERING_TOKEN` | No | — | Metering bearer token issued by web-auth/gateway config |
 
 **Run modes:**
 - **mcp** (default) — SSE MCP server for the shared Railway tools runtime.
-- **apex** / **strategy** — direct autonomous loops for local/self-hosted operators, not the Nunchi subscription product path.
-
-### Legacy Agent Templates
-
-The OpenClaw and Hermes Railway templates are retained as legacy/reference
-self-host templates. They are not part of the new hosted MCP subscription
-architecture because they provision user-facing conversational/autonomous
-agents. Do not expose them as the paid Nunchi product path.
-
-For legacy experiments, use `deploy/openclaw-railway/railway.toml` or
-`deploy/hermes-railway/railway.toml` as the config-as-code path and keep the
-Railway build root at the repo root.
+- **strategy** — local/self-hosted `cfi_hedge` loop, not the Nunchi subscription product path. Legacy `apex`/`wolf` values are deprecated and fall back to `strategy`.
 
 ---
 
@@ -618,28 +322,17 @@ Railway build root at the repo root.
 
 ```
 cli/           CLI commands and trading engine
-  commands/    Subcommand modules (run, apex, radar, pulse, guard, reflect, house, ...)
-  mcp_server.py  MCP server (24 tools via FastMCP)
+  commands/    Active subcommands (run, hedge, wallet, setup, mcp, skills, journal, keys, margin, trading, house, policy, ...)
+  mcp_server.py  MCP server (20 tools via FastMCP)
   hl_adapter.py  Direct HL API adapter (live + mock)
   builder_fee.py Builder fee config (HL native BuilderInfo)
   keystore.py    Encrypted keystore (geth-compatible)
   strategy_registry.py  Strategy + HIP-3 market definitions (YEX, OSRS, PARA)
-strategies/    19 trading strategy implementations
-modules/       Pure logic modules (zero I/O)
-  apex_engine.py     APEX decision engine
-  radar_engine.py    Opportunity radar
-  pulse_engine.py    Pulse momentum detector (5-tier signal taxonomy)
-  trailing_stop.py   Guard trailing stop (Phase 1 auto-cut)
-  reflect_engine.py  Performance analysis
-  reconciliation.py  Clearinghouse reconciliation engine
-  archiver.py        State file archiving
+strategies/    cfi_hedge + archived legacy strategies (_archive/)
+modules/       Active shared logic modules; archived APEX/Radar/Pulse/Guard/Reflect modules live under _archive/modules/
 skills/        Agent Skills (SKILL.md + runners)
   onboard/     First-time setup guide
-  apex/        APEX orchestrator
-  radar/       Opportunity radar
-  pulse/       Pulse momentum detector
-  guard/       Dynamic stop loss
-  reflect/        Performance review
+_archive/      Legacy operator stack, skills, scripts, docs, and tests
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management
 scripts/       Backtest harness, bootstrap
@@ -712,7 +405,7 @@ pytest tests/ -v                  # 1300+ tests
 
 ## Attribution 
 
-Inspired by openclaw, senpi, and claude code. 
+Inspired by senpi and claude code.
 ---
 
 ## Links

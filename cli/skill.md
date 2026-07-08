@@ -1,23 +1,25 @@
 ---
 name: yex-trader
-description: Autonomous Hyperliquid trading — 19 strategies (MM, momentum, arbitrage, LLM) with APEX multi-slot orchestrator, REFLECT performance review, Guard trailing stops, and builder fee revenue collection.
+description: CFI v2 funding-rate hedge on Hyperliquid BTCSWP — hl hedge propose/execute/status/auto/backtest, MCP funding_hedge_* tools, and cfi_hedge strategy loop.
 user-invocable: true
-argument-hint: "<strategy> [options]"
+argument-hint: "hedge [coin] | run cfi_hedge"
 allowed-tools:
   - Bash
 metadata:
-  openclaw:
-    requires:
-      env:
-        - HL_PRIVATE_KEY
-      bins:
-        - python3
-    primaryEnv: HL_PRIVATE_KEY
+  author: Nunchi Trade
+  requires:
+    env:
+      - HL_PRIVATE_KEY
+    bins:
+      - python3
+  primaryEnv: HL_PRIVATE_KEY
 ---
 
-# YEX Trader
+# YEX Trader — CFI funding-rate hedge
 
-Autonomous Hyperliquid trading via agent-cli. 19 strategies across market making, momentum, arbitrage, and LLM-powered trading. APEX multi-slot orchestrator. REFLECT nightly performance review. Builder fee revenue collection.
+Autonomous Hyperliquid tooling focused on the **CFI v2 funding-cost hedge** (`cfi_hedge`). Legacy MM/signal strategies were archived 2026-07-02 under `strategies/_archive/`.
+
+Primary surface: **`hl hedge`**. Strategy loop: **`hl run cfi_hedge`**. MCP: `funding_hedge_propose`, `funding_hedge_execute`, `funding_hedge_backtest`.
 
 ## Quick Start (Agent-Friendly)
 
@@ -25,10 +27,10 @@ Autonomous Hyperliquid trading via agent-cli. 19 strategies across market making
 cd ~/agent-cli
 bash scripts/bootstrap.sh           # Creates venv, installs, validates
 hl wallet auto --save-env             # Creates wallet, saves creds to ~/.hl-agent/env
-hl setup claim-usdyp                 # Claim testnet USDyP
+hl setup claim-usdyp                 # Claim testnet USDyP (BTCSWP testnet)
 hl builder approve                   # Approve builder fee (one-time)
-hl run avellaneda_mm --mock --max-ticks 3  # Validate
-hl run engine_mm -i ETH-PERP --tick 15 --max-ticks 5  # First live trade
+hl hedge propose BTC --dry-run       # Preview hedge proposal
+hl run cfi_hedge --mock --max-ticks 3
 ```
 
 For full step-by-step onboarding, see `skills/onboard/SKILL.md`.
@@ -40,7 +42,7 @@ cd ~/agent-cli && pip install -e .
 hl setup check  # Validate environment
 ```
 
-### Getting Started — YEX Testnet
+### Getting Started — Testnet
 
 1. Set your private key (or use `hl wallet auto`):
 ```bash
@@ -48,7 +50,7 @@ export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=true  # default
 ```
 
-2. Claim testnet USDyP (required for YEX markets):
+2. Claim testnet USDyP (required for YEX BTCSWP):
 ```bash
 hl setup claim-usdyp
 ```
@@ -58,31 +60,24 @@ hl setup claim-usdyp
 hl builder approve
 ```
 
-4. Start trading:
+4. Hedge workflow:
 ```bash
-hl run avellaneda_mm -i VXX-USDYP --tick 15          # YEX yield market
-hl run engine_mm -i ETH-PERP --tick 10                # Standard perp
-hl apex run --mock --max-ticks 5                       # APEX multi-slot
+hl hedge propose BTC                     # Show proposal
+hl hedge execute BTC --dry-run           # Preview order (no signing)
+hl hedge status --coin BTC               # Active hedges
+hl hedge auto --coins BTC --dry-run      # Auto-open loop
+hl run cfi_hedge -i BTCSWP-USDYP --mock --max-ticks 5
 ```
 
-### Getting Started — Mainnet
+### Getting Started — Mainnet (para:BTCSWP)
 
-1. Set your private key and network:
 ```bash
 export HL_PRIVATE_KEY=0x...
 export HL_TESTNET=false
-```
-
-2. Approve builder fee (one-time):
-```bash
 hl builder approve --mainnet
-```
-
-3. Start trading:
-```bash
-hl run engine_mm -i ETH-PERP --tick 10 --mainnet      # ETH perp
-hl run avellaneda_mm -i BTC-PERP --tick 10 --mainnet   # BTC perp
-hl apex run --mainnet                                   # APEX multi-slot
+hl hedge propose BTC --mainnet
+hl hedge execute BTC --mainnet --dry-run
+hl run cfi_hedge -i BTCSWP-PARA --mainnet --mock --max-ticks 5
 ```
 
 ### Environment Variables
@@ -94,153 +89,77 @@ hl apex run --mainnet                                   # APEX multi-slot
 | `HL_TESTNET` | No | `true` (default) or `false` for mainnet |
 | `BUILDER_ADDRESS` | No | Override builder fee address (default: hardcoded) |
 | `BUILDER_FEE_TENTHS_BPS` | No | Override fee rate (default: 100 = 10 bps) |
-| `ANTHROPIC_API_KEY` | No | For `claude_agent` strategy |
-| `GEMINI_API_KEY` | No | For `claude_agent` with Gemini |
 
 \* Either `HL_PRIVATE_KEY` or a keystore with `HL_KEYSTORE_PASSWORD` is required.
 
 ## Commands
 
-### Core Trading
+### Funding hedge (primary)
 
 ```bash
-# Start autonomous trading
-hl run <strategy> [-i INSTRUMENT] [-t TICK] [--config FILE] [--mainnet] [--dry-run] [--mock] [--max-ticks N]
+hl hedge propose [COIN] [--mainnet]
+hl hedge execute [COIN] [--dry-run] [--mainnet]
+hl hedge status [--coin C] [--watch]
+hl hedge backtest --coin BTC [--days N]
+hl hedge auto [--coins ...] [--dry-run] [--mainnet]
+```
 
-# Single manual order
-hl trade <instrument> <side> <size>
+### Strategy loop
 
-# Account info
+```bash
+hl run cfi_hedge [-i BTCSWP-PARA|BTCSWP-USDYP|BTCSWP-OSRS] [-t TICK] [--mock] [--dry-run] [--mainnet]
+hl strategies   # Registry: cfi_hedge only
+```
+
+### Supporting operator tools (legacy stack)
+
+APEX, Radar, Pulse, Guard, and REFLECT remain available for local operators but are not part of the default product surface.
+
+```bash
+hl status [--watch]
 hl account [--mainnet]
-
-# Check positions and PnL
-hl status [--watch] [--interval 5]
-
-# List all strategies
-hl strategies
+hl trade <instrument> <side> <size>
+hl apex run [--mock]
+hl radar once [--mock]
+hl guard start ETH-PERP ...
+hl reflect run
 ```
 
-### APEX Multi-Slot Orchestrator
+### MCP Server
 
 ```bash
-hl apex run [-t 60] [--preset conservative|default|aggressive] [--mock] [--budget 1000] [--slots 5]
-hl apex once [--mock]
-hl apex status
-hl apex presets
+hl mcp serve
 ```
 
-### REFLECT Performance Review
+Key tools: `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`, `run_strategy` (cfi_hedge), `strategies`, `account`, `status`, `trade`.
 
-```bash
-hl reflect run [--since 2026-03-01] [--data-dir data/cli]
-hl reflect report [--date 2026-03-03]
-hl reflect history [-n 10]
-```
-
-### Guard Trailing Stop
-
-```bash
-hl guard start ETH-PERP --entry 2500 --size 1 --direction long [--preset tight|moderate]
-hl guard status
-hl guard presets
-```
-
-### Radar & Movers
-
-```bash
-hl radar run [--top 10] [--min-score 7.0]
-hl radar history [-n 5]
-hl movers run [--top 10]
-```
-
-### Builder Fee
-
-```bash
-hl builder status
-hl builder approve [--mainnet]
-```
-
-### Wallet (Encrypted Keystore)
-
-```bash
-hl wallet auto                       # Non-interactive wallet creation (agent-friendly)
-hl wallet create                     # Interactive wallet creation
-hl wallet import --key <hex>
-hl wallet list
-hl wallet export [--address 0x...]
-```
-
-### Environment Setup
-
-```bash
-hl setup check                       # Validate environment
-hl setup bootstrap                   # Auto-create venv and install
-hl setup claim-usdyp                 # Claim testnet USDyP tokens
-```
-
-### MCP Server (~24 Tools)
-
-```bash
-hl mcp serve                         # Start MCP server (stdio transport)
-hl mcp serve --transport sse         # Start MCP server (SSE transport)
-```
-
-Tools: `strategies`, `builder_status`, `wallet_list`, `wallet_auto`, `setup_check`, `account`, `status`, `trade`, `run_strategy`, `radar_run`, `apex_status`, `apex_run`, `reflect_run`, `schedule_cancel`, `emergency_close_all`, `order_status`, `funding_rates`, `funding_hedge_propose`, `funding_hedge_backtest`, `funding_hedge_execute`, `agent_memory`, `trade_journal`, `judge_report`, `obsidian_context`
-
-## Strategies (19)
+## Strategy: cfi_hedge
 
 | Name | Type | Description |
 |------|------|-------------|
-| simple_mm | MM | Symmetric bid/ask quoting around mid |
-| avellaneda_mm | MM | Inventory-aware Avellaneda-Stoikov model |
-| engine_mm | MM | Production quoting engine — composite FV, dynamic spreads, multi-level ladder |
-| regime_mm | MM | Vol-regime adaptive — switches behavior by volatility regime (calm/normal/volatile/extreme) |
-| grid_mm | MM | Fixed-interval grid levels above and below mid |
-| liquidation_mm | MM | Provides liquidity during cascade/liquidation events |
-| funding_arb | Arb | HL funding-biased MM (cross-venue feeds not wired) |
-| basis_arb | Arb | Trades implied basis from funding rate (contango/backwardation) |
-| mean_reversion | Signal | Trades when price deviates from SMA |
-| momentum_breakout | Signal | Enters on volume + price breakout above/below N-period range |
-| aggressive_taker | Taker | Directional spread crossing with bias |
-| hedge_agent | Risk | Reduces excess exposure per deterministic mandate |
-| cfi_hedge | Risk | CFI-v2 funding-cost hedge (YEX testnet / Paragon mainnet BTCSWP) |
-| rfq_agent | RFQ | Block-size dark RFQ liquidity |
-| claude_agent | LLM | Claude/Gemini-powered autonomous trading agent |
-| simplified_ensemble | Signal | 6-signal ensemble vote |
-| funding_momentum | Signal | Funding rate mean-reversion with EMA confirmation |
-| oi_divergence | Signal | Price/OI divergence filter |
-| trend_follower | Signal | EMA crossover + ADX trend strength filter |
+| cfi_hedge | Hedge | CFI-v2 funding-cost hedge — opens 1/L CFI v2 leg vs existing perp |
 
-## Instruments
+Archived strategies live in `strategies/_archive/README.md`.
 
-- **Standard perps**: ETH-PERP, BTC-PERP, SOL-PERP, etc.
-- **YEX yield markets (testnet)**: VXX-USDYP (`yex:VXX`), US3M-USDYP (`yex:US3M`), BTCSWP-USDYP (`yex:BTCSWP`)
-- **Paragon BTCSWP swap perps (HIP-3)**:
+## Instruments (BTCSWP)
 
 | Network | Instrument | HL coin | Notes |
 |---------|------------|---------|-------|
-| Testnet | `BTCSWP-OSRS` | `osrs:BTCSWP` | Paragon swap perp on the `osrs` dex |
-| Mainnet | `BTCSWP-PARA` | `para:BTCSWP` | Paragon swap perp on the `para` dex |
+| Testnet (YEX) | `BTCSWP-USDYP` | `yex:BTCSWP` | YEX yield BTCSWP |
+| Testnet (Paragon) | `BTCSWP-OSRS` | `osrs:BTCSWP` | Paragon swap perp |
+| Mainnet | `BTCSWP-PARA` | `para:BTCSWP` | Paragon swap perp |
 
-Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP` (YEX yield), mainnet → `BTCSWP-PARA`. Use `BTCSWP-OSRS` or `osrs:BTCSWP` for the explicit Paragon swap perp on testnet.
+Shorthand `BTCSWP` resolves by network: testnet → `BTCSWP-USDYP`, mainnet → `BTCSWP-PARA`.
 
 ## Workflow
 
 1. **Setup**: `hl setup check`
-2. **Claim USDyP** (testnet only): `hl setup claim-usdyp`
-3. **Approve builder fee**: `hl builder approve` (testnet) or `hl builder approve --mainnet`
-4. **Mock test**: `hl run avellaneda_mm --mock --max-ticks 5`
-5. **Dry run**: `hl run engine_mm --dry-run --max-ticks 10`
-6. **Live testnet**: `hl run engine_mm -i ETH-PERP --tick 10`
-7. **Live mainnet**: `hl run engine_mm -i ETH-PERP --tick 10 --mainnet`
-8. **APEX mode**: `hl apex run --mainnet` or `hl apex run --mock --max-ticks 5`
-9. **Monitor**: `hl status --watch`
-10. **Review**: `hl reflect run`
+2. **Claim USDyP** (testnet): `hl setup claim-usdyp`
+3. **Approve builder fee**: `hl builder approve`
+4. **Preview**: `hl hedge propose BTC --dry-run`
+5. **Execute** (after user approval): `hl hedge execute BTC`
+6. **Monitor**: `hl hedge status --coin BTC --watch`
 
 ## Builder Fee Revenue
 
-Set `BUILDER_ADDRESS` and `BUILDER_FEE_TENTHS_BPS` to collect fees on every trade. Users must approve once via `hl builder approve`. Fee is collected natively by Hyperliquid — no extra gas, no contract calls.
-
-## REFLECT Self-Improvement
-
-Run `hl reflect run` after a trading session. REFLECT computes win rate, fee drag ratio (FDR), direction analysis, holding period buckets, monster trade dependency, and generates actionable recommendations. Reports saved to `data/reflect/`.
+Set `BUILDER_ADDRESS` and `BUILDER_FEE_TENTHS_BPS` to collect fees on every trade. Users must approve once via `hl builder approve`.

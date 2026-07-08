@@ -362,7 +362,7 @@ class TestWalletPolicyWiring:
             self._app(),
             [
                 "run",
-                "engine_mm",
+                "cfi_hedge",
                 "--mock",
                 "--max-ticks",
                 "1",

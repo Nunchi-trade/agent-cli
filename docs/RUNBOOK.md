@@ -2,7 +2,7 @@
 
 The default Railway deployment is the shared MCP/tools runtime used behind
 `mcp-gateway`. It should run `RUN_MODE=mcp` and expose tools only; it must not
-run a per-user Hermes/OpenClaw/autonomous-agent loop for the subscription
+run a per-user autonomous-agent loop for the subscription
 product. The APEX sections below apply only when an operator explicitly opts
 into self-hosted autonomous modes.
 
@@ -134,7 +134,6 @@ railway logs | jq '.level, .message'
 
 - [ ] `RUN_MODE=mcp` for Nunchi-hosted shared tools runtime
 - [ ] `HL_TESTNET=true` unless the runner is explicitly approved for mainnet
-- [ ] Do not deploy Hermes/OpenClaw as a Nunchi subscription product surface
 - [ ] Configure generic metering upload when reporting usage: `NUNCHI_METERING_URL`, `NUNCHI_METERING_TOKEN`
 - [ ] `API_AUTH_TOKEN` set for control endpoint security
 - [ ] Persistent volume mounted at `/data`

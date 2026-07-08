@@ -23,12 +23,7 @@ from cli.commands.status import status_cmd
 from cli.commands.trade import trade_cmd
 from cli.commands.account import account_cmd
 from cli.commands.strategies import strategies_cmd
-from cli.commands.guard import guard_app
-from cli.commands.radar import radar_app
-from cli.commands.pulse import pulse_app
-from cli.commands.apex import apex_app
 from cli.commands.builder import builder_app
-from cli.commands.reflect import reflect_app
 from cli.commands.wallet import wallet_app
 from cli.commands.setup import setup_app
 from cli.commands.mcp import mcp_app
@@ -54,12 +49,7 @@ app.command("schedule-cancel", help="Arm/clear HL dead-man's switch (auto-cancel
 app.command("emergency-close", help="Cancel all orders and market-close all positions")(emergency_close_cmd)
 app.command("order-status", help="Look up a single order by oid")(order_status_cmd)
 app.command("funding", help="Show current funding rates")(funding_cmd)
-app.add_typer(guard_app, name="guard", help="Guard trailing stop system")
-app.add_typer(radar_app, name="radar", help="Radar — screen HL perps for setups")
-app.add_typer(pulse_app, name="pulse", help="Pulse — detect assets with capital inflow")
-app.add_typer(apex_app, name="apex", help="APEX — autonomous multi-slot trading")
 app.add_typer(builder_app, name="builder", help="Builder fee — revenue collection on trades")
-app.add_typer(reflect_app, name="reflect", help="Reflect — performance review and self-improvement")
 app.add_typer(wallet_app, name="wallet", help="Encrypted keystore wallet management")
 app.add_typer(setup_app, name="setup", help="Environment validation and setup")
 app.add_typer(mcp_app, name="mcp", help="MCP server — AI agent tool discovery")

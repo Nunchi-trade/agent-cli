@@ -175,13 +175,13 @@ class TestFleetSupervisorHelpers:
     def test_build_env_does_not_inherit_parent_wallet(self, monkeypatch):
         monkeypatch.setenv("HL_PRIVATE_KEY", "0xparent")
         sup = FleetSupervisor()
-        spec = FleetMemberSpec(name="g", strategy="engine_mm")
+        spec = FleetMemberSpec(name="g", strategy="cfi_hedge")
         assert "HL_PRIVATE_KEY" not in sup._build_env(spec)
 
     def test_build_env_sets_explicit_member_wallet(self, monkeypatch):
         monkeypatch.setenv("HL_PRIVATE_KEY", "0xparent")
         sup = FleetSupervisor()
-        spec = FleetMemberSpec(name="g", strategy="engine_mm", wallet="0xmember")
+        spec = FleetMemberSpec(name="g", strategy="cfi_hedge", wallet="0xmember")
         env = sup._build_env(spec)
         assert env["HL_PRIVATE_KEY"] == "0xmember"
 
@@ -191,7 +191,7 @@ class TestFleetSupervisorHelpers:
         sup = FleetSupervisor()
         spec = FleetMemberSpec(
             name="g",
-            strategy="engine_mm",
+            strategy="cfi_hedge",
             wallet="env:MEMBER2_HL_PRIVATE_KEY",
         )
         env = sup._build_env(spec)
@@ -199,16 +199,16 @@ class TestFleetSupervisorHelpers:
 
     def test_build_args_run(self):
         sup = FleetSupervisor()
-        spec = FleetMemberSpec(name="g", strategy="engine_mm", market="xyz:GOLD",
+        spec = FleetMemberSpec(name="g", strategy="cfi_hedge", market="xyz:GOLD",
                                extra_args=["--mock", "--max-ticks", "30"])
         assert sup._build_args(spec) == [
-            "run", "engine_mm", "-i", "xyz:GOLD", "--mock", "--max-ticks", "30"
+            "run", "cfi_hedge", "-i", "xyz:GOLD", "--mock", "--max-ticks", "30"
         ]
 
     def test_build_args_no_market(self):
         sup = FleetSupervisor()
-        spec = FleetMemberSpec(name="m", strategy="engine_mm")
-        assert sup._build_args(spec) == ["run", "engine_mm"]
+        spec = FleetMemberSpec(name="m", strategy="cfi_hedge")
+        assert sup._build_args(spec) == ["run", "cfi_hedge"]
 
     def test_build_args_load_sentinel(self):
         """__load__ members emit `strategy load <name>` (sibling-PR subcommand)."""
@@ -222,13 +222,13 @@ class TestFleetSupervisorLifecycle:
     def test_spawn_mock_member_exits_cleanly(self):
         """Spawn a real self-terminating member and assert state transitions.
 
-        Uses `run engine_mm --mock --max-ticks 2` with a tiny tick so it runs
+        Uses `run cfi_hedge --mock --max-ticks 2` with a tiny tick so it runs
         offline (no HL connection) and exits on its own.
         """
         sup = FleetSupervisor()
         spec = FleetMemberSpec(
             name="mock-gold",
-            strategy="engine_mm",
+            strategy="cfi_hedge",
             market="ETH-PERP",
             extra_args=["--mock", "--max-ticks", "2", "--tick", "0.05", "--fresh"],
         )
@@ -259,7 +259,7 @@ class TestFleetSupervisorLifecycle:
         sup = FleetSupervisor()
         spec = FleetMemberSpec(
             name="long",
-            strategy="engine_mm",
+            strategy="cfi_hedge",
             market="ETH-PERP",
             # max-ticks 0 => runs forever; large tick so it idles between ticks.
             extra_args=["--mock", "--max-ticks", "0", "--tick", "30", "--fresh"],
@@ -282,7 +282,7 @@ class TestFleetSupervisorLifecycle:
         sup = FleetSupervisor()
         spec = FleetMemberSpec(
             name="p",
-            strategy="engine_mm",
+            strategy="cfi_hedge",
             market="ETH-PERP",
             preset="does-not-exist-xyz",
             extra_args=["--mock", "--max-ticks", "1", "--tick", "0.05", "--fresh"],

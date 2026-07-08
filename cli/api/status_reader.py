@@ -2,7 +2,6 @@
 
 Shared utility used by:
 - scripts/entrypoint.py (imported directly)
-- deploy/openclaw-railway/src/server.js (via `python3 -m cli.api.status_reader`)
 """
 from __future__ import annotations
 

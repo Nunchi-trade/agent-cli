@@ -100,7 +100,7 @@ class TestViewModeWriteGuards:
 
         monkeypatch.setenv("HL_VIEW_AS_USER", self.ADDR)
         monkeypatch.setattr(cfgmod.TradingConfig, "__init__", mark_init)
-        result = runner.invoke(app, ["run", "engine_mm", "--mock", "--max-ticks", "1"])
+        result = runner.invoke(app, ["run", "cfi_hedge", "--mock", "--max-ticks", "1"])
         self._assert_refused(result)
         assert called is False
 
@@ -269,7 +269,7 @@ class TestTradingSummary:
         assert data["pnl"]["round_trips"] == 1
         assert data["pnl"]["win_rate"] == 100.0
         # registry is always present
-        assert "avellaneda_mm" in data["registry"]["strategies"]
+        assert "cfi_hedge" in data["registry"]["strategies"]
         assert data["view_only"] is False
 
     def test_summary_empty_dir_zeros(self, tmp_data_dir):

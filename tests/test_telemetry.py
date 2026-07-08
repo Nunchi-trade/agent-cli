@@ -30,7 +30,7 @@ class TestInstanceId:
 
     def test_different_strategy_different_id(self):
         c1 = _make_client(strategy_name="apex")
-        c2 = _make_client(strategy_name="simple_mm")
+        c2 = _make_client(strategy_name="cfi_hedge")
         assert c1.instance_id != c2.instance_id
 
     def test_16_char_hex(self):
@@ -103,10 +103,6 @@ class TestDeployMode:
     def test_railway(self):
         with patch.dict(os.environ, {"RAILWAY_SERVICE_NAME": "agent-cli"}):
             assert _detect_deploy_mode() == "railway"
-
-    def test_openclaw(self):
-        with patch.dict(os.environ, {"OPENCLAW_STATE_DIR": "/data/.openclaw"}):
-            assert _detect_deploy_mode() == "openclaw"
 
 
 class TestFactory:

@@ -101,7 +101,7 @@ def hedge_proposal_block(proposal, snapshot, *, mainnet: bool = False) -> str:
         else "↓" if proposal.wire_drift_per_hour_usd < -0.5
         else "↔"
     )
-    src = "SEDA live" if snapshot.source == "seda" else f"{YELLOW}replay (HL fundingHistory){RESET}"
+    src = f"{GREEN}HL fundingHistory{RESET}"
     network = "mainnet" if mainnet else "testnet"
 
     lines = [
@@ -153,7 +153,7 @@ def hedge_proposal_block(proposal, snapshot, *, mainnet: bool = False) -> str:
     lines.extend([
         "",
         f"{DIM}Execution: signs against {hedge.market} (HL HIP-3, asset index resolved "
-        f"by the HL Python SDK). 10 bps Nunchi builder fee. No hermes-api dep.{RESET}",
+        f"by the HL Python SDK). 10 bps Nunchi builder fee.{RESET}",
     ])
     return "\n".join(lines)
 
