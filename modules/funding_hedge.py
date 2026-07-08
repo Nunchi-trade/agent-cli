@@ -109,10 +109,17 @@ def funding_hedge_info() -> dict[str, object]:
         "default_vol_multiplier": BTCSWP_PROFILE["vol_multiplier"],
         "sizing_rule": "same-side BTCSWP, hedge_notional = perp_notional / vol_multiplier",
         "supported_cli": [
+            "hl auth import --token ... --address ...",
             "hl hedge propose --perp-notional ... --funding-apr ...",
+            "hl hedge execute BTC --yes",
             "hl hedge backtest --csv ... --perp-notional ...",
         ],
-        "mcp_tools": ["funding_hedge_info", "funding_hedge_propose", "funding_hedge_backtest"],
+        "mcp_tools": [
+            "funding_hedge_info",
+            "funding_hedge_propose",
+            "funding_hedge_backtest",
+            "funding_hedge_execute",
+        ],
         "csv_required_columns": ["funding_rate_8h", "perp_funding_rate_8h", "funding_rate", "rate"],
         "csv_optional_columns": ["hedge_rate_8h", "btcswp_rate_8h", "btcswp_funding_rate_8h"],
         "hedge_agent_distinction": (
@@ -121,7 +128,8 @@ def funding_hedge_info() -> dict[str, object]:
         ),
         "execution_boundary": (
             "funding_hedge_info/propose/backtest do not place orders, sign payloads, "
-            "fetch private account state, or expose private rate methodology."
+            "fetch private account state, or expose private rate methodology. "
+            "funding_hedge_execute is live and requires confirmed=true plus a signing context."
         ),
     }
 

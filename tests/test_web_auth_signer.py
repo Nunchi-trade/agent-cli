@@ -36,6 +36,21 @@ def test_pairing_from_env_accepts_hosted_agent_wallet_address(monkeypatch):
     assert pairing.address == "0x" + "4" * 40
 
 
+def test_pairing_from_env_falls_back_to_stored_scoped_token(monkeypatch, tmp_path):
+    from cli.web_auth import ScopedToken, pairing_from_env, save_scoped_token
+
+    monkeypatch.delenv("NUNCHI_WEB_AUTH_PAIR_TOKEN", raising=False)
+    monkeypatch.delenv("NUNCHI_WEB_AUTH_ADDRESS", raising=False)
+    monkeypatch.setenv("NUNCHI_SCOPED_TOKEN_PATH", str(tmp_path / "scoped-token.json"))
+    save_scoped_token(ScopedToken(token="stored-token", address="0x" + "7" * 40))
+
+    pairing = pairing_from_env()
+
+    assert pairing is not None
+    assert pairing.token == "stored-token"
+    assert pairing.address == "0x" + "7" * 40
+
+
 def test_split_signature_normalizes_v():
     from cli.web_auth import split_signature
 

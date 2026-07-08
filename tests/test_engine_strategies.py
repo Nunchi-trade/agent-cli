@@ -259,7 +259,7 @@ class TestRegistryEntries:
 
     def test_total_strategies(self):
         from cli.strategy_registry import STRATEGY_REGISTRY
-        assert len(STRATEGY_REGISTRY) == 18  # 14 original + 4 directional
+        assert len(STRATEGY_REGISTRY) == 19  # 14 original + 4 directional + cfi_hedge
 
     def test_resolve_engine_strategies(self):
         from cli.strategy_registry import resolve_strategy_path
