@@ -6,13 +6,13 @@ argument-hint: "hedge [coin] | run cfi_hedge"
 allowed-tools:
   - Bash
 metadata:
-  openclaw:
-    requires:
-      env:
-        - HL_PRIVATE_KEY
-      bins:
-        - python3
-    primaryEnv: HL_PRIVATE_KEY
+  author: Nunchi Trade
+  requires:
+    env:
+      - HL_PRIVATE_KEY
+    bins:
+      - python3
+  primaryEnv: HL_PRIVATE_KEY
 ---
 
 # YEX Trader — CFI funding-rate hedge
