@@ -9,7 +9,7 @@ When a private key is needed, backends are tried in priority order until one suc
 
 1. **macOS Keychain** — most secure, recommended for local development on macOS
 2. **Encrypted Keystore** — geth-compatible Web3 Secret Storage (scrypt KDF)
-3. **Railway Environment** — reads `HL_PRIVATE_KEY` from Railway-injected env vars
+3. **Hosted Runtime Environment** — reads `HL_PRIVATE_KEY` from Nunchi-hosted runtime env vars
 4. **Flat File** — plaintext `~/.hl-agent/keys/{address}.txt` (development only)
 5. **Direct Env Var** — `HL_PRIVATE_KEY` environment variable (final fallback)
 
@@ -37,15 +37,15 @@ Uses eth_account with scrypt KDF for encryption.
 - **Store**: `hl wallet import` or `hl keys import --backend keystore`
 - **Retrieve**: Automatic via resolver (requires password)
 
-### Railway Environment (`railway`)
+### Hosted Runtime Environment (`railway`)
 
-Reads keys from environment variables injected by Railway deployment platform.
-Cannot store keys — they must be set via the Railway dashboard.
+Reads keys from environment variables injected into the Nunchi-hosted runtime.
+Cannot store keys — web-auth and the hosted-agent provisioner manage injection.
 
 - **Availability**: Only when `RAILWAY_ENVIRONMENT` env var is set
 - **Reads**: `HL_PRIVATE_KEY` and `{VENUE}_PRIVATE_KEY` patterns
-- **Security**: Managed by Railway — encrypted at rest in their platform
-- **Store**: Via Railway dashboard only
+- **Security**: Managed by the hosted-agent runtime platform
+- **Store**: Via web-auth hosted-agent provisioning only
 
 ### Flat File (`file`)
 

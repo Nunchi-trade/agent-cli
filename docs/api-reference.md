@@ -1,6 +1,6 @@
 # API Reference — Pulling Data from Nunchi Agents
 
-This guide covers every method for pulling data from a running Nunchi agent. Three access paths depending on your deployment and use case:
+This guide covers every method for pulling data from a Nunchi-hosted agent. Hosted agents are provisioned only through web-auth after billing entitlement and wallet binding.
 
 | Path | Protocol | Best For |
 |------|----------|----------|
@@ -8,7 +8,7 @@ This guide covers every method for pulling data from a running Nunchi agent. Thr
 | SSE Feed | Server-Sent Events | Live streaming to frontends |
 | MCP Server | Model Context Protocol | AI agent orchestration (Claude, OpenClaw) |
 
-> **Security:** All endpoints are unauthenticated. If your agent is publicly accessible, anyone with the URL can read its state. Plan your network security accordingly.
+> **Security:** Hosted deployment is gated by web-auth billing entitlement and wallet binding. Mutating control endpoints on the hosted runner require operator-provisioned control tokens; users should interact through web-auth and the scoped hosted MCP flow instead of direct infrastructure access.
 
 ---
 
@@ -16,36 +16,21 @@ This guide covers every method for pulling data from a running Nunchi agent. Thr
 
 ### Agent Deployment
 
-Your agent must be running in one of two deployment modes:
+Deploy hosted agents from web-auth:
 
-**Self-hosted (Python entrypoint):**
-
-```bash
-# The entrypoint starts a health server on $PORT and the trading process
-python scripts/entrypoint.py
+```text
+https://auth.nunchi.trade
 ```
 
-The HTTP server binds to `0.0.0.0:$PORT` (default 8080).
-
-**Railway / OpenClaw (Node.js entrypoint):**
-
-```bash
-# Express server with reverse proxy to OpenClaw gateway
-node src/server.js
-```
-
-The Express server binds to `0.0.0.0:$PORT` (default 8080) and exposes the same API surface.
+The web-auth flow handles billing, wallet binding, provisioning through Nunchi's Railway account, secret injection, and hosted endpoint discovery. This repository does not publish public Docker/Railway deployment templates.
 
 ### Base URL
 
 Throughout this document, `$AGENT_URL` refers to your agent's base URL:
 
 ```bash
-# Local development
-export AGENT_URL=http://localhost:8080
-
-# Railway deployment
-export AGENT_URL=https://your-agent.up.railway.app
+# Hosted endpoint returned by web-auth after deployment
+export AGENT_URL=https://your-agent-hosted-endpoint.example
 
 # Verify connectivity
 curl $AGENT_URL/health
@@ -84,8 +69,8 @@ curl $AGENT_URL/health
 | `alive` | bool | Whether the child process is still running |
 
 **Notes:**
-- Used by Railway's health check system (`healthcheckPath` in `railway.toml`).
-- Returns 200 even if the trading process has crashed — check `alive` to distinguish.
+- Used by Nunchi's hosted-agent provisioner and health monitoring.
+- Returns 200 if the HTTP server is responding; check `alive` to distinguish a live trading process from an unhealthy child process.
 
 ---
 
@@ -290,7 +275,8 @@ Use this as a connectivity + capability check before wiring a UI to the agent.
 Pauses the trading process by sending `SIGSTOP` to the child process. The agent stops executing ticks but maintains all state. Positions remain open.
 
 ```bash
-curl -X POST $AGENT_URL/api/pause
+curl -X POST $AGENT_URL/api/pause \
+  -H "Authorization: Bearer $API_AUTH_TOKEN"
 ```
 
 **Response:**
@@ -305,6 +291,12 @@ curl -X POST $AGENT_URL/api/pause
 { "error": "No running agent to pause" }
 ```
 
+**Error (token not configured):**
+
+```json
+{ "error": "control_auth_required" }
+```
+
 > **Warning:** Pausing stops the DSL trailing stop from updating. If the market moves significantly while paused, positions will not be protected.
 
 ---
@@ -314,7 +306,8 @@ curl -X POST $AGENT_URL/api/pause
 Resumes a paused trading process by sending `SIGCONT`.
 
 ```bash
-curl -X POST $AGENT_URL/api/resume
+curl -X POST $AGENT_URL/api/resume \
+  -H "Authorization: Bearer $API_AUTH_TOKEN"
 ```
 
 **Response:**
@@ -332,7 +325,7 @@ All `/api/*` endpoints return CORS headers:
 ```
 Access-Control-Allow-Origin: * (or $CORS_ORIGIN env var)
 Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type, Authorization
+Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Token
 ```
 
 `OPTIONS` requests to any path return `204` with these headers. Set the `CORS_ORIGIN` environment variable to restrict origins in production.
@@ -417,14 +410,7 @@ The leaderboard runs as a **separate microservice** from the agent. It tracks re
 
 ### Deployment
 
-```bash
-# From the cli-UI repo
-cd deploy
-docker build -t nunchi-leaderboard .
-docker run -p 8090:8090 -v leaderboard-data:/data nunchi-leaderboard
-```
-
-Or deploy to Railway using the included `railway.toml`.
+The leaderboard is operated as Nunchi infrastructure. This repository does not publish a public Docker or Railway deployment path for it.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -600,11 +586,11 @@ The MCP server exposes 16 tools for AI agent orchestration via the [Model Contex
 # stdio transport (for Claude Code / local AI agents)
 hl mcp serve
 
-# SSE transport (for remote connections)
+# SSE transport (for development harnesses)
 hl mcp serve --transport sse
 ```
 
-Or set `RUN_MODE=mcp` in your Railway deployment.
+Hosted users should use the web-auth hosted MCP connection instead of running their own remote MCP deployment.
 
 ### Connecting from Claude Code
 
@@ -1031,8 +1017,8 @@ else:
 | `GET` | `/api/feed` | None | SSE stream | Persistent |
 | `GET` | `/status` | None | Plain text | <1s |
 | `POST` | `/api/skill/install` | None | JSON | <2s |
-| `POST` | `/api/pause` | None | JSON | <10ms |
-| `POST` | `/api/resume` | None | JSON | <10ms |
+| `POST` | `/api/pause` | Auth header | JSON | <10ms |
+| `POST` | `/api/resume` | Auth header | JSON | <10ms |
 
 ### Leaderboard Endpoints (separate service)
 

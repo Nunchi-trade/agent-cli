@@ -190,10 +190,10 @@ class MacOSKeychainBackend(KeystoreBackend):
 
 
 class RailwayEnvBackend(KeystoreBackend):
-    """Reads private keys from Railway-injected environment variables.
+    """Reads private keys from hosted runtime environment variables.
 
     Looks for HL_PRIVATE_KEY and {VENUE}_PRIVATE_KEY patterns.
-    Cannot store keys — those must be set via the Railway dashboard.
+    Cannot store keys — those must be injected by hosted-agent provisioning.
     """
 
     _KEY_PATTERN = re.compile(r"^([A-Z_]+)_PRIVATE_KEY$")
@@ -219,7 +219,7 @@ class RailwayEnvBackend(KeystoreBackend):
 
     def store_key(self, address: str, private_key: str) -> None:
         raise NotImplementedError(
-            "Cannot store keys in Railway env — set via Railway dashboard"
+            "Cannot store keys in hosted runtime env — inject via hosted-agent provisioning"
         )
 
     def list_keys(self) -> List[str]:
