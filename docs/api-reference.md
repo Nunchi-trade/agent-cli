@@ -6,7 +6,7 @@ This guide covers every method for pulling data from a running Nunchi agent. Thr
 |------|----------|----------|
 | HTTP REST API | HTTP/JSON | Dashboards, monitoring, external integrations |
 | SSE Feed | Server-Sent Events | Live streaming to frontends |
-| MCP Server | Model Context Protocol | AI agent orchestration (Claude, OpenClaw) |
+| MCP Server | Model Context Protocol | AI agent orchestration (Claude Code, Cursor, Codex) |
 
 > **Security:** All endpoints are unauthenticated. If your agent is publicly accessible, anyone with the URL can read its state. Plan your network security accordingly.
 
@@ -27,14 +27,14 @@ python scripts/entrypoint.py
 
 The HTTP server binds to `0.0.0.0:$PORT` (default 8080).
 
-**Railway / OpenClaw (Node.js entrypoint):**
+**Railway (shared MCP tools runtime):**
 
 ```bash
-# Express server with reverse proxy to OpenClaw gateway
-node src/server.js
+# Python entrypoint — health server on $PORT + MCP SSE server
+python scripts/entrypoint.py
 ```
 
-The Express server binds to `0.0.0.0:$PORT` (default 8080) and exposes the same API surface.
+The HTTP server binds to `0.0.0.0:$PORT` (default 8080) and exposes the REST API surface.
 
 ### Base URL
 
@@ -583,7 +583,7 @@ setInterval(() => fetchLeaderboard().then(renderTable), 30000);
 
 ## MCP Server
 
-The MCP server exposes 21 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, OpenClaw, or any MCP-compatible client.
+The MCP server exposes 21 tools for AI agent orchestration via the [Model Context Protocol](https://modelcontextprotocol.io). This is the access path for Claude Code, Cursor, Codex, or any MCP-compatible client.
 
 ### Starting the Server
 

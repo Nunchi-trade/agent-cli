@@ -42,10 +42,6 @@ def _get_version() -> str:
 def _detect_deploy_mode() -> str:
     if os.environ.get("RAILWAY_SERVICE_NAME"):
         return "railway"
-    if os.environ.get("OPENCLAW_STATE_DIR"):
-        return "openclaw"
-    if os.environ.get("HERMES_HOME"):
-        return "hermes"
     return "local"
 
 

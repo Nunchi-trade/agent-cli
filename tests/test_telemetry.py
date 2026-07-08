@@ -104,10 +104,6 @@ class TestDeployMode:
         with patch.dict(os.environ, {"RAILWAY_SERVICE_NAME": "agent-cli"}):
             assert _detect_deploy_mode() == "railway"
 
-    def test_openclaw(self):
-        with patch.dict(os.environ, {"OPENCLAW_STATE_DIR": "/data/.openclaw"}):
-            assert _detect_deploy_mode() == "openclaw"
-
 
 class TestFactory:
     def test_create_telemetry_returns_client(self):

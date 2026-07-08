@@ -34,7 +34,7 @@
 
 Ship CFI v2 funding-rate hedging on [Hyperliquid](https://hyperliquid.xyz) perps and Paragon HIP-3 BTCSWP swap markets (`para:BTCSWP` mainnet, `osrs:BTCSWP` / `yex:BTCSWP` testnet). Primary surface: `hl hedge propose|execute|status|auto|backtest`. K2 inputs come from HL funding history only (no SEDA). Works as a standalone CLI, a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill, or a standalone MCP server.
 
-Legacy operator stack (APEX, Radar, Pulse, Guard, Reflect, quoting engine, SEDA oracle, Hermes/OpenClaw deploy) was archived 2026-07-02 under `_archive/` — see `_archive/README.md`.
+Legacy operator stack (APEX, Radar, Pulse, Guard, Reflect, quoting engine, SEDA oracle) was archived 2026-07-02 under `_archive/` — see `_archive/README.md`. Hermes/OpenClaw deploy templates were removed.
 
 ---
 
@@ -184,12 +184,6 @@ Grab the raw URL and go:
 https://raw.githubusercontent.com/Nunchi-trade/agent-cli/main/skills/onboard/SKILL.md
 ```
 
-### Install a skill (OpenClaw / ClawHub)
-
-```bash
-clawhub install nunchi-trade/yex-trader
-```
-
 ### Install a skill (Claude Code)
 
 ```bash
@@ -279,18 +273,16 @@ Fast tools (strategies, builder, wallet, setup, memory, journal, judge) call Pyt
 
 ### Use from any agent harness
 
-`hl mcp serve` is **harness-neutral** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://agentskills.io), and [Hermes](https://github.com/NousResearch/hermes-agent) consume the exact same tools. To point a **Hermes** agent (or any MCP host) at this repo, register the server in its config:
+`hl mcp serve` is **harness-neutral** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Cursor, Codex, and any MCP-compatible client consume the exact same tools. Register the server in your MCP host config:
 
 ```yaml
-# Hermes ~/.hermes/config.yaml (or any MCP harness)
+# Any MCP harness (e.g. ~/.cursor/mcp.json, Claude Code settings)
 mcp_servers:
   nunchi_trading:
     command: python3
     args: ["-m", "cli.main", "mcp", "serve"]
     # cwd: /path/to/agent-cli   # if not launched from the repo root
 ```
-
-The archived Hermes template under `_archive/deploy/hermes-railway` generated this shape for legacy experiments, but the active server is harness-neutral and does not expose the archived APEX/Radar/Pulse/Guard/Reflect toolset.
 
 ### HTTP API & SSE
 
@@ -303,7 +295,7 @@ Every deployed agent also exposes an HTTP REST API and SSE real-time feed for da
 ## Deploy on Railway
 
 The subscription product uses Railway as a **shared MCP tools runtime**, not as
-a per-user Hermes/OpenClaw/autonomous-agent host. The top-level Railway template
+a per-user autonomous-agent host. The top-level Railway template
 defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
 `mcp-gateway`, while users run their own Cursor, Claude, Codex, or local
 `agent-cli` clients.
@@ -324,17 +316,6 @@ defaults to `RUN_MODE=mcp`; Nunchi operates this runner pool behind
 - **mcp** (default) — SSE MCP server for the shared Railway tools runtime.
 - **strategy** — local/self-hosted `cfi_hedge` loop, not the Nunchi subscription product path. Legacy `apex`/`wolf` values are deprecated and fall back to `strategy`.
 
-### Legacy Agent Templates
-
-The OpenClaw and Hermes Railway templates are retained as legacy/reference
-self-host templates. They are not part of the new hosted MCP subscription
-architecture because they provision user-facing conversational/autonomous
-agents. Do not expose them as the paid Nunchi product path.
-
-For legacy experiments, use `_archive/deploy/openclaw-railway/railway.toml` or
-`_archive/deploy/hermes-railway/railway.toml` as the config-as-code path and keep the
-Railway build root at the repo root.
-
 ---
 
 ## Architecture
@@ -351,7 +332,7 @@ strategies/    cfi_hedge + archived legacy strategies (_archive/)
 modules/       Active shared logic modules; archived APEX/Radar/Pulse/Guard/Reflect modules live under _archive/modules/
 skills/        Agent Skills (SKILL.md + runners)
   onboard/     First-time setup guide
-_archive/      Legacy operator stack, skills, deploy templates, scripts, docs, and tests
+_archive/      Legacy operator stack, skills, scripts, docs, and tests
 sdk/           Strategy base class and model registry
 parent/        HL API proxy, position tracking, risk management
 scripts/       Backtest harness, bootstrap
@@ -424,7 +405,7 @@ pytest tests/ -v                  # 1300+ tests
 
 ## Attribution 
 
-Inspired by openclaw, senpi, and claude code. 
+Inspired by senpi and claude code.
 ---
 
 ## Links
