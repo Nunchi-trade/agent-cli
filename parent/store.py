@@ -20,14 +20,14 @@ class JSONLStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def append(self, record: dict) -> None:
-        with open(self.path, "a") as f:
+        with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, default=str) + "\n")
 
     def read_all(self) -> List[dict]:
         if not self.path.exists():
             return []
         records = []
-        with open(self.path) as f:
+        with open(self.path, encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
